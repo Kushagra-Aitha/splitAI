@@ -4,6 +4,7 @@ import { HttpError } from '../http.js';
 import { getPool } from '../db/pool.js';
 import { NessieError } from '../lib/nessie.js';
 import { RangeError422, TIME_ZONE, accountIdForUser, getOverview, parseRange } from './overview.js';
+import { listBills } from './bills.js';
 import { syncForUser } from './sync.js';
 
 /** Today's date in the app time zone, as YYYY-MM-DD. */
@@ -71,6 +72,10 @@ export const bankingHandlers = {
     if (!accountId) {
       throw new HttpError(409, 'NO_LINKED_ACCOUNT', 'Your demo bank account isn’t connected yet.');
     }
-    return getOverview(db, accountId, range);
+    const [overview, bills] = await Promise.all([
+      getOverview(db, accountId, range),
+      listBills(db, actor.userId, today),
+    ]);
+    return { ...overview, today, bills };
   },
 };
