@@ -27,12 +27,13 @@
           </div>
 
           <nav class="book-nav" aria-label="Main navigation">
-            <button type="button" class="nav-item cursor-interaction" data-page="home"><span class="chapter-number">01</span><span>Overview</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="transactions"><span class="chapter-number">02</span><span>Transactions</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="groups"><span class="chapter-number">03</span><span>Groups</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="goals"><span class="chapter-number">04</span><span>Goals</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="profile"><span class="chapter-number">05</span><span>Insights</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="guard"><span class="chapter-number">06</span><span>Guard</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="home"><i data-lucide="overview" aria-hidden="true"></i><span>Overview</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="transactions"><i data-lucide="transactions" aria-hidden="true"></i><span>Transactions</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="groups"><i data-lucide="groups" aria-hidden="true"></i><span>Groups</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="goals"><i data-lucide="goals" aria-hidden="true"></i><span>Goals</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="chat"><i data-lucide="ask" aria-hidden="true"></i><span>Ask</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="guard"><i data-lucide="guard" aria-hidden="true"></i><span>Guard</span></button>
           </nav>
 
           <div class="header-actions">
@@ -41,7 +42,7 @@
               <button type="button" id="sp-account-button" class="account-button cursor-interaction" aria-haspopup="menu" aria-expanded="false" aria-controls="sp-account-menu">
                 <span data-account-avatar></span>
                 <span class="account-first" data-account-first></span>
-                <svg class="account-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                <i data-lucide="chevron-down" aria-hidden="true"></i>
               </button>
               <div id="sp-account-menu" class="account-menu" role="menu" aria-labelledby="sp-account-button" hidden>
                 <div class="account-menu-head" role="none">
@@ -49,18 +50,17 @@
                   <div><strong data-account-name></strong><span class="small muted" data-account-email></span></div>
                 </div>
                 <button type="button" role="menuitem" class="account-menu-bank" data-action="bank-manage">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5 12 4.5l8.5 5"/><path d="M5.5 10v7M10 10v7M14 10v7M18.5 10v7M3.5 19.5h17"/></svg>
+                  <i data-lucide="landmark" aria-hidden="true"></i>
                   <span><span class="small muted">Connected bank</span><strong data-account-bank>Capital Two</strong></span>
                 </button>
-                <button type="button" role="menuitem" class="account-menu-item" data-go="profile"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20.5h16"/><path d="M7 16.5v-5M12 16.5V7M17 16.5v-8"/></svg><span>Insights</span></button>
+                <button type="button" role="menuitem" class="account-menu-item" data-go="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>
                 <button type="button" role="menuitem" class="account-menu-item" id="sp-theme-toggle">
-                  <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z" /></svg>
-                  <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" /></svg>
+                  <i data-lucide="moon" aria-hidden="true"></i><i data-lucide="sun" aria-hidden="true"></i>
                   <span data-theme-label>Dark mode</span>
                 </button>
                 <div class="account-menu-sep" role="separator"></div>
                 <button type="button" role="menuitem" class="account-menu-item is-danger" id="sp-logout">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3"/><path d="M10 16.5 5.5 12 10 7.5M5.5 12h10"/></svg>
+                  <i data-lucide="sign-out" aria-hidden="true"></i>
                   <span>Log out</span>
                 </button>
               </div>
@@ -72,15 +72,16 @@
           <div id="sp-view"></div>
         </main>
 
-        <button type="button" class="ask-fab cursor-interaction" data-ask-open aria-label="Ask Split" aria-controls="sp-ask-panel" aria-expanded="false"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 18.8V7a2.5 2.5 0 0 1 2.5-2.5h10A2.5 2.5 0 0 1 19.5 7v7a2.5 2.5 0 0 1-2.5 2.5H8.3z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/></svg><span>Ask Split</span></button>
+        <button type="button" class="ask-fab cursor-interaction" data-ask-open aria-label="Ask Split" aria-controls="sp-ask-panel" aria-expanded="false"><i data-lucide="ask" aria-hidden="true"></i><span>Ask Split</span></button>
 
         <nav class="bottom-nav" aria-label="Main navigation">
-          <button type="button" class="bottom-nav-item" data-page="home"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="8" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="6" rx="1.5"/></svg><span>Overview</span></button>
-          <button type="button" class="bottom-nav-item" data-page="transactions"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-3-2-3 2-3-2-3 2z"/><path d="M9 8.5h6M9 12h6"/></svg><span>Transactions</span></button>
-          <button type="button" class="bottom-nav-item" data-page="groups"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.5"/><path d="M16 14.6c2.4-.3 4.1 1.2 4.6 4.4"/></svg><span>Groups</span></button>
-          <button type="button" class="bottom-nav-item" data-page="goals"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg><span>Goals</span></button>
-          <button type="button" class="bottom-nav-item" data-page="profile"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20.5h16"/><path d="M7 16.5v-5M12 16.5V7M17 16.5v-8"/></svg><span>Insights</span></button>
-          <button type="button" class="bottom-nav-item" data-page="guard"><svg class="shell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2 19 6v5.4c0 4.4-2.9 7.8-7 9.4-4.1-1.6-7-5-7-9.4V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg><span>Guard</span></button>
+          <button type="button" class="bottom-nav-item" data-page="home"><i data-lucide="overview" aria-hidden="true"></i><span>Overview</span></button>
+          <button type="button" class="bottom-nav-item" data-page="transactions"><i data-lucide="transactions" aria-hidden="true"></i><span>Transactions</span></button>
+          <button type="button" class="bottom-nav-item" data-page="groups"><i data-lucide="groups" aria-hidden="true"></i><span>Groups</span></button>
+          <button type="button" class="bottom-nav-item" data-page="goals"><i data-lucide="goals" aria-hidden="true"></i><span>Goals</span></button>
+          <button type="button" class="bottom-nav-item" data-page="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>
+          <button type="button" class="bottom-nav-item" data-page="chat"><i data-lucide="ask" aria-hidden="true"></i><span>Ask</span></button>
+          <button type="button" class="bottom-nav-item" data-page="guard"><i data-lucide="guard" aria-hidden="true"></i><span>Guard</span></button>
         </nav>
 
         <div id="sp-modal-root"></div>

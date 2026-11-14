@@ -34,8 +34,6 @@ export function mountApp(root) {
     ...parseHash(window.location.hash),
   };
   const state = { ...initial };
-  const openAskOnMount = state.page === 'chat';
-  if (openAskOnMount) state.page = 'home';
   const demo = {
     messages: [],
     draftVisible: true,
@@ -95,7 +93,7 @@ export function mountApp(root) {
     toastTimer = setTimeout(() => root.querySelector('#sp-toast-root').replaceChildren(), 3500);
   }
   function go(page) {
-    if (page === 'chat') { ask.open(); return; }
+    // B13: Ask is a page in the navigation; the floating button opens the panel.
     ask.close({ restoreFocus: false });
     const fromView = view.contains(document.activeElement);
     clearTimeout(toastTimer);
@@ -167,7 +165,6 @@ export function mountApp(root) {
   }
   window.addEventListener('hashchange', () => {
     const next = parseHash(window.location.hash);
-    if (next.page === 'chat') { window.history.replaceState(null, '', hashFor(state)); ask.open(); return; }
     if (next.page === state.page && next.group === state.group) return;
     ask.close({ restoreFocus: false });
     closeModal();
@@ -276,5 +273,4 @@ export function mountApp(root) {
   });
   render();
   overview.observe();
-  if (openAskOnMount) ask.open();
 }

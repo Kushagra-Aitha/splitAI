@@ -8,12 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "guard:train": "npm --prefix server run guard:train",
-    "guard:eval": "npm --prefix server run guard:eval"
+    "guard:eval": "npm --prefix server run guard:eval",
+    "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "three": "0.160.0"
   },
   "devDependencies": {
+    "@phosphor-icons/core": "^2.1.1",
     "vite": "^5.4.11"
   }
 }

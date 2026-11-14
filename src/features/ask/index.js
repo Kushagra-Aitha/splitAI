@@ -16,7 +16,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   const owned = () => !!actorId && getSession()?.actor.userId === actorId;
   const prompts = ["Split last night's Domino's with Flat 7", 'What do I owe?', 'Food spending this month'];
   const panel = createAskPanel({ root, icon, icons, renderChat: () => chat(true) });
-  const label = '<div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>';
+  const label = '<div class="agent-label"><span class="agent-mark" aria-hidden="true"><span class="brand-mark"></span></span>Split<span class="tag">AI assistant</span></div>';
   const refresh = () => {
     if (!owned()) return;
     if (panel.isOpen()) panel.refresh();

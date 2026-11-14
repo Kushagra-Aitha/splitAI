@@ -16,6 +16,7 @@ import './styles/theme-oak.css';
 import './styles/shell.css';
 import './styles/ui.css';
 import './styles/session.css';
+import './styles/look.css';
 
 import { mountApp } from './app.js';
 import { initThemeToggle } from './theme.js';
