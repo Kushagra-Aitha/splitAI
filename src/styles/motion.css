@@ -1,0 +1,156 @@
+/* Interaction + motion polish */
+#split-common-ground button {
+  touch-action: manipulation;
+}
+#split-common-ground .secondary,
+#split-common-ground .goal-tab,
+#split-common-ground .icon-button,
+#split-common-ground .chip,
+#split-common-ground .material-tag {
+  transition:
+    transform calc(190ms * var(--sp-motion)) cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow calc(190ms * var(--sp-motion)) ease,
+    background calc(160ms * var(--sp-motion)) ease;
+}
+#split-common-ground .secondary:active,
+#split-common-ground .goal-tab:active,
+#split-common-ground .icon-button:active,
+#split-common-ground .chip:active,
+#split-common-ground .material-tag:active {
+  transform: translateY(2px) scale(0.98);
+}
+#split-common-ground .nav-item[aria-current='page'] svg {
+  animation: sp-nav-land calc(340ms * var(--sp-motion)) cubic-bezier(0.2, 0.8, 0.25, 1.3);
+}
+#split-common-ground .goal-tab[aria-pressed='true'] {
+  animation: sp-tab-land calc(330ms * var(--sp-motion)) cubic-bezier(0.2, 0.8, 0.25, 1.3);
+}
+#split-common-ground .milestone-dot {
+  transition:
+    transform calc(220ms * var(--sp-motion)) cubic-bezier(0.2, 0.8, 0.25, 1.4),
+    background calc(160ms * var(--sp-motion)) ease;
+}
+#split-common-ground .milestone.current .milestone-dot {
+  transform: scale(1.12);
+}
+#split-common-ground .milestone:active .milestone-dot {
+  transform: scale(0.85);
+}
+#split-common-ground .diorama canvas {
+  animation: sp-scene-land calc(440ms * var(--sp-motion)) cubic-bezier(0.22, 1, 0.36, 1);
+}
+#split-common-ground .profile-subtab[aria-pressed='true'],
+#split-common-ground .period-picker button[aria-pressed='true'] {
+  animation: sp-control-land calc(260ms * var(--sp-motion)) cubic-bezier(0.2, 0.8, 0.25, 1.25);
+}
+#split-common-ground .category-choice,
+#split-common-ground .budget-row {
+  transition: transform calc(180ms * var(--sp-motion)) cubic-bezier(0.2, 0.8, 0.25, 1.3);
+}
+#split-common-ground .category-choice:active,
+#split-common-ground .budget-row:active {
+  transform: translateX(3px) scale(0.99);
+}
+#split-common-ground .merchant-row {
+  animation: sp-row-land calc(260ms * var(--sp-motion)) ease-out both;
+}
+#split-common-ground .merchant-row:nth-child(2) {
+  animation-delay: calc(20ms * var(--sp-motion));
+}
+#split-common-ground .merchant-row:nth-child(3) {
+  animation-delay: calc(40ms * var(--sp-motion));
+}
+#split-common-ground .merchant-row:nth-child(4) {
+  animation-delay: calc(60ms * var(--sp-motion));
+}
+#split-common-ground .blocked-notice h3 svg {
+  animation: sp-stamp calc(300ms * var(--sp-motion)) cubic-bezier(0.2, 0.8, 0.25, 1.25);
+}
+#split-common-ground .chart-readout strong {
+  font-variant-numeric: tabular-nums;
+}
+@media (hover: hover) {
+  #split-common-ground .secondary:hover,
+  #split-common-ground .chip:hover,
+  #split-common-ground .material-tag:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 3px 0 var(--sp-soft),
+      0 5px 9px var(--sp-depth);
+  }
+  #split-common-ground .goal-tab:hover {
+    transform: translateY(-2px);
+  }
+  #split-common-ground .icon-button:hover {
+    transform: rotate(-5deg) translateY(-1px);
+  }
+  #split-common-ground .text-button:hover svg {
+    transform: translateX(3px);
+    transition: transform calc(180ms * var(--sp-motion)) ease;
+  }
+  #split-common-ground .milestone:hover .milestone-dot {
+    transform: translateY(-3px) scale(1.12);
+  }
+}
+@keyframes sp-nav-land {
+  0% {
+    transform: rotate(-10deg) scale(0.84);
+  }
+  60% {
+    transform: rotate(5deg) scale(1.08);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes sp-tab-land {
+  0% {
+    transform: translateY(2px) scale(0.97);
+  }
+  60% {
+    transform: translateY(-2px) scale(1.015);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes sp-control-land {
+  0% {
+    transform: scale(0.96);
+  }
+  65% {
+    transform: scale(1.025);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes sp-scene-land {
+  from {
+    opacity: 0.4;
+    transform: translateY(7px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sp-row-land {
+  from {
+    opacity: 0.4;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #split-common-ground *,
+  #split-common-ground *:before,
+  #split-common-ground *:after {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

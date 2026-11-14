@@ -1,0 +1,107 @@
+/* Full-viewport app shell (replaces the framed mockup card) + theme toggle */
+
+#split-common-ground {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* The app root declares `color-scheme: light dark`; follow the navbar toggle instead. */
+:root[data-theme='light'] #split-common-ground {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] #split-common-ground {
+  color-scheme: dark;
+}
+
+#split-common-ground .shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+#split-common-ground .main {
+  flex: 1;
+  width: 100%;
+}
+
+/* The old preview overlay needed this gutter; the app doesn't. */
+#split-common-ground .top-actions {
+  padding-right: 0;
+}
+
+/* Overlays follow the viewport, not the (now scrollable) shell. */
+#split-common-ground .modal-layer,
+#split-common-ground .toast {
+  position: fixed;
+}
+
+/* ---------- Theme toggle (navbar) ---------- */
+#split-common-ground .theme-toggle {
+  flex-shrink: 0;
+  align-self: start;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 33px;
+  height: 33px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-soft);
+  color: var(--sp-ink);
+  box-shadow: none;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+#split-common-ground .theme-toggle:hover {
+  background: var(--sp-nav);
+}
+
+#split-common-ground .theme-toggle:active {
+  transform: scale(0.94);
+}
+
+#split-common-ground .theme-toggle:focus-visible {
+  outline: 2px solid var(--sp-pine-ink);
+  outline-offset: 2px;
+}
+
+#split-common-ground .theme-toggle svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#split-common-ground .theme-toggle .icon-sun,
+:root[data-theme='dark'] #split-common-ground .theme-toggle .icon-moon {
+  display: none;
+}
+
+:root[data-theme='dark'] #split-common-ground .theme-toggle .icon-sun {
+  display: block;
+}
+
+@media (max-width: 760px) {
+  #split-common-ground .theme-toggle {
+    margin-top: 0;
+    align-self: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #split-common-ground .theme-toggle {
+    transition: none;
+  }
+}

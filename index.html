@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Split AI</title>
+    <script>
+      // Apply the saved/system theme before first paint to avoid a flash.
+      (function () {
+        var t;
+        try { t = localStorage.getItem('split-theme'); } catch (e) {}
+        if (t !== 'light' && t !== 'dark') {
+          t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div id="split-common-ground" aria-label="Split AI">
+      <div class="shell">
+        <header class="book-header" aria-label="Split navigation">
+          <div class="book-brand">
+            <div class="brand"><span class="brand-mark" aria-hidden="true"></span>split<span class="brand-period">.</span></div>
+            <span class="book-edition">YOUR EVERYDAY LEDGER</span>
+          </div>
+
+          <nav class="book-nav" aria-label="Main navigation">
+            <button type="button" class="nav-item cursor-interaction" data-page="home"><span class="chapter-number">01</span><span>Overview</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="goals" aria-current="page"><span class="chapter-number">02</span><span>Goals</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="groups"><span class="chapter-number">03</span><span>Together</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="profile"><span class="chapter-number">04</span><span>Profile</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="chat"><span class="chapter-number">05</span><span>Ask Split</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="guard"><span class="chapter-number">06</span><span>Guard</span><span class="nav-count">1</span></button>
+          </nav>
+
+          <button type="button" class="theme-toggle cursor-interaction" id="sp-theme-toggle" aria-label="Switch to dark mode">
+            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z" /></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" /></svg>
+          </button>
+
+          <button type="button" class="book-account cursor-interaction" data-go="profile" aria-label="Maya Chen’s profile"><span class="avatar citron">MC</span><span>Maya’s<br /><strong>space</strong></span></button>
+        </header>
+
+        <main class="main">
+          <header class="topbar">
+            <div class="breadcrumb"><span class="muted">Your space</span><i data-lucide="chevron-right" aria-hidden="true"></i><span id="sp-breadcrumb">Overview</span></div>
+            <div class="mobile-brand"><span class="brand-mark" aria-hidden="true"></span>split</div>
+            <div class="top-actions">
+              <span class="small muted">Demo · Nov 13</span>
+              <button type="button" class="guard-pill cursor-interaction" data-go="guard"><i data-lucide="shield-check" aria-hidden="true"></i>Guard is on</button>
+            </div>
+          </header>
+
+          <div id="sp-view"></div>
+
+          <footer class="page-footer"><span>Made for the way you share life.</span><span>Sample data · USD · No real money</span></footer>
+        </main>
+
+        <div id="sp-modal-root"></div>
+        <div id="sp-toast-root" aria-live="polite"></div>
+        <div id="sp-announcement" class="sr-only" aria-live="polite"></div>
+      </div>
+      <input type="file" id="sp-receipt-file" accept="image/*" hidden />
+    </div>
+  </body>
+</html>

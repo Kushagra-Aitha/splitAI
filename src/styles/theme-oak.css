@@ -1,0 +1,80 @@
+/* Sage & oak theme finish */
+#split-common-ground h1,
+#split-common-ground h2,
+#split-common-ground h3,
+#split-common-ground .display {
+  letter-spacing: -0.025em;
+}
+#split-common-ground .main {
+  background: var(--sp-page);
+}
+#split-common-ground .guard-pill {
+  border-color: transparent;
+}
+#split-common-ground .text-button,
+#split-common-ground .log-body summary,
+#split-common-ground .scene-copy .stage-counter,
+#split-common-ground .category-choice[aria-pressed='true'] .math-line {
+  color: var(--sp-pine-ink);
+}
+#split-common-ground .guard-seal {
+  color: var(--sp-pine-ink);
+  border-color: var(--sp-pine);
+}
+#split-common-ground input[type='range'],
+#split-common-ground input[type='checkbox'] {
+  accent-color: var(--sp-pine-ink);
+}
+#split-common-ground .filter[aria-pressed='true'],
+#split-common-ground .profile-subtab[aria-pressed='true'] {
+  border-color: var(--sp-pine-ink);
+}
+#split-common-ground .available {
+  box-shadow: 0 8px 22px var(--sp-depth);
+}
+#split-common-ground .primary {
+  box-shadow:
+    0 1px 2px var(--sp-depth),
+    0 4px 12px var(--sp-depth);
+}
+#split-common-ground .primary:active {
+  box-shadow: 0 1px 2px var(--sp-depth);
+}
+#split-common-ground .goal-tab,
+#split-common-ground .date-tile {
+  box-shadow: 0 1px 2px var(--sp-depth);
+}
+#split-common-ground .goal-tab[aria-pressed='true'] {
+  box-shadow: 0 3px 10px var(--sp-depth);
+}
+#split-common-ground .group-peek,
+#split-common-ground .group-large,
+#split-common-ground .expense-ticket,
+#split-common-ground .analytics-sheet {
+  box-shadow: 0 6px 18px var(--sp-depth);
+}
+#split-common-ground .goal-workshop {
+  box-shadow: 0 8px 24px var(--sp-depth);
+}
+#split-common-ground .profile-avatar {
+  box-shadow: 0 6px 16px var(--sp-depth);
+}
+#split-common-ground .avatar {
+  box-shadow: none;
+}
+#split-common-ground .shell {
+  box-shadow: 0 10px 30px var(--sp-depth);
+}
+@media (hover: hover) {
+  #split-common-ground .secondary:hover,
+  #split-common-ground .chip:hover,
+  #split-common-ground .material-tag:hover {
+    box-shadow: 0 4px 12px var(--sp-depth);
+  }
+}
+#split-common-ground .book-brand .brand-mark:before {
+  background: var(--sp-wood);
+}
+#split-common-ground .book-nav .nav-item[aria-current='page']:after {
+  background: var(--sp-pine-ink);
+}

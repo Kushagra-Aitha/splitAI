@@ -1,0 +1,45 @@
+/* Design tokens — Sage & oak palette */
+#split-common-ground {
+  --sp-bg: light-dark(#f3efe6, #1f221d);
+  --sp-paper: light-dark(#fbf9f4, #272b24);
+  --sp-ink: light-dark(#46423b, #e8e2d4);
+  --sp-muted: light-dark(#6e665a, #aba392);
+  --sp-line: light-dark(#e3dccf, #3a3f35);
+  --sp-soft: light-dark(#efeae0, #2d3229);
+  --sp-pine: light-dark(#a9c09e, #8fa886);
+  --sp-on-pine: light-dark(#2f3a2d, #1f271d);
+  --sp-pine-ink: light-dark(#526d4c, #afc8a3);
+  --sp-nav: light-dark(#dce6d3, #36402f);
+  --sp-nav-ink: light-dark(#3f4b3c, #dce8d2);
+  --sp-citron: light-dark(#ddc8a6, #bfa47e);
+  --sp-citron-ink: #4a3b2c;
+  --sp-wood: light-dark(#c2a27a, #a88b66);
+  --sp-terracotta: var(--sp-wood);
+  --sp-sand: #ddc8a6;
+  --sp-income: light-dark(#4a7050, #98c39b);
+  --sp-spend: light-dark(#94603f, #dda588);
+  --sp-blue: light-dark(#e4ebdd, #2e3829);
+  --sp-blue-ink: light-dark(#526d4c, #bcd3b0);
+  --sp-red: light-dark(#9e4e46, #e7a097);
+  --sp-red-soft: light-dark(#f5e4df, #3f2a26);
+  --sp-rail: var(--sp-paper);
+  --sp-rail-text: var(--sp-ink);
+  --sp-rail-muted: var(--sp-muted);
+  --sp-radius: 22px;
+  --sp-motion: 1;
+  font-family: 'DM Sans', sans-serif;
+  color: var(--sp-ink);
+  font-size: 14px;
+  line-height: 1.5;
+  background: transparent;
+  isolation: isolate;
+  color-scheme: light dark;
+}
+#split-common-ground {
+  --sp-depth: light-dark(#6b5a4214, #0004);
+  --sp-stage: light-dark(#e9eee2, #2a3026);
+  --sp-rim: light-dark(#d9e0cf, #3d4537);
+}
+#split-common-ground {
+  --sp-page: light-dark(#ebe0ce, #2a251e);
+}
