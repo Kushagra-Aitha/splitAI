@@ -1,3 +1,5 @@
+import { notify } from '../notifications/notify.js';
+
 const descriptions = Object.freeze({
   EXPENSE_CONFIRMED: ['allowed', 'expense', 'You confirmed a shared expense.'],
   SETTLEMENT_APPROVED: ['allowed', 'settlement', 'You approved a sandbox settlement for submission.'],
@@ -15,6 +17,7 @@ export async function recordGuardEvent(db, { actorUserId, groupId = null, expens
     INSERT INTO guard_events (actor_user_id, group_id, expense_id, settlement_id, decision, reason_code, reason, source)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
   `, [actorUserId, groupId, expenseId, settlementId, decision, reasonCode, reason, source]);
+  if (decision === 'blocked') await notify(db, { kind: 'guard_blocked', sourceId: event.id });
   return event.id;
 }
 

@@ -13,6 +13,8 @@ export const routes = Object.freeze([
   ['settlementReviews.confirm', 'POST', '/api/settlement-reviews/:id/confirm'],
   ['settlements.get', 'GET', '/api/settlements/:id'],
   ['guard.list', 'GET', '/api/guard/events'],
+  ['notifications.list', 'GET', '/api/notifications'],
+  ['notifications.read', 'POST', '/api/notifications/read'],
   ['banking.sync', 'POST', '/api/banking/sync'],
   ['banking.connect', 'POST', '/api/banking/connect'],
   ['overview.get', 'GET', '/api/overview'],

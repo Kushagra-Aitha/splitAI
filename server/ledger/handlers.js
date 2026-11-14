@@ -3,6 +3,7 @@ import { recordGuardEvent } from '../guard/events.js';
 import { getMappedAccountForUser } from '../banking/provider.js';
 import { readDebts, readLedger, summarizeDebts } from './debts.js';
 import { HttpError } from '../http.js';
+import { notify } from '../notifications/notify.js';
 
 const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const groupColumns = `g.id, g.kind, g.name, g.tagline,
@@ -252,6 +253,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
           `, [id]);
           await recordGuardEvent(db, { actorUserId: actor.userId, groupId, expenseId: id,
             reasonCode: 'EXPENSE_CONFIRMED' });
+          await notify(db, { kind: 'expense_added', sourceId: id });
           return { expense: { id, groupId, totalCents, ...confirmed } };
         });
       } catch (error) {

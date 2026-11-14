@@ -1,0 +1,15 @@
+#split-common-ground #sp-notifications { position: relative; }
+#split-common-ground .notification-bell { position: relative; min-width: 40px; min-height: 40px; }
+#split-common-ground .notification-badge { position: absolute; inset: -5px -6px auto auto; padding: 1px 5px; border-radius: 12px; background: var(--sp-red); color: var(--sp-paper); font-size: 10px; font-weight: 700; }
+#split-common-ground .notification-panel { position: absolute; right: 0; top: calc(100% + 10px); width: min(360px, calc(100vw - 32px)); max-height: min(65vh, 480px); overflow: auto; padding: 16px; z-index: 40; border: 1px solid var(--sp-line); border-radius: 14px; background: var(--sp-paper); box-shadow: 0 10px 28px var(--sp-depth); }
+#split-common-ground .notification-panel h2 { font-size: 17px; margin-bottom: 10px; }
+#split-common-ground .notification-panel ul { list-style: none; margin: 0; padding: 0; }
+#split-common-ground .notification-item { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; text-align: left; padding: 12px; border-radius: 8px; overflow-wrap: anywhere; }
+#split-common-ground .notification-item.is-unread { background: var(--sp-soft); }
+#split-common-ground .notification-unread { font-weight: 600; }
+#split-common-ground .notification-pages { display: flex; justify-content: space-between; gap: 12px; }
+#split-common-ground [data-ledger-entry].is-notification-target { outline: 2px solid var(--sp-pine-ink); outline-offset: 4px; border-radius: 8px; }
+@media (max-width: 620px) {
+  #split-common-ground .topbar { flex-wrap: wrap; gap: 12px; }
+  #split-common-ground .top-actions { flex-wrap: wrap; gap: 8px; }
+}
