@@ -58,7 +58,7 @@ async function provision(accounts) {
 }
 
 async function main() {
-  console.log(`Nessie: ${optionalEnv('NESSIE_URL')}`);
+  console.log(`Nessie: ${optionalEnv('NESSIE_BASE_URL')}`);
 
   const health = await nessie('/health', { auth: false });
   console.log(`  health      ${health.status} ${JSON.stringify(health.data)}`);

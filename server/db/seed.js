@@ -4,7 +4,7 @@ import { ACCOUNTS, BILLS, GROUPS, USERS } from './demo-ids.js';
 import { closePool, dbSchema, getPool, withTransaction } from './pool.js';
 
 const users = [
-  { key: 'maya', display: 'Maya', initials: 'MC', tone: 'citron', mask: '0421' },
+  { key: 'maya', display: 'Maya', fullName: 'Maya Chen', initials: 'MC', tone: 'citron', mask: '0421' },
   { key: 'sam', display: 'Sam', initials: 'SL', tone: null, mask: null },
   { key: 'priya', display: 'Priya', initials: 'PS', tone: 'pink', mask: null },
   { key: 'alex', display: 'Alex', fullName: 'Alex Rivera', initials: 'AR', tone: 'orange', mask: null },

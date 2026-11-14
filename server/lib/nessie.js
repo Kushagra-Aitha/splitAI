@@ -14,7 +14,7 @@ export class NessieError extends Error {
  * money fields are integer cents. Server-side only.
  */
 export async function nessie(path, { method = 'GET', body, auth = true, timeoutMs = 15_000 } = {}) {
-  const base = requireEnv('NESSIE_URL').replace(/\/+$/, '');
+  const base = requireEnv('NESSIE_BASE_URL').replace(/\/+$/, '');
   const headers = { Accept: 'application/json' };
   if (auth) headers.Authorization = `Bearer ${requireEnv('NESSIE_API_KEY')}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
