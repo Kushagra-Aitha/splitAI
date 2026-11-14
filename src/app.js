@@ -141,10 +141,11 @@ export function mountApp(root) {
     draftTicket: (draft) => together.draftTicket(draft),
     registerReview: (draft, handlers) => together.registerReview(draft, handlers) });
   const together = createTogether({ ...context, tx: overview.tx });
-  const guardFeature = createGuard(context);
+  const guardFeature = createGuard({ ...context, openGroup: together.openGroup });
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
-  createNotifications({ ...context, icons, openGroup: together.openGroup, onRefresh: together.onNotifications });
+  createNotifications({ ...context, icons, openGroup: together.openGroup,
+    onRefresh(items) { together.onNotifications(items); guardFeature.onNotifications(items); } });
   const pages = {
     home: overview.home, transactions: overview.transactions, profile: overview.profile, groups: together.groups,
     guard: guardFeature.guard, goals: goalsFeature.goals, chat: ask.chat,

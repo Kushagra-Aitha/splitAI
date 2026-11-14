@@ -2,6 +2,7 @@ import { formatUsdCents } from '../../lib/money.js';
 
 export function notificationMessage(item) {
   const actor = item.actorName || 'A group member';
+  if (item.kind === 'guard_flagged') return `Guard flagged a suspicious comment from ${actor}`;
   if (item.kind === 'expense_added' && item.merchant && Number.isSafeInteger(item.totalCents)) {
     return `${actor} added ${item.merchant} ${formatUsdCents(item.totalCents)}${Number.isSafeInteger(item.yourShareCents) ? ` · your share ${formatUsdCents(item.yourShareCents)}` : ''}`;
   }

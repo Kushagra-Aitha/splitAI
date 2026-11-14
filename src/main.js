@@ -7,6 +7,7 @@ import './styles/pages.css';
 import './features/goals/styles.css';
 import './features/overview/styles.css';
 import './features/ask/styles.css';
+import './features/guard/styles.css';
 import './features/notifications/styles.css';
 import './features/together/activity.css';
 import './styles/motion.css';

@@ -10,6 +10,8 @@
     "start": "node --env-file-if-exists=.env index.js",
     "dev": "node --env-file-if-exists=.env --watch index.js",
     "test": "node --test",
+    "guard:train": "python3 guard/fetch-sms.py && node guard/train.js",
+    "guard:eval": "node guard/train.js --eval",
     "smoke:gemini": "node --env-file-if-exists=.env scripts/smoke-gemini.js",
     "smoke:ask": "node --env-file-if-exists=.env scripts/smoke-ask.js",
     "smoke:insight": "node --env-file-if-exists=.env scripts/smoke-insight.js",

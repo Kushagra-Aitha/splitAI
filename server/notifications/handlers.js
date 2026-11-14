@@ -21,11 +21,11 @@ export function createNotificationHandlers({ query }) {
         FROM notifications n LEFT JOIN groups g ON g.id = n.group_id
         LEFT JOIN expenses e ON e.id = n.expense_id AND e.group_id = n.group_id
         LEFT JOIN expense_shares es ON es.expense_id = e.id AND es.user_id = $1
-        LEFT JOIN group_comments c ON n.kind = 'comment_added' AND c.id = n.source_id AND c.group_id = n.group_id
+        LEFT JOIN group_comments c ON n.kind IN ('comment_added', 'guard_flagged') AND c.id = n.source_id AND c.group_id = n.group_id
         LEFT JOIN settlements s ON n.kind IN ('settlement_sent', 'settlement_posted', 'settlement_failed')
           AND s.id = n.source_id AND s.group_id = n.group_id
         LEFT JOIN users u ON u.id = CASE WHEN n.kind = 'expense_added' THEN e.created_by
-          WHEN n.kind = 'comment_added' THEN c.author_user_id WHEN s.id IS NOT NULL THEN s.payer_user_id
+          WHEN n.kind IN ('comment_added', 'guard_flagged') THEN c.author_user_id WHEN s.id IS NOT NULL THEN s.payer_user_id
           WHEN n.kind = 'guard_blocked' THEN n.recipient_user_id END
         LEFT JOIN users payee ON payee.id = s.payee_user_id
         WHERE ${visible} ${before ? 'AND (n.created_at, n.id) < ($3::timestamptz, $4::uuid)' : ''}

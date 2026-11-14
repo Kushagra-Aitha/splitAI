@@ -43,7 +43,7 @@ The bank supplies canonical amounts and merchant names; clients cannot
 change the selected purchase's amount or choose another user's account.
 The shared review ticket still requires explicit confirmation. Its bank
 reference is retained on retries and in the durable proposal binding.
-Confirmation rechecks sharing consent, source, purchase status and amount;
+Matching checks the Nessie source; confirmation rechecks sharing consent, ownership, purchase status and amount;
 the existing database constraint prevents splitting the same purchase
 twice. Declined/cancelled or unshared purchases cannot be confirmed.
 Only normalized criteria and a prompt hash are persisted. No bank rows or

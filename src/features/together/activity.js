@@ -1,5 +1,6 @@
 import { apiRequest, getSession } from '../../api/session.js';
 import { preserveFocus } from '../../lib/focus.js';
+import { GUARD_REASONS } from '../../../shared/guard-reasons.js';
 
 // Activity owns only its section. Refreshes never replace Together's ledger
 // state, feed data never enters Ask, and comment drafts stay in memory only.
@@ -22,7 +23,7 @@ export function createActivity({ root, state, esc, money, announce }) {
   function entry(item) {
     let content;
     if (item.type === 'comment') content = `<p class="small"><strong>${esc(item.authorName)}</strong> commented</p>
-      <p class="comment-text">${esc(item.text)}</p>${item.expenseId && !expenseId ? threadButton(item.expenseId, 'View expense comments') : ''}`;
+      <p class="comment-text">${esc(item.text)}</p>${item.guardFlagged ? `<p class="comment-warning" role="note">⚠ Guard warning: ${esc((item.guardReasons || []).map((reason) => GUARD_REASONS[reason]).filter(Boolean).join(' '))}</p>` : ''}${item.expenseId && !expenseId ? threadButton(item.expenseId, 'View expense comments') : ''}`;
     else if (item.type === 'expense') content = `<h3>${esc(item.merchant)} · ${money(item.amountCents)}</h3>
       <p class="small muted">Paid by ${esc(item.authorName)} · Your share ${money(item.yourShareCents)}</p>${threadButton(item.id, `Comments (${item.commentCount ?? 0})`)}`;
     else content = `<h3>Settlement · ${money(item.amountCents)}</h3><p>${esc(item.authorName)} to ${esc(item.payeeName)} · ${esc(item.status)}</p>`;

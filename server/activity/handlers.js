@@ -1,11 +1,13 @@
 import { HttpError } from '../http.js';
 import { packCursor, unpackCursor, pageLimit } from '../lib/page-cursor.js';
 import { notify } from '../notifications/notify.js';
+import { classifyComment, recordCommentFlags } from '../guard/comments.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const timestamp = (column) => `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 const commentColumns = `id, group_id AS "groupId", expense_id AS "expenseId", author_user_id AS "authorUserId",
-  text, ${timestamp('created_at')} AS "createdAt"`;
+  text, ${timestamp('created_at')} AS "createdAt", guard_flagged AS "guardFlagged",
+  guard_score AS "guardScore", guard_reasons AS "guardReasons", guard_model_version AS "guardModelVersion"`;
 const invalid = (message) => new HttpError(422, 'INVALID_COMMENT', message);
 const validId = (id) => typeof id === 'string' && UUID.test(id);
 
@@ -102,9 +104,11 @@ export function createActivityHandlers({ withTransaction }) {
           CASE WHEN p.type = 'expense' THEN (SELECT count(*)::int FROM group_comments c
             WHERE c.group_id = $1 AND c.expense_id = p.id) ELSE 0 END AS "commentCount",
           p.status, p.payee_id AS "payeeUserId", payee.display_name AS "payeeName", p.text,
+          scored.guard_flagged AS "guardFlagged", scored.guard_reasons AS "guardReasons",
           CASE WHEN p.type = 'expense' THEN coalesce((SELECT es.share_cents FROM expense_shares es
             WHERE es.expense_id = p.id AND es.user_id = $${actorIndex}), 0) ELSE NULL END AS "yourShareCents"
         FROM page p JOIN users u ON u.id = p.author_id LEFT JOIN users payee ON payee.id = p.payee_id
+        LEFT JOIN group_comments scored ON p.type = 'comment' AND scored.id = p.id AND scored.group_id = $1
         ORDER BY p.occurred_at DESC, p.id DESC, p.type DESC`, args);
         for (const item of items) {
           if (item.amountCents !== null) safeCents(item.amountCents);
@@ -139,12 +143,16 @@ export function createActivityHandlers({ withTransaction }) {
         const { rows: [rate] } = await db.query(`SELECT count(*)::int AS n FROM group_comments
           WHERE group_id = $1 AND author_user_id = $2 AND created_at > clock_timestamp() - interval '1 minute'`, [params.id, actor.userId]);
         if (rate.n >= 20) throw new HttpError(429, 'COMMENT_RATE_LIMITED', 'Please wait a minute before posting more comments.');
+        const classification = classifyComment(text);
         const { rows: [comment] } = await db.query(`INSERT INTO group_comments
-          (group_id, expense_id, author_user_id, text, request_key) VALUES ($1, $2, $3, $4, $5)
+          (group_id, expense_id, author_user_id, text, request_key, guard_flagged, guard_score, guard_reasons, guard_model_version)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
           ON CONFLICT (author_user_id, request_key) DO NOTHING RETURNING ${commentColumns}`,
-        [params.id, expenseId, actor.userId, text, requestKey]);
+        [params.id, expenseId, actor.userId, text, requestKey, classification.flagged, classification.score,
+          JSON.stringify(classification.reasons), classification.modelVersion]);
         // A concurrent request may reuse this actor's key in a different group.
         if (!comment) return replay(await readExisting());
+        await recordCommentFlags(db, comment, classification);
         await notify(db, { kind: 'comment_added', sourceId: comment.id });
         return { comment };
       });

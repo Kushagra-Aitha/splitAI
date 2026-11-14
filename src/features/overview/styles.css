@@ -635,3 +635,29 @@
   #split-common-ground .sync-chip.is-syncing .sync-dot,
   #split-common-ground .sync-chip.is-syncing .sync-now svg { animation: none; }
 }
+
+#split-common-ground .tx-filters {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+#split-common-ground .tx-filters .field { margin: 0; }
+#split-common-ground .tx-filters .check-label { align-self: center; }
+#split-common-ground .tx-select-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+}
+#split-common-ground .tx-suggestion {
+  display: block;
+  padding: 0 0 8px 40px;
+  color: var(--sp-muted);
+  font-size: .78rem;
+}
+
+#split-common-ground .tx-select-row + .tx-select-row { border-top: 1px solid var(--sp-line); }
+#split-common-ground .tx-select-row .transaction { flex-wrap: wrap; border: 0; }
+#split-common-ground .tx-select-row .tx-split-tag { white-space: normal; }

@@ -79,7 +79,7 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
       if (item.kind === 'guard_blocked') go('guard');
       else if (item.groupId) openGroup(item.groupId, {
         expenseId: item.expenseId, settlementId: item.kind.startsWith('settlement_') ? item.sourceId : null,
-        commentId: item.kind === 'comment_added' ? item.sourceId : null, focus: true,
+        commentId: ['comment_added', 'guard_flagged'].includes(item.kind) ? item.sourceId : null, focus: true,
       });
     } catch (failure) {
       if (token !== epoch || readController.signal.aborted) return;
