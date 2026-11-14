@@ -40,7 +40,8 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         '<button class="primary" data-action="new-group-expense">Add expense</button>') +
       `<div class="member-list">${members.map((m) => `<p>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</p>`).join('')}</div>
         <section><h2>You owe ${money(debts.youOweCents)}</h2>
-          ${debts.youOwe.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}
+          ${debts.youOwe.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}
+            <button type="button" class="secondary" data-settle-with="${esc(d.userId)}">Settle up</button></p>`).join('')}
         <h2>Owed to you ${money(debts.owedToYouCents)}</h2>
           ${debts.owedToYou.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}</section>
         <section><h2>Recent shared costs</h2>${ledger.map((entry) => entry.type === 'expense'
@@ -116,22 +117,50 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   }
 
-  function settlement() {
-    if (state.settled) {
-      paymentSuccess(false);
-      return;
+  async function reviewSettlement(button) {
+    const groupId = state.group;
+    const payeeUserId = button.dataset.settleWith;
+    const payee = cached.data.members.find((member) => member.userId === payeeUserId);
+    button.disabled = true;
+    try {
+      const { review } = await apiRequest('/api/settlement-reviews', { method: 'POST', body: { groupId, payeeUserId } });
+      if (!button.isConnected) return;
+      openModal('Review sandbox settlement', `<h2>Review sandbox settlement</h2>${closeButton}
+        <p>Pay ${esc(payee.displayName)} <strong>${money(review.amountCents)}</strong> in the Nessie sandbox.</p>
+        <form id="sp-settlement-confirm" data-review-id="${esc(review.id)}">
+          <button class="primary" type="submit">Approve ${money(review.amountCents)}</button>
+          <p role="alert"></p>
+        </form>`);
+    } catch (error) {
+      if (button.isConnected) toast(error.message);
+    } finally {
+      button.disabled = false;
     }
-    openModal(
-      'Review payment',
-      `<div class="modal-header"><div><div class="eyebrow">Puffton 4 · Your payment</div><h2>A clear tab with Alex.</h2></div>${closeButton}</div><div class="person">${avatar('Alex')}<div><strong>Alex Rivera</strong><p>Your roommate · Puffton 4</p></div></div><div class="amount-large display money">$18.00</div><div class="detail-row"><span class="muted">Why</span><strong>Your utilities share</strong></div><div class="detail-row"><span class="muted">From</span><span>Maya’s demo account · 0421</span></div><div class="detail-row"><span class="muted">Balance after payment</span><strong>${money(124800 - (state.logged ? demo.draft.cents : 0) - 1800)}</strong></div><div class="checks"><div class="check-row">${icon('check')}Alex is a member of your group</div><div class="check-row">${icon('check')}Amount matches what the ledger says you owe</div><div class="check-row">${icon('check')}Waiting for your approval</div></div><p>This settles your share. Sam and Priya approve their own payments separately.</p><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Not now</button><button type="button" class="primary cursor-interaction" data-action="approve-payment">${icon('lock-keyhole')}Approve $18.00</button></div><div class="modal-fine">Sandbox payment · No real money will move</div>`,
-    );
   }
-  function paymentSuccess(animated = true) {
-    openModal(
-      'Payment complete',
-      `<div class="modal-header"><span class="tag">Nessie sandbox</span>${closeButton}</div><div class="celebrate"><div class="success-orbit">${icon('check')}${animated ? Array.from({ length: 7 }, (_, i) => `<span class="paper-bit" style="--r:${i * 51}deg" aria-hidden="true"></span>`).join('') : ''}</div><h2>You and Alex? All square.</h2><p>Your $18.00 demo payment is complete.<br>One less tab between friends.</p></div><div class="detail-row"><span class="muted">Approved by</span><strong>You, just now</strong></div><div class="detail-row"><span class="muted">Group</span><span>Puffton 4</span></div><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="payment-log">View Guard log</button><button type="button" class="primary cursor-interaction" data-action="close">Lovely. Done.</button></div>`,
-    );
+
+  async function confirmSettlement(form) {
+    const button = form.querySelector('button');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const { settlement } = await apiRequest(
+        `/api/settlement-reviews/${encodeURIComponent(form.dataset.reviewId)}/confirm`,
+        { method: 'POST', body: {} },
+      );
+      if (form.isConnected) {
+        closeModal();
+        toast(settlement.status === 'failed' ? 'Nessie rejected the settlement.' :
+          settlement.status === 'posted' ? 'Settlement posted.' : 'Settlement pending verification.');
+      }
+      cached = undefined;
+      if (state.page === 'groups') render();
+    } catch (error) {
+      if (form.isConnected) form.querySelector('[role="alert"]').textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
   }
+
   function editSplit() {
     openModal(
       'Edit expense',
@@ -141,6 +170,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.settleWith) { void reviewSettlement(b); return; }
     if (b.dataset.groupId) { showGroup(b.dataset.groupId); return; }
     if (b.dataset.filter) {
       state.filter = b.dataset.filter;
@@ -164,20 +194,6 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       case 'new-group-expense':
         newExpense();
         break;
-      case 'settle':
-        settlement();
-        break;
-      case 'approve-payment':
-        state.settled = true;
-        render();
-        persist();
-        paymentSuccess();
-        announce('Your $18 demo payment to Alex is complete.');
-        break;
-      case 'payment-log':
-        closeModal();
-        go('guard');
-        break;
       case 'edit-split':
         editSplit();
         break;
@@ -199,6 +215,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   });
   function handleExpenseForm(form, fd) {
+    if (form.id === 'sp-settlement-confirm') { void confirmSettlement(form); return; }
     if (['sp-group-form', 'sp-group-expense-form', 'sp-group-confirm-form'].includes(form.id)) {
       void submitGroupForm(form, fd);
       return;
