@@ -27,12 +27,15 @@ test('live database: expense confirmation rechecks and locks all participant mem
   owned = true;
   await migrate({ log: () => {} });
   await seed({ log: () => {} });
+  for (const handle of ['sam', 'priya', 'alex']) {
+    await db.query('UPDATE users SET email = $2 WHERE handle = $1', [handle, `${handle}@split.test`]);
+  }
   const actor = { userId: USERS.maya };
   const ledger = createLedgerHandlers({ query: (...args) => db.query(...args), withTransaction });
 
   async function review(cents = 4200) {
     const { group } = await ledger['groups.create']({ actor, body: {
-      name: 'Synthetic membership test', kind: 'roommates', memberIds: [USERS.sam, USERS.priya],
+      name: 'Synthetic membership test', kind: 'roommates', memberEmails: ['sam@split.test', 'priya@split.test'],
     } });
     const { draft } = await ledger['expenseDrafts.create']({ actor, body: {
       groupId: group.id, merchant: 'Synthetic shared expense', cents,

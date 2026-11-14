@@ -62,7 +62,7 @@ async function readDraft(db, proposal, actorId) {
       e.merchant, e.category, e.total_cents::text AS "totalCents",
       e.created_at AS "createdAt", e.expires_at AS "expiresAt", g.name AS "groupName", g.kind
     FROM expenses e JOIN groups g ON g.id = e.group_id
-    JOIN group_members m ON m.group_id = e.group_id AND m.user_id = $2
+    JOIN group_members m ON m.group_id = e.group_id AND m.user_id = $2 AND m.left_at IS NULL
     WHERE e.id = $1 AND e.created_by = $2`, [proposal.draftId, actorId]);
   if (!row) throw new HttpError(403, 'DRAFT_SCOPE_FORBIDDEN', 'This expense review is not available in your groups.');
   if (row.status !== 'confirmed' && (row.status !== 'draft' || row.expiresAt <= new Date())) {

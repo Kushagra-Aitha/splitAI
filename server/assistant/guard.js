@@ -33,7 +33,7 @@ export function createAssistantGuard({ withTransaction, recordEvent = recordGuar
           const { rows: [group] } = await db.query(`SELECT g.id,
             nullif(btrim(g.tagline), '') IS NOT NULL AS "hasNote"
             FROM groups g JOIN group_members m ON m.group_id = g.id
-            WHERE g.id = $1 AND m.user_id = $2 FOR KEY SHARE OF m`, [context.groupId, actor.userId]);
+            WHERE g.id = $1 AND m.user_id = $2 AND m.left_at IS NULL FOR KEY SHARE OF m`, [context.groupId, actor.userId]);
           if (!group) throw new HttpError(403, 'GROUP_SCOPE_FORBIDDEN', 'Choose one of your groups.');
           if (!group.hasNote) throw new HttpError(422, 'GROUP_NOTE_EMPTY', 'This group has no note to review.');
           // No semantic attack detector: ALL notes are non-authoritative. Even

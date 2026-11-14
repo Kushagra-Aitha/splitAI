@@ -24,6 +24,9 @@ test('live database: Ask resolves selections and creates one draft that only exp
   owned = true;
   await migrate({ log: () => {} });
   await seed({ log: () => {} });
+  for (const handle of ['sam', 'priya', 'alex']) {
+    await db.query('UPDATE users SET email = $2 WHERE handle = $1', [handle, `${handle}@split.test`]);
+  }
   const actor = { userId: USERS.maya };
   const query = (...args) => db.query(...args);
   const ledger = createLedgerHandlers({ query, withTransaction });
@@ -81,10 +84,10 @@ test('live database: Ask resolves selections and creates one draft that only exp
 
   await t.test('ambiguous names require an explicit eligible identity selection', async () => {
     const otherSam = randomUUID();
-    await db.query(`INSERT INTO users (id, handle, display_name, full_name, initials)
-      VALUES ($1, 'synthetic_sam', 'Sam', 'Sam Example', 'SE')`, [otherSam]);
+    await db.query(`INSERT INTO users (id, handle, display_name, full_name, initials, email)
+      VALUES ($1, 'synthetic_sam', 'Sam', 'Sam Example', 'SE', 'other-sam@split.test')`, [otherSam]);
     const { group } = await ledger['groups.create']({ actor, body: {
-      kind: 'roommates', name: 'Synthetic duplicate names', memberIds: [USERS.sam, otherSam],
+      kind: 'roommates', name: 'Synthetic duplicate names', memberEmails: ['sam@split.test', 'other-sam@split.test'],
     } });
     expense = { ...expense, groupHint: group.name, participantNames: ['Sam'] };
     const selection = await ask({ actor, body: begin('Ambiguous Sam expense') });
@@ -133,7 +136,7 @@ test('live database: Ask resolves selections and creates one draft that only exp
     const selection = await ask({ actor, body: begin('Create a group for this split') });
     assert.equal(selection.reason, 'GROUP_REQUIRED');
     const { group } = await ledger['groups.create']({ actor, body: {
-      kind: 'roommates', name: 'New Ask group', memberIds: [USERS.sam],
+      kind: 'roommates', name: 'New Ask group', memberEmails: ['sam@split.test'],
     } });
     const review = await ask({ actor, body: { proposalId: selection.proposalId, selection: { groupId: group.id } } });
     assert.equal(review.type, 'draft');
