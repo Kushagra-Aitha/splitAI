@@ -1,6 +1,7 @@
 import { apiRequest } from '../../api/session.js';
 import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
+import { preserveFocus } from '../../lib/focus.js';
 
 export function createAsk({ root, state, icon, esc, heading, render, announce,
   draftTicket, registerReview, openGroupCreation }) {
@@ -9,23 +10,30 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
   let sending = false;
   let nextId = 0;
   const label = '<div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>';
-  const refresh = () => { if (state.page === 'chat') render(); };
+  const refresh = () => { if (state.page === 'chat') preserveFocus(root, render); };
+  function focusResponse(entry) {
+    if (state.page !== 'chat') return;
+    const doc = root.ownerDocument;
+    if (doc.activeElement !== doc.body && doc.activeElement?.id !== 'sp-chat-input') return;
+    root.querySelector(`#sp-ask-${entry.error ? 'error' : 'result'}-${entry.id}`)?.focus({ preventScroll: true });
+  }
 
   function selectionCard(entry) {
     const data = entry.response;
     const values = entry.values || {};
     const merchant = values.merchant ?? data.extraction.merchant ?? '';
     const amount = values.amount ?? (data.extraction.cents === null ? '' : centsToUsdText(data.extraction.cents));
+    const selected = values.memberGroupId === data.groupId ? values.participantIds : data.suggestedParticipantIds;
     const names = data.unresolvedNames.length ? `<p>Choose the correct group members for: ${esc(data.unresolvedNames.join(', '))}.</p>` : '';
     return `<section class="ask-selection" aria-label="Choose expense details"><p>Choose the group and people, then review the split.</p>${names}
-      <form data-ask-selection="${entry.id}"><fieldset ${entry.pending ? 'disabled' : ''}>
-      <label class="field">Group<select name="groupId" data-ask-group="${entry.id}" required><option value="">Choose a group</option>
+      <form data-ask-selection="${entry.id}" aria-describedby="sp-ask-error-${entry.id}" aria-busy="${entry.pending}"><fieldset ${entry.pending ? 'disabled' : ''}>
+      <label class="field">Group<select id="sp-ask-group-${entry.id}" name="groupId" data-ask-group="${entry.id}" required><option value="">Choose a group</option>
       ${data.groups.map((group) => `<option value="${esc(group.id)}" ${group.id === data.groupId ? 'selected' : ''}>${esc(group.name)}</option>`).join('')}</select></label>
-      <div class="field-grid"><label class="field">Merchant<input name="merchant" value="${esc(merchant)}" maxlength="60" required></label>
-      <label class="field">Total, USD<input name="amount" inputmode="decimal" value="${esc(amount)}" required></label></div>
-      ${data.members.length ? `<fieldset><legend>Split with</legend>${data.members.map((member) => `<label class="check-label"><input type="checkbox" name="participant" value="${esc(member.userId)}" ${data.suggestedParticipantIds.includes(member.userId) ? 'checked' : ''} ${member.isYou ? 'disabled' : ''}>${esc(member.fullName || member.displayName)}${member.handle ? ` (@${esc(member.handle)})` : ''}${member.isYou ? ' · You, the payer' : ''}</label>`).join('')}</fieldset>` : ''}
-      <div class="ask-selection-actions"><button type="submit" class="primary" ${!data.groupId ? 'disabled' : ''}>Review split</button>
-      <button type="button" class="secondary" data-ask-action="create-group" data-entry-id="${entry.id}">Create a group</button></div></fieldset></form></section>`;
+      <div class="field-grid"><label class="field">Merchant<input id="sp-ask-merchant-${entry.id}" name="merchant" value="${esc(merchant)}" maxlength="60" required></label>
+      <label class="field">Total, USD<input id="sp-ask-amount-${entry.id}" name="amount" inputmode="decimal" value="${esc(amount)}" maxlength="20" required></label></div>
+      ${data.members.length ? `<fieldset><legend>Split with</legend>${data.members.map((member) => `<label class="check-label"><input id="sp-ask-member-${entry.id}-${esc(member.userId)}" type="checkbox" name="participant" value="${esc(member.userId)}" ${member.isYou || selected?.includes(member.userId) ? 'checked' : ''} ${member.isYou ? 'disabled' : ''}>${esc(member.fullName || member.displayName)}${member.handle ? ` (@${esc(member.handle)})` : ''}${member.isYou ? ' · You, the payer' : ''}</label>`).join('')}</fieldset>` : ''}
+      <div class="ask-selection-actions"><button id="sp-ask-review-${entry.id}" type="submit" class="primary" ${!data.groupId ? 'disabled' : ''}>Review split</button>
+      <button id="sp-ask-create-${entry.id}" type="button" class="secondary" data-ask-action="create-group" data-entry-id="${entry.id}">Create a group</button></div></fieldset></form></section>`;
   }
 
   function entryHtml(entry) {
@@ -43,18 +51,19 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
       }).join('')}</div>`;
       if (entry.response.asOf) content += `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Refresh facts</button>`;
     }
-    return `<div class="user-message">${esc(entry.message)}</div><div class="agent-message" data-ask-entry="${entry.id}">${label}${content}
+    return `<div class="user-message">${esc(entry.message)}</div><div class="agent-message" id="sp-ask-result-${entry.id}" role="region" aria-label="Split response" tabindex="-1" aria-busy="${entry.pending}" data-ask-entry="${entry.id}">${label}${content}
       ${entry.pending ? '<p role="status">Working on your request…</p>' : ''}
-      ${entry.error ? `<p role="alert">${esc(entry.error)}</p>${entry.retryBody ? `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}` : ''}</div>`;
+      <p id="sp-ask-error-${entry.id}" role="alert" aria-atomic="true" tabindex="-1">${esc(entry.error)}</p>
+      ${entry.error && entry.retryBody ? `<button id="sp-ask-retry-${entry.id}" type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}</div>`;
   }
 
   function chat() {
     return heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.') +
       `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message">${label}<p>Tell me what you spent and who to split it with.</p></div>`}</div>
-      <div class="composer-area"><form class="composer" id="sp-chat-form"><label for="sp-chat-input" class="sr-only">Message Split</label>
-      <input id="sp-chat-input" name="message" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" value="${esc(composerText)}" ${sending ? 'disabled' : ''} required>
+      <div class="composer-area"><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
+      <input id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" value="${esc(composerText)}" ${sending ? 'disabled' : ''} required>
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
-      <p class="chat-footnote">Only your confirmation saves an expense. No money is transferred.</p></div>`;
+      <p id="sp-chat-help" class="chat-footnote">Only your confirmation saves an expense. No money is transferred.</p></div>`;
   }
 
   function receive(entry, response) {
@@ -66,11 +75,13 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
           entry.expense = expense;
           entry.groupName = response.group.name;
           refresh();
+          focusResponse(entry);
           announce('Expense saved. The group ledger has been updated.');
         },
         onDiscard: () => {
           entry.response = { type: 'answer', answer: 'Review discarded. No ledger entry was added.' };
           refresh();
+          focusResponse(entry);
         },
       });
       announce('Expense draft ready. Review the shares before confirming.');
@@ -92,7 +103,7 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
       entry.error = error.name === 'TimeoutError' ? 'The request took too long. Try again when you are ready.'
         : error.message || 'The request could not finish. Try again.';
       announce(entry.error);
-    } finally { entry.pending = false; refresh(); }
+    } finally { entry.pending = false; refresh(); if (!sending) focusResponse(entry); }
   }
 
   subscribeFinancialChanges(() => {
@@ -106,7 +117,8 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
 
   function rememberValues(entry, form) {
     const fd = new FormData(form);
-    entry.values = { merchant: String(fd.get('merchant') || ''), amount: String(fd.get('amount') || '') };
+    entry.values = { merchant: String(fd.get('merchant') || ''), amount: String(fd.get('amount') || ''),
+      participantIds: fd.getAll('participant'), memberGroupId: entry.response.groupId };
     return fd;
   }
 
@@ -132,7 +144,7 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
     if (!entry.error) composerText = '';
     sending = false;
     refresh();
-    if (state.page === 'chat') root.querySelector('#sp-chat-input')?.focus({ preventScroll: true });
+    focusResponse(entry);
   }
 
   function handleAskForm(form, fd) {
@@ -147,6 +159,11 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
 
   root.addEventListener('input', (event) => {
     if (event.target.id === 'sp-chat-input') composerText = event.target.value;
+    const form = event.target.closest('form[data-ask-selection]');
+    if (form) {
+      const entry = entries.find((value) => String(value.id) === form.dataset.askSelection);
+      if (entry && !entry.pending) rememberValues(entry, form);
+    }
   });
   root.addEventListener('change', (event) => {
     if (!event.target.hasAttribute('data-ask-group') || !event.target.value) return;
