@@ -1,0 +1,87 @@
+#split-common-ground .capital-bank { --bank-ink: #152644; --bank-muted: #58647a; --bank-line: #dde1e8; color-scheme: light; color: var(--bank-ink); background: #f4f5f8; min-height: 100dvh; font-family: 'DM Sans', sans-serif; }
+#split-common-ground .capital-bank * { box-sizing: border-box; }
+#split-common-ground .capital-bank button, #split-common-ground .capital-bank input, #split-common-ground .capital-bank select { font: inherit; }
+#split-common-ground .capital-bank button, #split-common-ground .capital-bank a { -webkit-tap-highlight-color: transparent; }
+#split-common-ground .capital-bank button { cursor: pointer; border: 1px solid var(--bank-line); border-radius: 10px; background: white; color: var(--bank-ink); min-height: 42px; padding: 10px 16px; }
+#split-common-ground .capital-bank button:hover { background: #f0f3f9; }
+#split-common-ground .capital-bank button:disabled { cursor: default; opacity: .5; }
+#split-common-ground .capital-bank :is(button,a,input,select):focus-visible { outline: 3px solid #b34632; outline-offset: 3px; }
+#split-common-ground .capital-bank p { margin: 8px 0; line-height: 1.55; }
+#split-common-ground .capital-bank h1 { margin: 4px 0; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.04em; }
+#split-common-ground .capital-bank h2 { font-size: 22px; margin: 0 0 8px; letter-spacing: -.025em; }
+#split-common-ground .capital-bank .bank-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 24px max(24px, calc((100vw - 1120px) / 2)); background: white; border-bottom: 1px solid var(--bank-line); }
+#split-common-ground .capital-bank .bank-brand { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 23px; font-weight: 750; color: var(--bank-ink); text-decoration: none; letter-spacing: -.04em; }
+#split-common-ground .capital-bank .bank-logo { display: block; width: 32px; height: 25px; border: 5px solid #d26147; border-radius: 50%; transform: rotate(-30deg); box-shadow: 7px 4px 0 -2px #152644; }
+#split-common-ground .capital-bank .bank-sandbox { font-size: 11px; padding: 4px 7px; border-radius: 5px; color: var(--bank-muted); background: #f0f2f5; letter-spacing: 0; }
+#split-common-ground .capital-bank .bank-header nav { display: flex; gap: 18px; align-items: center; }
+#split-common-ground .capital-bank .bank-header nav a { color: var(--bank-ink); }
+#split-common-ground .capital-bank .bank-main { max-width: 1168px; padding: 40px 24px 64px; margin: auto; }
+#split-common-ground .capital-bank .bank-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+#split-common-ground .capital-bank .bank-heading > div > p:last-child { color: var(--bank-muted); }
+#split-common-ground .capital-bank .bank-eyebrow { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .13em; }
+#split-common-ground .capital-bank #bank-status:not(:empty) { padding: 12px 16px; margin-bottom: 20px; border: 1px solid #bcd5c7; background: #edf6f0; border-radius: 10px; }
+#split-common-ground .capital-bank .bank-split-now { display: inline-block; margin-left: 16px; color: #183d2d; font-weight: 700; text-underline-offset: 4px; }
+#split-common-ground .capital-bank .bank-accounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 28px 0 36px; }
+#split-common-ground .capital-bank .bank-card { position: relative; min-width: 0; height: 276px; perspective: 1200px; transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)); transition: transform 120ms ease-out; }
+#split-common-ground .capital-bank .bank-card-inner { position: relative; height: 100%; transform-style: preserve-3d; transition: transform 480ms ease; }
+#split-common-ground .capital-bank .bank-card.is-flipped .bank-card-inner { transform: rotateY(180deg); }
+#split-common-ground .capital-bank .bank-card-front, #split-common-ground .capital-bank .bank-card-back { position: absolute; inset: 0; overflow: hidden; border-radius: 20px; padding: 24px 28px; backface-visibility: hidden; background: linear-gradient(130deg, #142b52, #2d4a76); color: white; box-shadow: 0 12px 24px #17264019; }
+#split-common-ground .capital-bank .bank-card-credit :is(.bank-card-front,.bank-card-back) { background: linear-gradient(130deg, #bf593f, #743e45); }
+#split-common-ground .capital-bank .bank-card-back { transform: rotateY(180deg); padding-top: 90px; }
+#split-common-ground .capital-bank .bank-card-top { display: flex; justify-content: space-between; gap: 16px; font-size: 15px; font-weight: 650; }
+#split-common-ground .capital-bank .bank-card-top span:last-child { font-size: 10px; letter-spacing: .17em; padding-top: 4px; }
+#split-common-ground .capital-bank .bank-chip { display: block; width: 34px; height: 26px; margin-top: 18px; border-radius: 6px; border: 1px solid #f8dda0; background: linear-gradient(120deg, #bca372, #e1d4af); }
+#split-common-ground .capital-bank .bank-card-number { font-size: 16px; letter-spacing: .11em; margin: 12px 0 8px; }
+#split-common-ground .capital-bank .bank-card-label { font-size: 11px; opacity: .8; margin: 4px 0 0; }
+#split-common-ground .capital-bank .bank-card-balance { font-size: clamp(23px, 4vw, 34px); font-weight: 650; line-height: 1.15; margin: 1px 0 6px; font-variant-numeric: tabular-nums; }
+#split-common-ground .capital-bank .bank-card-detail { font-size: 11px; opacity: .85; max-width: calc(100% - 65px); }
+#split-common-ground .capital-bank .bank-flip { position: absolute; right: 12px; bottom: 12px; min-height: 34px; padding: 7px 9px; font-size: 10px; background: #ffffff14; border-color: #ffffff36; color: white; z-index: 1; }
+#split-common-ground .capital-bank .bank-flip:hover { background: #ffffff28; }
+#split-common-ground .capital-bank .bank-magnetic-strip { position: absolute; top: 32px; left: 0; right: 0; height: 40px; background: #101319; }
+#split-common-ground .capital-bank .bank-card.is-swiping { animation: bank-swipe 600ms ease both; }
+@keyframes bank-swipe { 40% { transform: translateX(12px) rotate(2deg); } 75% { transform: translateX(-4px); } }
+#split-common-ground .capital-bank .bank-connect { background: #e9edf4; border: 1px dashed #a9b4c7; border-radius: 20px; padding: 32px; align-content: center; }
+#split-common-ground .capital-bank .bank-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+#split-common-ground .capital-bank .bank-panel { background: white; padding: 26px; margin-bottom: 24px; border-radius: 18px; border: 1px solid var(--bank-line); min-width: 0; }
+#split-common-ground .capital-bank .bank-panel > p { color: var(--bank-muted); font-size: 13px; }
+#split-common-ground .capital-bank .bank-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 22px 0 16px; }
+#split-common-ground .capital-bank .bank-presets button { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; text-align: left; min-height: 82px; }
+#split-common-ground .capital-bank .bank-presets span { color: var(--bank-muted); font-size: 13px; }
+#split-common-ground .capital-bank .bank-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+#split-common-ground .capital-bank .bank-payment-options { display: grid; gap: 14px; margin-top: 24px; }
+#split-common-ground .capital-bank .bank-payment-options button { display: flex; flex-direction: column; gap: 9px; align-items: flex-start; padding: 16px; font-weight: 600; text-align: left; }
+#split-common-ground .capital-bank .bank-payment-options span { font-size: 12px; font-weight: 400; color: var(--bank-muted); }
+#split-common-ground .capital-bank .bank-note { max-width: 760px; }
+#split-common-ground .capital-bank .bank-list { list-style: none; padding: 0; margin: 16px 0 0; }
+#split-common-ground .capital-bank .bank-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--bank-line); overflow-wrap: anywhere; }
+#split-common-ground .capital-bank .bank-list li:last-child { border-bottom: 0; }
+#split-common-ground .capital-bank .bank-list p { margin: 4px 0 0; font-size: 12px; color: var(--bank-muted); }
+#split-common-ground .capital-bank .bank-list li > strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+#split-common-ground .capital-bank .bank-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#split-common-ground .capital-bank .bank-row-actions button { font-size: 12px; padding: 8px 12px; }
+#split-common-ground .capital-bank .bank-error, #split-common-ground .capital-bank .bank-form-error { color: #a62e2e; font-size: 13px; }
+#split-common-ground .capital-bank .bank-dialog { width: min(480px, calc(100vw - 32px)); max-height: 90dvh; overflow: auto; margin: auto; border: 1px solid var(--bank-line); padding: 28px; border-radius: 20px; color: var(--bank-ink); background: white; }
+#split-common-ground .capital-bank .bank-dialog::backdrop { background: #0b193b80; }
+#split-common-ground .capital-bank .bank-dialog-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 24px; }
+#split-common-ground .capital-bank .bank-dialog-heading button { font-size: 24px; padding: 4px 12px; }
+#split-common-ground .capital-bank .bank-dialog label { display: grid; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 18px; }
+#split-common-ground .capital-bank .bank-dialog label[hidden] { display: none; }
+#split-common-ground .capital-bank .bank-dialog :is(input,select) { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #bac3d1; background: white; border-radius: 8px; color: var(--bank-ink); }
+#split-common-ground .capital-bank .bank-dialog button[type="submit"] { width: 100%; color: white; background: #20395e; margin-top: 12px; }
+@media (max-width: 720px) {
+  #split-common-ground .capital-bank .bank-header { padding: 18px; align-items: flex-start; }
+  #split-common-ground .capital-bank .bank-brand { max-width: 170px; font-size: 20px; }
+  #split-common-ground .capital-bank .bank-header nav { gap: 8px; align-items: flex-end; flex-direction: column; font-size: 12px; }
+  #split-common-ground .capital-bank .bank-main { padding: 24px 16px; }
+  #split-common-ground .capital-bank .bank-heading { align-items: flex-start; }
+  #split-common-ground .capital-bank .bank-heading > button { font-size: 11px; padding: 8px; }
+  #split-common-ground .capital-bank .bank-columns, #split-common-ground .capital-bank .bank-accounts { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  #split-common-ground .capital-bank .bank-card { height: 270px; }
+  #split-common-ground .capital-bank .bank-panel { padding: 20px; margin-bottom: 16px; }
+  #split-common-ground .capital-bank .bank-list li { align-items: flex-start; }
+  #split-common-ground .capital-bank .bank-row-actions { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #split-common-ground .capital-bank .bank-card, #split-common-ground .capital-bank .bank-card-inner { transition: none; }
+  #split-common-ground .capital-bank .bank-card.is-swiping { animation: none; }
+}

@@ -2,6 +2,14 @@
 // Handler context: { actor, body, params, query, requestId }. Identity comes
 // exclusively from actor; body names/IDs are untrusted feature input.
 export const routes = Object.freeze([
+  ['bank.get', 'GET', '/api/bank'],
+  ['bank.connect', 'POST', '/api/bank/connect'],
+  ['bank.sync', 'POST', '/api/bank/sync'],
+  ['bank.operations.create', 'POST', '/api/bank/operations'],
+  ['bank.operations.get', 'GET', '/api/bank/operations/:id'],
+  ['bank.schedules.create', 'POST', '/api/bank/schedules'],
+  ['bank.schedules.update', 'POST', '/api/bank/schedules/:id'],
+  ['bank.schedules.run', 'POST', '/api/bank/schedules/:id/run'],
   ['groups.list', 'GET', '/api/groups'],
   ['groups.create', 'POST', '/api/groups'],
   ['groups.addMember', 'POST', '/api/groups/:id/members'],

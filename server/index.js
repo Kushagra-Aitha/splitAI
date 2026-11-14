@@ -3,8 +3,9 @@ import { createApp } from './app.js';
 import { createDbAuthStore } from './auth/store.js';
 import { provisionBankAccount } from './banking/provision.js';
 import { loadConfig } from './config.js';
-import { getPool, withTransaction } from './db/pool.js';
-import { handlers } from './handlers.js';
+import { closePool, getPool, withTransaction } from './db/pool.js';
+import { capitalService, handlers } from './handlers.js';
+import { startCapitalWorker } from './capital-two/worker.js';
 import { createStaticFiles } from './static.js';
 
 try {
@@ -21,13 +22,14 @@ try {
     process.exitCode = 1;
   });
   server.listen(config.port, config.host, () => console.log(`Split AI listening at ${config.origin}`));
+  const bankWorker = startCapitalWorker(capitalService, { onError: (event) => console.error(JSON.stringify(event)) });
   let closing = false;
   function shutdown() {
     if (closing) return;
     closing = true;
     const deadline = setTimeout(() => { server.closeAllConnections(); process.exit(1); }, 10_000);
     deadline.unref();
-    server.close(() => { clearTimeout(deadline); });
+    server.close(() => { void bankWorker.stop().then(closePool).finally(() => clearTimeout(deadline)); });
   }
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

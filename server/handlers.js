@@ -7,6 +7,8 @@ import { createGeminiClient } from './assistant/gemini-json.js';
 import { createAskWorkflow } from './assistant/workflow.js';
 import { lockAccount, reserveFunds } from './banking/funds.js';
 import { bankingHandlers } from './banking/handlers.js';
+import { createCapitalService } from './capital-two/service.js';
+import { createCapitalHandlers } from './capital-two/handlers.js';
 
 import { getPool, withTransaction } from './db/pool.js';
 import { createGoalHandlers } from './goals/handlers.js';
@@ -19,8 +21,10 @@ import { createNotificationHandlers } from './notifications/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
+export const capitalService = createCapitalService({ query: (...args) => getPool().query(...args), withTransaction });
 
 export const handlers = Object.freeze({
+  ...createCapitalHandlers(capitalService),
   ...createActivityHandlers({ withTransaction }),
   'ask.create': createAskWorkflow({
     parseIntent: createIntentParser({ generate }),

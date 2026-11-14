@@ -8,8 +8,9 @@ export async function listTransactions(db, userId, query) {
   const category = query.get('category') || null;
   const unsplit = query.get('unsplit') === 'true';
   const offset = Number(query.get('offset') ?? 0);
+  const id = query.get('id') || null;
   if ((account && !['checking', 'credit_card'].includes(account)) ||
-      !Number.isSafeInteger(offset) || offset < 0) {
+      !Number.isSafeInteger(offset) || offset < 0 || (id && !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu.test(id))) {
     throw new HttpError(422, 'INVALID_TRANSACTION_FILTER', 'Choose a valid account and page.');
   }
 
@@ -62,6 +63,7 @@ export async function listTransactions(db, userId, query) {
       ) suggestions ON e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
         AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed')
      WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
+       AND ($7::uuid IS NULL OR t.id = $7)
        AND ($2::text IS NULL OR a.kind = $2)
        AND ($3::text IS NULL OR coalesce(t.category, 'Other') = $3)
        AND (NOT $4 OR (
@@ -70,7 +72,7 @@ export async function listTransactions(db, userId, query) {
        ))
      ORDER BY t.occurred_at DESC, t.id, a.id
      LIMIT $5 OFFSET $6
-  `, [userId, account, category, unsplit, PAGE_SIZE + 1, offset]);
+  `, [userId, account, category, unsplit, PAGE_SIZE + 1, offset, id]);
   const { rows: categories } = await db.query(`
     SELECT DISTINCT coalesce(t.category, 'Other') AS category
     FROM bank_accounts a JOIN bank_transactions t ON t.account_id = a.id

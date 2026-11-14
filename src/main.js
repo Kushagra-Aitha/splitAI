@@ -23,4 +23,7 @@ import { initializeSession } from './api/session.js';
 
 initThemeToggle(document.getElementById('sp-theme-toggle'));
 const root = document.getElementById('split-common-ground');
-initializeSession(root).then(() => mountApp(root));
+initializeSession(root).then(async () => {
+  if (/^\/bank\/?$/.test(window.location.pathname)) (await import('./features/bank/index.js')).mountBank(root);
+  else mountApp(root);
+});
