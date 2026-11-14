@@ -170,18 +170,31 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   // Salary (B15): the latest paychecks across linked accounts; the next one is
   // estimated from the gap between the last two (never invented from one).
   const { rows: paychecks } = await db.query(
-    `SELECT t.amount_cents AS "amountCents", t.description,
+    `SELECT t.amount_cents AS "amountCents", t.description, op.payee,
             to_char(t.occurred_at AT TIME ZONE '${TIME_ZONE}', 'YYYY-MM-DD') AS "paidOn"
        FROM bank_transactions t
+       LEFT JOIN bank_import_keys k ON k.account_id = t.account_id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
+       LEFT JOIN capital_operations op ON op.account_id = t.account_id AND op.provider_reference = k.provider_key
       WHERE t.account_id = ANY($1::uuid[]) AND ${isSalary('t')} AND t.status IN ('pending', 'completed')
       ORDER BY t.occurred_at DESC LIMIT 2`,
     [accountIds],
   );
-  const salary = paychecks.length ? {
-    amountCents: paychecks[0].amountCents,
-    employer: paychecks[0].description.replace(/^(payroll|salary|direct deposit)\s*[·:-]?\s*/i, '') || null,
-    lastPaidOn: paychecks[0].paidOn,
-    nextPaidOn: paychecks.length > 1 ? nextFromGap(paychecks[1].paidOn, paychecks[0].paidOn) : null,
+  // C13's direct deposit schedule gives the exact next date; otherwise it is
+  // estimated from the gap between the last two paychecks.
+  const { rows: [schedule] } = await db.query(
+    `SELECT s.payee, s.amount_cents AS "amountCents", to_char(s.next_due_on, 'YYYY-MM-DD') AS "nextDueOn"
+       FROM capital_schedules s JOIN bank_accounts a ON a.id = s.account_id
+      WHERE a.id = ANY($1::uuid[]) AND s.kind = 'salary' AND s.status = 'active'
+      ORDER BY s.next_due_on LIMIT 1`,
+    [accountIds],
+  );
+  const last = paychecks[0];
+  const salary = last || schedule ? {
+    amountCents: last?.amountCents ?? schedule.amountCents,
+    employer: last?.payee ?? schedule?.payee ?? (last?.description.replace(/^(payroll|salary|direct deposit)\s*[·:-]?\s*/i, '') || null),
+    lastPaidOn: last?.paidOn ?? null,
+    nextPaidOn: schedule?.nextDueOn ?? (paychecks.length > 1 ? nextFromGap(paychecks[1].paidOn, last.paidOn) : null),
+    nextIsScheduled: Boolean(schedule),
   } : null;
 
   const sumBy = (key) => {

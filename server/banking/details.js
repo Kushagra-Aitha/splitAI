@@ -5,18 +5,22 @@
 /** Your category if you changed it, otherwise the bank's. */
 export const effectiveCategory = (t = 't') => `coalesce(${t}.category_override, ${t}.category)`;
 
-/** Capital Two direct deposits are described as payroll. */
+/**
+ * Salary: a Capital Two direct deposit (C13 sets the bank category to
+ * "Salary"), or a deposit described as payroll by another source.
+ */
 export const isSalary = (t = 't') =>
-  `(${t}.kind = 'deposit' AND ${t}.direction = 'credit' AND coalesce(${t}.description, '') ~* '^(payroll|salary|direct deposit)')`;
+  `(${t}.kind = 'deposit' AND ${t}.direction = 'credit' AND (coalesce(${t}.category, '') = 'Salary' OR coalesce(${t}.description, '') ~* '^(payroll|salary|direct deposit)'))`;
 
 /**
- * Joins that add `recurring` ('scheduled' | 'detected' | null) and
- * `recurringPayee`. Scheduled: paid by a Capital Two recurring payment.
+ * Joins that add `recurring` ('scheduled' | 'detected' | null), the Capital
+ * Two payee and `recurringPayee`. Scheduled: a Capital Two recurring payment
+ * (not a paycheck, which is labeled Salary instead).
  * Detected: the same merchant and amount was paid 20–75 days earlier.
  * Needs `t` (bank_transactions) and `k` (bank_import_keys) in scope.
  */
 export const recurringJoins = (t = 't', k = 'k') => `
-  LEFT JOIN capital_operations rec_op ON rec_op.provider_reference = ${k}.provider_key AND rec_op.schedule_id IS NOT NULL
+  LEFT JOIN capital_operations rec_op ON rec_op.account_id = ${t}.account_id AND rec_op.provider_reference = ${k}.provider_key
   LEFT JOIN capital_schedules rec_schedule ON rec_schedule.id = rec_op.schedule_id
   LEFT JOIN LATERAL (
     SELECT true AS found FROM bank_transactions prior
@@ -28,8 +32,9 @@ export const recurringJoins = (t = 't', k = 'k') => `
   ) rec_prior ON ${t}.direction = 'debit' AND ${t}.kind IN ('purchase', 'bill_payment')`;
 
 export const recurringColumns = (t = 't') => `
-  CASE WHEN rec_op.id IS NOT NULL THEN 'scheduled' WHEN rec_prior.found THEN 'detected' END AS recurring,
+  CASE WHEN rec_op.schedule_id IS NOT NULL AND rec_op.kind <> 'deposit' THEN 'scheduled' WHEN rec_prior.found THEN 'detected' END AS recurring,
   rec_schedule.payee AS "recurringPayee",
+  rec_op.payee AS "bankPayee",
   ${isSalary(t)} AS salary,
   ${t}.category AS "bankCategory",
   ${t}.category_override IS NOT NULL AS "categoryOverridden"`;

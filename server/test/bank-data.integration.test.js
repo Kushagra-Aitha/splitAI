@@ -61,8 +61,8 @@ test('live database: categories you set, salary and recurring flow into Overview
 
   // Rent was paid by a Capital Two recurring payment.
   const { rows: [schedule] } = await db.query(
-    `INSERT INTO capital_schedules (user_id, account_id, payee, amount_cents, day_of_month, next_due_on, request_key)
-     VALUES ($1, $2, 'Puffton Village', 160000, 1, '2026-12-01', $3) RETURNING id`, [olive, checking, randomUUID()]);
+    `INSERT INTO capital_schedules (user_id, account_id, payee, amount_cents, day_of_month, next_due_on, first_due_on, request_key)
+     VALUES ($1, $2, 'Puffton Village', 160000, 1, '2026-12-01', '2026-11-01', $3) RETURNING id`, [olive, checking, randomUUID()]);
   await db.query(
     `INSERT INTO capital_operations (user_id, account_id, kind, payee, amount_cents, request_key, schedule_id, occurrence, status, provider_reference)
      VALUES ($1, $2, 'purchase', 'Puffton Village', 160000, $3, $4, '2026-11', 'completed', $5)`,
@@ -103,5 +103,22 @@ test('live database: categories you set, salary and recurring flow into Overview
   const salaryRows = all.transactions.filter((row) => row.salary);
   assert.equal(salaryRows.length, 2);
   assert.equal(all.transactions.find((row) => row.description === 'Coffee money').salary, false);
-  assert.deepEqual(after.salary, { amountCents: 210_000, employer: 'Acme Co', lastPaidOn: '2026-11-13', nextPaidOn: '2026-11-27' });
+  assert.deepEqual(after.salary, { amountCents: 210_000, employer: 'Acme Co', lastPaidOn: '2026-11-13', nextPaidOn: '2026-11-27', nextIsScheduled: false });
+
+  // C13 direct deposit: a Capital Two salary schedule and its deposit. Salary,
+  // not "Recurring"; payee shown; the next date is the scheduled one.
+  const { rows: [salarySchedule] } = await db.query(
+    `INSERT INTO capital_schedules (user_id, account_id, payee, amount_cents, day_of_month, next_due_on, first_due_on, request_key, kind, frequency, category)
+     VALUES ($1, $2, 'Globex', 250000, 14, '2026-12-14', '2026-11-14', $3, 'salary', 'monthly', 'Salary') RETURNING id`,
+    [olive, checking, randomUUID()]);
+  const paid = await tx(checking, 'deposit', 'credit', 250_000, `Capital Two Globex [${randomUUID()}]`, '2026-11-14T14:00:00Z', 'Salary');
+  await db.query(
+    `INSERT INTO capital_operations (user_id, account_id, kind, payee, amount_cents, request_key, schedule_id, occurrence, status, provider_reference, category)
+     VALUES ($1, $2, 'deposit', 'Globex', 250000, $3, $4, '2026-11-14', 'completed', $5, 'Salary')`,
+    [olive, checking, randomUUID(), salarySchedule.id, paid.key]);
+  const withC13 = await listTransactions(db, olive, new URLSearchParams());
+  const paidRow = withC13.transactions.find((row) => row.id === paid.id);
+  assert.deepEqual([paidRow.salary, paidRow.recurring, paidRow.bankPayee], [true, null, 'Globex']);
+  const latest = await getOverview(db, checking, range);
+  assert.deepEqual(latest.salary, { amountCents: 250_000, employer: 'Globex', lastPaidOn: '2026-11-14', nextPaidOn: '2026-12-14', nextIsScheduled: true });
 });

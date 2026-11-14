@@ -47,6 +47,7 @@ function syncResponse(result) {
     updated: result.updated,
     unchanged: result.unchanged,
     changed: Boolean(result.changed),
+    latestActivityAt: result.latestActivityAt ?? null,
   };
 }
 

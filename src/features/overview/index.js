@@ -221,9 +221,16 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     let rerender = !auto || hadError;
     try {
       const result = await apiRequest('/api/banking/sync', { method: 'POST', body: {} });
+      const moved = result.latestActivityAt !== store.lastActivityAt;
+      store.lastActivityAt = result.latestActivityAt;
       store.lastSync = result;
       store.lastSyncAt = Date.now();
-      if (result.changed || !auto) {
+      if (moved && !result.changed && store.synced) {
+        // Activity arrived outside this sync (Capital Two wrote it directly).
+        resetTransactionFeed();
+        financialChanged();
+      }
+      if (result.changed || moved || !auto) {
         resetTransactionFeed();
         store.data = {};
         store.errors = {};
@@ -551,7 +558,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const sign = t.direction === 'credit' ? '+ ' : '− ';
     const symbol = t.kind === 'transfer' ? 'repeat-2' : CATEGORY_ICONS[t.category] || (t.kind === 'deposit' ? 'arrow-down-left' : 'receipt');
     const row = tx(
-      `${esc(t.merchantName || t.description)}${(t.recentlyImported ?? isNew(t)) ? ' <span class="tx-new">New</span>' : ''}${badges}`,
+      `${esc((t.kind === 'deposit' && t.bankPayee) || t.merchantName || t.description)}${(t.recentlyImported ?? isNew(t)) ? ' <span class="tx-new">New</span>' : ''}${badges}`,
       `${dayWord(day, today)} · ${categoryPart}${flags.length ? ` · ${flags.join(' · ')}` : ''}`,
       sign + money(t.amountCents),
       symbol,
@@ -651,9 +658,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     if (!s) return '';
     const today = todayLocal();
     const days = s.nextPaidOn ? Math.round((Date.parse(`${s.nextPaidOn}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000) : null;
+    const first = !s.lastPaidOn;
     const when = s.nextPaidOn && days >= 0
-      ? `Next paycheck ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`} · ${fmtDay(s.nextPaidOn, { month: 'short', day: 'numeric' })} (estimated)`
-      : `Last paycheck ${fmtDay(s.lastPaidOn, { month: 'short', day: 'numeric' })}`;
+      ? `${first ? 'First' : 'Next'} paycheck ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`} · ${fmtDay(s.nextPaidOn, { month: 'short', day: 'numeric' })}${s.nextIsScheduled ? '' : ' (estimated)'}`
+      : s.lastPaidOn ? `Last paycheck ${fmtDay(s.lastPaidOn, { month: 'short', day: 'numeric' })}` : 'Direct deposit set up';
     return `<div class="salary-line">${icon('banknote')}<span><strong>${esc(when)}</strong><span class="small muted">${s.employer ? `${esc(s.employer)} · ` : ''}${money(s.amountCents)}</span></span></div>`;
   }
 
