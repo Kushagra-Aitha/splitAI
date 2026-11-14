@@ -14,6 +14,9 @@ const EMAIL_WINDOW_MS = 15 * 60_000;
 const EMAIL_FAILURES = 5; // wrong passwords per email per 15 minutes
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CONTROL = /\p{Cc}/u;
+// Sign-up waits this long for after-sign-up work (B9 bank account) before
+// answering; the work keeps running and is repeat-safe if it finishes later.
+export const SIGNUP_HOOK_WAIT_MS = 10_000;
 
 const invalidCredentials = () => new HttpError(401, 'INVALID_CREDENTIALS', 'That email and password don’t match.');
 const invalid = (message) => new HttpError(422, 'VALIDATION_ERROR', message);
@@ -52,7 +55,7 @@ export function initialsFor(name) {
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts.at(-1)[0] : '')).toUpperCase() || '?';
 }
 
-export function createSessions(config, { store, now = Date.now }) {
+export function createSessions(config, { store, now = Date.now, onSignup }) {
   if (!store) throw new Error('createSessions needs an auth store.');
   const ipBuckets = new Map();
   const emailBuckets = new Map();
@@ -142,7 +145,15 @@ export function createSessions(config, { store, now = Date.now }) {
         email, displayName: first, fullName: name, initials: initialsFor(name), passwordHash: await hashPassword(password),
       });
       if (!user) throw new HttpError(409, 'EMAIL_TAKEN', 'An account with that email already exists. Log in instead.');
-      return issue(req, res, user);
+      const session = await issue(req, res, user);
+      if (onSignup) {
+        // A failure here never fails sign-up; the app offers a retry instead.
+        let timer;
+        const work = Promise.resolve().then(() => onSignup(session.actor)).catch(() => {});
+        await Promise.race([work, new Promise((resolve) => { timer = setTimeout(resolve, SIGNUP_HOOK_WAIT_MS); })]);
+        clearTimeout(timer);
+      }
+      return session;
     },
 
     async login(req, res, body) {

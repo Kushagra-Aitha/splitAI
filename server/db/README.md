@@ -51,6 +51,20 @@ To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setu
 - Sync writes run under `SELECT … FOR UPDATE` on the `bank_accounts` row, the
   same lock B4 uses for funds.
 
+## Bank accounts for new users (B9)
+
+Every sign-up gets its own Nessie sandbox checking account with a $1,500
+opening balance (`server/banking/provision.js`). Sign-up waits up to 10 s for
+it; if Nessie is slow or down, sign-up still succeeds and Overview shows a
+**Connect bank** card that calls `POST /api/banking/connect`.
+
+Provisioning is repeat-safe: it stores `provider_customer_id` first, then
+reuses an account that Nessie customer already has (nickname
+`Split · <first 8 of user id>`) before creating one, all under a row lock on the
+user's `bank_accounts` row. Retries and concurrent calls never open a second
+account. Labeled demo history stays with the four seeded demo users; new users
+start with only their opening balance.
+
 ## Funds (B4): how A7 and C5 reserve money
 
 `server/banking/funds.js` owns the lock and the arithmetic:

@@ -64,6 +64,8 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     synced: false,
     syncError: null,
     lastSync: null,
+    connecting: false,
+    connectError: null,
   };
   const visible = () => state.page === 'home' || state.page === 'profile';
   const refresh = () => {
@@ -178,7 +180,39 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     }
   }
 
+  // B9 · A user without a linked bank account gets a Connect card in place
+  // of the sync bar. Connecting opens their Nessie sandbox account (repeat-safe).
+  const needsBank = () => store.syncError?.code === 'NO_LINKED_ACCOUNT';
+
+  function connectCard() {
+    const err = store.connectError;
+    return `<div class="data-state" role="status" data-bank-connect>${icon('landmark')}<div><strong>Connect your bank</strong><p class="small muted">Split opens a sandbox checking account for you with ${money(150000)} of practice money. No real bank or money is involved.</p>${err ? `<p class="small" role="alert">${esc(err.message)}</p>` : ''}<button type="button" class="primary cursor-interaction" data-action="bank-connect" ${store.connecting ? 'disabled aria-busy="true"' : ''}>${icon('landmark')}${store.connecting ? 'Connecting…' : 'Connect bank'}</button></div></div>`;
+  }
+
+  async function connectBank() {
+    if (store.connecting) return;
+    store.connecting = true;
+    store.connectError = null;
+    refresh();
+    try {
+      const result = await apiRequest('/api/banking/connect', { method: 'POST', body: {}, timeoutMs: 45_000 });
+      store.syncError = null;
+      store.synced = true;
+      store.lastSync = result;
+      store.data = {};
+      store.errors = {};
+      toast(`Your sandbox bank account is ready with ${money(result.account.balanceCents ?? 0)}.`);
+    } catch (err) {
+      store.connectError = err;
+      announce(err.message);
+    } finally {
+      store.connecting = false;
+      refresh();
+    }
+  }
+
   function syncBar(d) {
+    if (needsBank()) return connectCard();
     const asOf = d?.account?.balanceAsOf;
     const when = asOf
       ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }).format(new Date(asOf))
@@ -199,6 +233,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
 
   function errorCard(period) {
     const err = store.errors[period];
+    if (err?.code === 'NO_LINKED_ACCOUNT') return needsBank() ? '' : connectCard();
     const msg = err?.code === 'NO_LINKED_ACCOUNT'
       ? 'Your demo bank account isn’t connected yet.'
       : err?.message || 'Something went wrong loading your numbers.';
@@ -590,6 +625,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     if (!b) return;
     if (b.dataset.action === 'bank-sync') {
       sync();
+      return;
+    }
+    if (b.dataset.action === 'bank-connect') {
+      void connectBank();
       return;
     }
     if (b.dataset.action === 'overview-retry') {

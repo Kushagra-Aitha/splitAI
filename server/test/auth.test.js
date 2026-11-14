@@ -168,3 +168,33 @@ test('only the documented auth routes and methods exist', async (t) => {
   assert.equal(anonymousLogout.status, 204);
   assert.equal((await get('/api/session')).status, 401);
 });
+
+test('sign-up runs the after-sign-up hook (B9) with the new actor, and its failure never fails sign-up', async (t) => {
+  const seen = [];
+  let fail = false;
+  const server = createApp({
+    config: loadConfig({ NODE_ENV: 'test', APP_ORIGIN: ORIGIN }),
+    authStore: createMemoryAuthStore(),
+    onSignup: async (actor) => {
+      seen.push(actor);
+      if (fail) throw new Error('provider down');
+    },
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => { const closed = once(server, 'close'); server.close(); server.closeAllConnections(); await closed; });
+  const signup = (email) => fetch(`http://127.0.0.1:${server.address().port}/api/auth/signup`, {
+    method: 'POST', headers: json, body: JSON.stringify({ name: 'Hook Test', email, password: 'hook-password' }),
+  });
+  const ok = await signup('one@split.test');
+  assert.equal(ok.status, 200);
+  assert.deepEqual(seen, [(await ok.json()).actor]);
+  fail = true;
+  assert.equal((await signup('two@split.test')).status, 200);
+  assert.equal(seen.length, 2);
+  // Login is not sign-up: the hook does not run.
+  await fetch(`http://127.0.0.1:${server.address().port}/api/auth/login`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: 'one@split.test', password: 'hook-password' }),
+  });
+  assert.equal(seen.length, 2);
+});
