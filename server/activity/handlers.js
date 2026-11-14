@@ -99,6 +99,8 @@ export function createActivityHandlers({ withTransaction }) {
           ORDER BY occurred_at DESC, id DESC, type DESC LIMIT $2
         ) SELECT p.id, p.type, ${timestamp('p.occurred_at')} AS "occurredAt", p.expense_id AS "expenseId",
           p.author_id AS "authorUserId", u.display_name AS "authorName", p.merchant, p.cents AS "amountCents",
+          CASE WHEN p.type = 'expense' THEN (SELECT count(*)::int FROM group_comments c
+            WHERE c.group_id = $1 AND c.expense_id = p.id) ELSE 0 END AS "commentCount",
           p.status, p.payee_id AS "payeeUserId", payee.display_name AS "payeeName", p.text,
           CASE WHEN p.type = 'expense' THEN coalesce((SELECT es.share_cents FROM expense_shares es
             WHERE es.expense_id = p.id AND es.user_id = $${actorIndex}), 0) ELSE NULL END AS "yourShareCents"
