@@ -51,19 +51,30 @@ To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setu
 - Sync writes run under `SELECT … FOR UPDATE` on the `bank_accounts` row, the
   same lock B4 uses for funds.
 
-## Bank accounts for new users (B9)
+## Capital Two accounts (B9, B12)
 
-Every sign-up gets its own Nessie sandbox checking account with a $1,500
-opening balance (`server/banking/provision.js`). Sign-up waits up to 10 s for
-it; if Nessie is slow or down, sign-up still succeeds and Overview shows a
-**Connect bank** card that calls `POST /api/banking/connect`.
+Every user can have two Capital Two (Nessie sandbox) accounts: **checking**
+($1,500 opening balance) and a **credit card** ($2,000 limit).
+`bank_accounts.kind` says which (one of each per user).
 
-Provisioning is repeat-safe: it stores `provider_customer_id` first, then
-reuses an account that Nessie customer already has (nickname
-`Split · <first 8 of user id>`) before creating one, all under a row lock on the
-user's `bank_accounts` row. Retries and concurrent calls never open a second
-account. Labeled demo history stays with the four seeded demo users; new users
-start with only their opening balance.
+- **Opening** (`server/banking/provision.js`) happens at sign-up, and again on
+  Connect if anything is missing. It is repeat-safe: it stores
+  `provider_customer_id` first, then reuses an account that customer already
+  has (nickname `Split · <id>` / `Split card · <id>`) before creating one.
+  Retries and concurrent calls never open a second account of a kind.
+- **Sharing** with Split is separate: rows start with `linked_at` NULL, and the
+  Connect screen's Allow (`POST /api/banking/connect`) links them.
+  `GET /api/banking/accounts` returns the accounts and `needsConsent`.
+- Only linked accounts sync, count in Overview, or move money.
+  `accountIdForUser` / `getMappedAccountForUser` return the **checking**
+  account, so spendable funds, goals and settlements always use checking.
+- Overview totals cover all linked accounts, so card purchases count as
+  spending. Paying the card from checking is a transfer and never counts.
+  A card's amount owed is `credit_limit − available` (it includes pending).
+- `POST /api/banking/sync` syncs every linked account and returns `changed`;
+  the app refreshes other views only when something changed.
+- Labeled demo history stays with the four seeded demo users. Their checking
+  accounts come pre-linked; their card opens the first time they press Allow.
 
 ## Funds (B4): how A7 and C5 reserve money
 
