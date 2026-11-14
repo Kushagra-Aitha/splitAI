@@ -49,7 +49,7 @@ async function requireExpense(db, groupId, expenseId, actorId) {
 }
 
 async function requireSettlement(db, groupId, settlementId) {
-  const { rows: [settlement] } = await db.query(`SELECT s.id, s.status,
+  const { rows: [settlement] } = await db.query(`SELECT s.id, s.status, s.payer_user_id AS "authorUserId", s.payee_user_id AS "payeeUserId",
     s.amount_cents AS "amountCents", ${timestamp('coalesce(s.resolved_at, s.claimed_at, s.created_at)')} AS "occurredAt",
     payer.display_name AS "authorName", payee.display_name AS "payeeName"
     FROM settlements s JOIN users payer ON payer.id = s.payer_user_id JOIN users payee ON payee.id = s.payee_user_id

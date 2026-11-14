@@ -1,3 +1,4 @@
+import { settlementDescription, settlementLabelJoin } from '../ledger/settlement-labels.js';
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from './overview.js';
 
@@ -15,8 +16,8 @@ export async function listTransactions(db, userId, query) {
   }
 
   const { rows } = await db.query(`
-    SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", t.description,
-           t.merchant_name AS "merchantName", t.category, t.status, t.source,
+    SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", ${settlementDescription} AS description,
+           CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName", t.category, t.status, t.source,
            t.occurred_at AS "occurredAt", a.id AS "accountId", a.kind AS "accountKind",
            a.account_mask AS "accountMask", k.provider_key AS "providerKey",
            g.name AS "splitGroupName",
@@ -38,6 +39,7 @@ export async function listTransactions(db, userId, query) {
       LEFT JOIN bank_import_keys k ON k.account_id = a.id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
       LEFT JOIN expenses e ON e.bank_account_id = a.id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
       LEFT JOIN groups g ON g.id = e.group_id
+      ${settlementLabelJoin}
       LEFT JOIN LATERAL (
         SELECT candidate.id, candidate.name
           FROM group_members m JOIN groups candidate ON candidate.id = m.group_id

@@ -4,10 +4,11 @@ import { GUARD_REASONS } from '../../../shared/guard-reasons.js';
 
 // Activity owns only its section. Refreshes never replace Together's ledger
 // state, feed data never enters Ask, and comment drafts stay in memory only.
-export function createActivity({ root, state, esc, money, announce }) {
+export function createActivity({ root, state, esc, money, announce, openModal, closeButton }) {
   const actorId = getSession()?.actor.userId;
   let groupId = null, threadId = null, threadKind = null, host = null, items = [];
   let before = null, focus = null, nextCursor = null, loading = false, error = '', postError = '';
+  let groupName = '';
   let ledger = [], ledgerCursor = null, selectedTab = 'Activity', chatOpen = false, unread = 0;
   let controller, postController, generation = 0, posting = false, needsFocus = false, fingerprint = '';
   const drafts = new Map();
@@ -20,13 +21,36 @@ export function createActivity({ root, state, esc, money, announce }) {
   };
   const date = (value) => `<time class="small muted" datetime="${esc(value)}">${esc(new Date(value).toLocaleString())}</time>`;
   const threadButton = (id, kind, label) => `<button type="button" class="text-button" data-thread-id="${esc(id)}" data-thread-kind="${kind}">${label}</button>`;
+  function settlementTitle(item) {
+    if (item.authorUserId === actorId) {
+      return `${item.status === 'posted' ? 'Settled up with' : 'Payment to'} ${item.payeeName} · ${groupName}`;
+    }
+    if (item.payeeUserId === actorId) {
+      return `${item.status === 'posted' ? `${item.authorName} paid you` : `Payment from ${item.authorName}`} · ${groupName}`;
+    }
+    return `${item.authorName} → ${item.payeeName} · ${groupName}`;
+  }
+
+  async function explain(button) {
+    const id = button.dataset.explainId;
+    const kind = button.dataset.explainKind;
+    openModal('Explain this charge', `<h2>Explain this charge</h2>${closeButton}<p data-charge-answer role="status">Reading the ledger…</p>`);
+    const result = root.querySelector('[data-charge-answer]');
+    try {
+      const { answer } = await apiRequest(`/api/groups/${encodeURIComponent(groupId)}/explain/${kind}/${encodeURIComponent(id)}`);
+      if (result.isConnected) result.textContent = answer;
+    } catch (error) {
+      if (result.isConnected) result.textContent = error.message;
+    }
+  }
   function entry(item) {
     let content;
     if (item.type === 'comment') content = `<p class="small"><strong>${esc(item.authorName)}</strong> commented</p>
       <p class="comment-text">${esc(item.text)}</p>${item.guardFlagged ? `<p class="comment-warning" role="note">⚠ Guard warning: ${esc((item.guardReasons || []).map((reason) => GUARD_REASONS[reason]).filter(Boolean).join(' '))}</p>` : ''}`;
     else if (item.type === 'expense') content = `<h3>${esc(item.merchant)} · ${money(item.amountCents)}</h3>
       <p class="small muted">Paid by ${esc(item.authorName)} · Your share ${money(item.yourShareCents)}</p>${threadButton(item.id, 'expense', `Comments (${item.commentCount ?? 0})`)}`;
-    else content = `<h3>Settlement · ${money(item.amountCents)}</h3><p>${esc(item.authorName)} to ${esc(item.payeeName)} · ${esc(item.status)}</p>${threadButton(item.id, 'settlement', `Comments (${item.commentCount ?? 0})`)}`;
+    else content = `<h3>${esc(settlementTitle(item))} · ${money(item.amountCents)}</h3><p>${esc(item.status)}</p>${threadButton(item.id, 'settlement', `Comments (${item.commentCount ?? 0})`)}`;
+    if (item.type !== 'comment') content += ` <button type="button" class="text-button" data-explain-id="${esc(item.id)}" data-explain-kind="${item.type}">Explain</button>`;
     return `<li><article id="sp-activity-${esc(item.id)}" data-ledger-entry="${esc(item.id)}" tabindex="-1" class="activity-entry">${content}${date(item.occurredAt)}${item.id === threadId ? '<div data-inline-thread></div>' : ''}</article></li>`;
   }
   function render() {
@@ -153,8 +177,9 @@ export function createActivity({ root, state, esc, money, announce }) {
     }
   });
   root.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-thread-id], [data-activity-action]');
+    const button = event.target.closest('[data-thread-id], [data-activity-action], [data-explain-id]');
     if (!active() || !button || (!host.contains(button) && button.dataset.activityAction !== 'chat')) return;
+    if (button.dataset.explainId) { void explain(button); return; }
     if (posting) return; // Keep the submitted comment bound to its expense.
     if (button.dataset.threadId) selectThread(button.dataset.threadId, button.dataset.threadKind);
     else if (button.dataset.activityAction === 'chat') selectThread(null);
@@ -184,13 +209,14 @@ export function createActivity({ root, state, esc, money, announce }) {
   root.addEventListener('click', (event) => { if (event.target.closest('#sp-logout')) reset(); });
   window.addEventListener('pagehide', reset);
   return {
-    mount(id, target, tab) {
+    mount(id, target, tab, name) {
       const nextHost = root.querySelector('#sp-group-activity');
       if (!nextHost || !owned()) { reset(); return; }
       const changed = id !== groupId;
       if (changed) { reset(); groupId = id; }
       host = nextHost;
       selectedTab = tab;
+      groupName = name;
       render();
       if (target?.expenseId || (target?.settlementId && target.commentId)) {
         const point = target.commentId ? { id: target.commentId, type: 'comment' } : null;

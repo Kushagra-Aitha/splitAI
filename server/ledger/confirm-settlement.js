@@ -1,3 +1,4 @@
+import { settlementMemo } from './settlement-labels.js';
 import { recordGuardEvent } from '../guard/events.js';
 import { HttpError } from '../http.js';
 import { nessie, NessieError } from '../lib/nessie.js';
@@ -90,7 +91,7 @@ export function createSettlementConfirmation({ withTransaction, lockAccount, res
         body: {
           payee_id: claim.payee.providerAccountId,
           amount_cents: claim.settlement.amountCents,
-          description: `Split AI settlement ${id}`,
+          description: settlementMemo(id),
         },
       });
     } catch (error) {
