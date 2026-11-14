@@ -1,4 +1,5 @@
 import { HttpError } from '../http.js';
+import { notify } from '../notifications/notify.js';
 
 /** Called inside the bank sync transaction, with the payer account locked. */
 export async function reconcileSettlements(db, accountId, activity) {
@@ -21,7 +22,7 @@ export async function reconcileSettlements(db, accountId, activity) {
     const posted = tx.status === 'completed';
     const failed = tx.status === 'declined' || tx.status === 'cancelled';
     if (posted && !Number.isSafeInteger(activity.balance.availableCents ?? activity.balance.balanceCents)) continue;
-    await db.query(`
+    const changed = await db.query(`
       UPDATE settlements
       SET provider_reference = $2, provider_status = $3,
           status = CASE WHEN $4 THEN 'posted' WHEN $5 THEN 'failed' ELSE 'pending' END,
@@ -33,6 +34,10 @@ export async function reconcileSettlements(db, accountId, activity) {
       WHERE id = $1 AND status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM settlements WHERE provider_reference = $2 AND id <> $1)
     `, [settlement.id, tx.providerTransactionId, tx.status, posted, failed]);
+    if (changed.rowCount) {
+      await notify(db, { kind: 'settlement_sent', sourceId: settlement.id });
+      if (posted || failed) await notify(db, { kind: posted ? 'settlement_posted' : 'settlement_failed', sourceId: settlement.id });
+    }
   }
 }
 

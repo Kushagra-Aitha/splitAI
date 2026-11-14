@@ -4,6 +4,7 @@ import { createOverview } from './features/overview/index.js';
 import { createTogether } from './features/together/index.js';
 import { createGuard } from './features/guard/index.js';
 import { createAsk } from './features/ask/index.js';
+import { createNotifications } from './features/notifications/index.js';
 
 /**
  * Mounts the Split app into the #split-common-ground element.
@@ -133,6 +134,7 @@ export function mountApp(root) {
   const guardFeature = createGuard(context);
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
+  createNotifications({ ...context, icons, openGroup: together.openGroup });
   const pages = {
     home: overview.home, profile: overview.profile, groups: together.groups,
     guard: guardFeature.guard, goals: goalsFeature.goals, chat: ask.chat,

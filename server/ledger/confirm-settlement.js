@@ -2,6 +2,7 @@ import { recordGuardEvent } from '../guard/events.js';
 import { HttpError } from '../http.js';
 import { nessie, NessieError } from '../lib/nessie.js';
 import { readDebts } from './debts.js';
+import { notify } from '../notifications/notify.js';
 
 const reviewColumns = `id, group_id AS "groupId", payer_user_id AS "payerUserId",
   payee_user_id AS "payeeUserId", amount_cents AS "amountCents", status,
@@ -103,7 +104,10 @@ export function createSettlementConfirmation({ withTransaction, lockAccount, res
             failure_reason = 'provider_rejected', resolved_at = clock_timestamp(), updated_at = clock_timestamp()
           WHERE id = $1 AND status = 'pending' RETURNING ${reviewColumns}
         `, [id]);
-        if (settlement) return { settlement };
+        if (settlement) {
+          await notify(db, { kind: 'settlement_failed', sourceId: settlement.id });
+          return { settlement };
+        }
         const { rows } = await db.query(`SELECT ${reviewColumns} FROM settlements WHERE id = $1`, [id]);
         return { settlement: rows[0] };
       });
@@ -117,6 +121,7 @@ export function createSettlementConfirmation({ withTransaction, lockAccount, res
         UPDATE settlements SET provider_reference = $2, provider_status = $3, updated_at = clock_timestamp()
         WHERE id = $1 AND status = 'pending' AND provider_reference IS NULL
       `, [id, data.id, typeof data.status === 'string' ? data.status : null]);
+      await notify(db, { kind: 'settlement_sent', sourceId: id });
       const { rows } = await db.query(`SELECT ${reviewColumns} FROM settlements WHERE id = $1`, [id]);
       return { settlement: rows[0] };
     });

@@ -16,14 +16,14 @@ export function getSession() {
 
 // Later feature modules use relative URLs and the same trusted session. Never
 // put provider credentials, a selected actor, or session tokens in storage.
-export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_000 } = {}) {
+export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_000, signal } = {}) {
   if (!path.startsWith('/api/') || path.includes('\\')) throw new Error('Use a relative API path.');
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!['GET', 'HEAD'].includes(method) && session) headers['X-CSRF-Token'] = session.csrfToken;
   const response = await fetch(path, {
     method, headers, credentials: 'same-origin', redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (response.status === 401) session = null;

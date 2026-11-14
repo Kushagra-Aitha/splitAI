@@ -13,6 +13,7 @@ import { createGuardEventsHandler } from './guard/events.js';
 import { createSettlementConfirmation } from './ledger/confirm-settlement.js';
 import { createLedgerHandlers } from './ledger/handlers.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
+import { createNotificationHandlers } from './notifications/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
@@ -24,6 +25,7 @@ export const handlers = Object.freeze({
   }),
   'insight.get': (context) => answerFinancial({ ...context, intent: 'spending_insight' }),
   ...bankingHandlers,
+  ...createNotificationHandlers({ query: (...args) => getPool().query(...args) }),
   'guard.list': createGuardEventsHandler((...args) => getPool().query(...args)),
   ...createGoalHandlers({ query: (...args) => getPool().query(...args), withTransaction }),
   'settlements.get': createSettlementLookup((...args) => getPool().query(...args)),

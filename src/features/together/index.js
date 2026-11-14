@@ -11,6 +11,21 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   let cached;
   const reviews = new Map();
   let groupCreated;
+  let navigationTarget;
+
+  function focusNotificationTarget() {
+    if (!navigationTarget || state.page !== 'groups' || state.group !== navigationTarget.groupId) return;
+    const id = navigationTarget.expenseId || navigationTarget.settlementId || navigationTarget.commentId;
+    const entry = id && root.querySelector(`[data-ledger-entry="${id}"]`);
+    const node = entry || root.querySelector('#sp-view h1, #sp-view [role="alert"]');
+    if (node) {
+      node.setAttribute('tabindex', '-1');
+      if (entry) entry.classList.add('is-notification-target');
+      node.focus({ preventScroll: true });
+      if (entry) node.scrollIntoView({ block: 'center' });
+      navigationTarget = null;
+    }
+  }
 
   function registerReview(draft, { onConfirmed, onDiscard } = {}) {
     const existing = reviews.get(draft.id);
@@ -26,7 +41,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     } catch (error) {
       pending.error = error.message;
     }
-    if (cached === pending && state.page === 'groups' && state.group === id) render();
+    if (cached === pending && state.page === 'groups' && state.group === id) { render(); focusNotificationTarget(); }
   }
 
   function groups() {
@@ -58,14 +73,15 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
             <button type="button" class="secondary" data-settle-with="${esc(d.userId)}">Settle up</button></p>`).join('')}
         <h2>Owed to you ${money(debts.owedToYouCents)}</h2>
           ${debts.owedToYou.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}</section>
-        <section><h2>Recent shared costs</h2>${ledger.map((entry) => entry.type === 'expense'
+        <section><h2>Recent shared costs</h2>${ledger.map((entry) => `<div data-ledger-entry="${esc(entry.id)}">` + (entry.type === 'expense'
           ? tx(esc(entry.merchant), 'Your share', money(entry.yourShareCents), 'receipt')
-          : tx('Settlement', esc(entry.status), money(entry.amountCents), 'users')).join('') || '<p>No shared activity yet.</p>'}</section>`;
+          : tx('Settlement', esc(entry.status), money(entry.amountCents), 'users')) + '</div>').join('') || '<p>No shared activity yet.</p>'}</section>`;
   }
 
-  function showGroup(id) {
+  function showGroup(id, target = {}) {
     const fromView = root.querySelector('#sp-view').contains(root.ownerDocument.activeElement);
     cached = undefined;
+    navigationTarget = target.focus || fromView ? { ...target, groupId: id } : null;
     state.page = 'groups';
     state.group = id;
     render();
@@ -344,5 +360,5 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       announce('Expense preview updated. Not saved yet.');
   }
 
-  return { groups, ticket, draftTicket, registerReview, openGroupCreation: newGroup, handleExpenseForm };
+  return { groups, ticket, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: newGroup, handleExpenseForm };
 }
