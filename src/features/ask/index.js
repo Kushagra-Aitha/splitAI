@@ -40,8 +40,11 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       <form data-ask-selection="${entry.id}" aria-describedby="sp-ask-error-${entry.id}" aria-busy="${entry.pending}"><fieldset ${entry.pending ? 'disabled' : ''}>
       <label class="field">Group<select id="sp-ask-group-${entry.id}" name="groupId" data-ask-group="${entry.id}" required><option value="">Choose a group</option>
       ${data.groups.map((group) => `<option value="${esc(group.id)}" ${group.id === data.groupId ? 'selected' : ''}>${esc(group.name)}</option>`).join('')}</select></label>
-      <div class="field-grid"><label class="field">Merchant<input id="sp-ask-merchant-${entry.id}" name="merchant" value="${esc(merchant)}" maxlength="60" required></label>
-      <label class="field">Total, USD<input id="sp-ask-amount-${entry.id}" name="amount" inputmode="decimal" value="${esc(amount)}" maxlength="20" aria-invalid="${entry.invalidField === 'amount'}" aria-describedby="sp-ask-error-${entry.id}" required></label></div>
+      ${data.requiresBankPurchase ? `<label class="field">Matching bank purchase<select id="sp-ask-bank-${entry.id}" name="bankPurchase" data-ask-bank="${entry.id}" required><option value="">Choose a purchase</option>
+        ${(data.bankCandidates || []).map((purchase, index) => `<option value="${index}" ${data.selectedBankRef?.accountId === purchase.accountId && data.selectedBankRef?.providerKey === purchase.providerKey ? 'selected' : ''}>${esc(purchase.merchant || merchant)} · ${formatUsdCents(purchase.cents)} · ${esc(new Date(purchase.occurredAt).toLocaleString())} · ${esc(purchase.accountKind)} ••${esc(purchase.mask || '••••')}</option>`).join('')}</select></label>
+        ${!data.bankCandidates?.length ? '<p>No matching unsplit purchase was found in your shared bank accounts. Sync your bank or refine the merchant/date in a new message.</p>' : '<p class="small muted">The bank supplies the merchant and amount. You still choose the group and participants.</p>'}` : ''}
+      <div class="field-grid"><label class="field">Merchant<input id="sp-ask-merchant-${entry.id}" name="merchant" value="${esc(merchant)}" maxlength="60" ${data.requiresBankPurchase ? 'readonly' : ''} required></label>
+      <label class="field">Total, USD<input id="sp-ask-amount-${entry.id}" name="amount" inputmode="decimal" value="${esc(amount)}" maxlength="20" ${data.requiresBankPurchase ? 'readonly' : ''} aria-invalid="${entry.invalidField === 'amount'}" aria-describedby="sp-ask-error-${entry.id}" required></label></div>
       ${data.members.length ? `<fieldset><legend>Split with</legend>${data.members.map((member) => `<label class="check-label"><input id="sp-ask-member-${entry.id}-${esc(member.userId)}" type="checkbox" name="participant" value="${esc(member.userId)}" ${member.isYou || selected?.includes(member.userId) ? 'checked' : ''} ${member.isYou ? 'disabled' : ''}>${esc(member.fullName || member.displayName)}${member.handle ? ` (@${esc(member.handle)})` : ''}${member.isYou ? ' · You, the payer' : ''}</label>`).join('')}</fieldset>` : ''}
       <div class="ask-selection-actions"><button id="sp-ask-review-${entry.id}" type="submit" class="primary" ${!data.groupId ? 'disabled' : ''}>Review split</button>
       <button id="sp-ask-create-${entry.id}" type="button" class="secondary" data-ask-action="create-group" data-entry-id="${entry.id}">Create a group</button></div></fieldset></form></section>`;
@@ -80,6 +83,10 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
 
   function receive(entry, response) {
     entry.response = response;
+    if (response.type === 'selection_needed' && response.requiresBankPurchase && response.selectedBankRef && entry.values) {
+      entry.values.merchant = response.extraction.merchant;
+      entry.values.amount = centsToUsdText(response.extraction.cents);
+    }
     if (response.type === 'draft') {
       registerReview(response.draft, {
         onConfirmed: (expense) => {
@@ -145,9 +152,14 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
 
   function selectionBody(entry, groupId, includeMembers, form) {
     const fd = rememberValues(entry, form);
-    const selection = { groupId };
-    if (entry.values.merchant.trim()) selection.merchant = entry.values.merchant.trim();
-    if (entry.values.amount.trim()) {
+    const selection = groupId ? { groupId } : {};
+    if (entry.response.requiresBankPurchase) {
+      const selected = fd.get('bankPurchase');
+      const purchase = selected !== null && selected !== '' ? entry.response.bankCandidates[Number(selected)] : null;
+      if (purchase) selection.bankRef = { accountId: purchase.accountId, providerKey: purchase.providerKey };
+    }
+    if (!entry.response.requiresBankPurchase && entry.values.merchant.trim()) selection.merchant = entry.values.merchant.trim();
+    if (!entry.response.requiresBankPurchase && entry.values.amount.trim()) {
       try { selection.cents = usdToCents(entry.values.amount.trim()); } catch (error) { entry.invalidField = 'amount'; throw error; }
     }
     if (includeMembers) selection.participantIds = fd.getAll('participant');
@@ -195,6 +207,13 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     }
   });
   root.addEventListener('change', (event) => {
+    if (event.target.hasAttribute('data-ask-bank') && event.target.value !== '') {
+      const entry = entries.find((value) => String(value.id) === event.target.dataset.askBank);
+      if (!entry || entry.pending) return;
+      try { void request(entry, selectionBody(entry, event.target.form.elements.groupId.value, false, event.target.form)); }
+      catch (error) { entry.error = error.message; entry.retryBody = null; refresh(); }
+      return;
+    }
     if (!event.target.hasAttribute('data-ask-group') || !event.target.value) return;
     const entry = entries.find((value) => String(value.id) === event.target.dataset.askGroup);
     if (!entry || entry.pending) return;

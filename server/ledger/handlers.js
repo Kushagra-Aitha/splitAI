@@ -73,6 +73,7 @@ async function requirePurchase(db, userId, { accountId, providerKey }, cents) {
     JOIN bank_transactions t ON t.account_id = k.account_id
       AND t.id = k.transaction_id AND t.occurred_at = k.occurred_at
     WHERE a.user_id = $1 AND k.account_id = $2 AND k.provider_key = $3
+      AND a.linked_at IS NOT NULL AND t.source = 'nessie' AND t.status IN ('pending', 'completed')
       AND t.kind = 'purchase' AND t.direction = 'debit' AND t.amount_cents = $4
   `, [userId, accountId, providerKey, cents]);
   if (!rowCount) throw invalid('Choose an imported purchase from your account with the same amount.');

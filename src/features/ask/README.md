@@ -29,12 +29,31 @@ forms in the empty state. Selecting a starter does not create/fund anything;
 the user edits and confirms the normal form. Returning to a visible Goals
 tab refreshes through the existing store, with no new interval timer.
 
-Outstanding C11 dependency: matching “last night's Domino's” to a real bank
-transaction requires A11 (#74). This change does not pretend that an
-unlinked/manual Ask draft is a matched bank purchase. Keep #73 open until
-that integration and manual drawer/keyboard/mobile acceptance are verified.
+Bank matching uses B12's canonical imported purchases and A2's existing
+bank-linked draft contract, so it can ship independently of A11's later
+Transactions page. Explicit bank/time references such as “last night's
+Domino's” search only the actor's linked accounts and Nessie purchase debits
+in Pending/Completed state, excluding purchases already split. Matching is
+bounded to six candidates and a specific local-date window (New York);
+ambiguous results require selection. Last night/yesterday use the previous
+calendar day; today/this month and a 30-day last-purchase window are also
+supported. Cash requests retain the manual expense flow.
+
+The bank supplies canonical amounts and merchant names; clients cannot
+change the selected purchase's amount or choose another user's account.
+The shared review ticket still requires explicit confirmation. Its bank
+reference is retained on retries and in the durable proposal binding.
+Confirmation rechecks sharing consent, source, purchase status and amount;
+the existing database constraint prevents splitting the same purchase
+twice. Declined/cancelled or unshared purchases cannot be confirmed.
+Only normalized criteria and a prompt hash are persisted. No bank rows or
+account IDs are sent to Gemini, and matching initiates no bank transfer.
+Migration: `0306_ask_bank_matching.sql`.
 
 Checks: production build, backend regression suite, notification message
-unit check, and isolated notification DB/session suite (including readable
-canonical metadata, mark-all ownership and former-member exclusion).
+unit check, isolated notification DB/session suite (including readable
+canonical metadata, mark-all ownership and former-member exclusion), and
+isolated Ask bank-matching checks covering real card/checking references,
+ambiguity, foreign IDs, immutable amounts, repeated confirmation and
+declined/unshared state changes.
 No browser tests were run.
