@@ -1,0 +1,52 @@
+{
+  "modelVersion": "split-guard-nb-v1",
+  "modelRevision": "split-guard-nb-v1:4c0f68f499bf",
+  "corpusSha256": "7d039a24a6083ed9ef0f806ebad56bbb976e3aeb8de05669173bfdc4996c239d",
+  "threshold": 0.999,
+  "trainingSamples": 3142,
+  "validation": {
+    "samples": 996,
+    "truePositive": 108,
+    "falsePositive": 0,
+    "falseNegative": 18,
+    "trueNegative": 870,
+    "precision": 1,
+    "recall": 0.8571428571428571
+  },
+  "heldOut": {
+    "samples": 1071,
+    "truePositive": 110,
+    "falsePositive": 1,
+    "falseNegative": 22,
+    "trueNegative": 938,
+    "precision": 0.990990990990991,
+    "recall": 0.8333333333333334
+  },
+  "splitValidation": {
+    "samples": 18,
+    "truePositive": 8,
+    "falsePositive": 0,
+    "falseNegative": 0,
+    "trueNegative": 10,
+    "precision": 1,
+    "recall": 1
+  },
+  "splitHeldOut": {
+    "samples": 18,
+    "truePositive": 8,
+    "falsePositive": 0,
+    "falseNegative": 0,
+    "trueNegative": 10,
+    "precision": 1,
+    "recall": 1
+  },
+  "publicSmsHeldOut": {
+    "samples": 1053,
+    "truePositive": 102,
+    "falsePositive": 1,
+    "falseNegative": 22,
+    "trueNegative": 928,
+    "precision": 0.9902912621359223,
+    "recall": 0.8225806451612904
+  }
+}

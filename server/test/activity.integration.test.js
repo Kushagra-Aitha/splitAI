@@ -41,7 +41,7 @@ test('live database: private group activity, plain-text comments and atomic noti
   const snapshot = async () => ({ debts: await readDebts(db, [groupId], USERS.maya),
     rows: (await db.query(`SELECT (SELECT count(*)::int FROM expenses) AS expenses,
       (SELECT count(*)::int FROM settlements) AS settlements, (SELECT count(*)::int FROM bank_transactions) AS bank,
-      (SELECT count(*)::int FROM goal_movements) AS movements, (SELECT count(*)::int FROM guard_events) AS guard`)).rows,
+      (SELECT count(*)::int FROM goal_movements) AS movements`)).rows,
   });
   let expenseComment;
 
@@ -60,7 +60,8 @@ test('live database: private group activity, plain-text comments and atomic noti
     assert.deepEqual(thread.items.map(({ id }) => id), [expenseComment.id]);
     const alerts = await notifications['notifications.list']({ actor: actor('maya'), query: new URLSearchParams() });
     const alert = alerts.items.find((item) => item.sourceId === expenseComment.id);
-    assert.equal(alert.kind, 'comment_added'); assert.equal(alert.expenseId, draft.id);
+    assert.equal(alert.kind, 'guard_flagged'); assert.equal(alert.expenseId, draft.id);
+    assert.equal((await db.query('SELECT id FROM guard_events WHERE comment_id = $1', [expenseComment.id])).rowCount, 3);
     assert.ok(!JSON.stringify(alert).includes('private-marker'));
     assert.equal((await db.query('SELECT id FROM notifications WHERE source_id = $1 AND recipient_user_id = $2', [expenseComment.id, USERS.sam])).rowCount, 0);
     assert.equal((await db.query('SELECT id FROM notifications WHERE source_id = $1', [expenseComment.id])).rowCount, 3);

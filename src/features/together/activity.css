@@ -23,6 +23,7 @@
 .a12-menu > div { position: absolute; z-index: 3; right: 0; min-width: 10rem; padding: .5rem; background: var(--sp-paper); border: 1px solid var(--sp-rim); border-radius: .65rem; }
 .a12-menu button { display: block; width: 100%; padding: .5rem; text-align: left; }
 .a12-drawer { position: fixed; inset: 0 0 0 auto; z-index: 20; width: min(28rem, 100%); padding: 1.25rem; overflow: auto; background: var(--sp-paper); box-shadow: -10px 0 40px #0002; }
+.comment-warning { padding: .75rem; margin-top: .75rem; border: 1px solid var(--sp-red); border-radius: .5rem; background: var(--sp-red-soft); color: var(--sp-red); font-size: .8rem; }
 [data-inline-thread] { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--sp-rim); }
 @media (max-width: 700px) {
   .a12-layout { grid-template-columns: minmax(0, 1fr); }
