@@ -61,7 +61,7 @@ test('live database: private group activity, plain-text comments and atomic noti
     const alerts = await notifications['notifications.list']({ actor: actor('maya'), query: new URLSearchParams() });
     const alert = alerts.items.find((item) => item.sourceId === expenseComment.id);
     assert.equal(alert.kind, 'guard_flagged'); assert.equal(alert.expenseId, draft.id);
-    assert.equal((await db.query('SELECT id FROM guard_events WHERE comment_id = $1', [expenseComment.id])).rowCount, 3);
+    assert.equal((await db.query('SELECT id FROM guard_events WHERE comment_id = $1', [expenseComment.id])).rowCount, 4);
     assert.ok(!JSON.stringify(alert).includes('private-marker'));
     assert.equal((await db.query('SELECT id FROM notifications WHERE source_id = $1 AND recipient_user_id = $2', [expenseComment.id, USERS.sam])).rowCount, 0);
     assert.equal((await db.query('SELECT id FROM notifications WHERE source_id = $1', [expenseComment.id])).rowCount, 3);

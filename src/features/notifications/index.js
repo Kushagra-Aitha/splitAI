@@ -13,19 +13,35 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
   let timer, pending, readController, epoch = 0, pollId = 0;
   const owned = () => !!actorId && getSession()?.actor.userId === actorId;
 
+  // B16 · Grouped Today / Earlier; bold actor; unread = tint + dot + bold;
+  // every row is one button with a chevron so it reads as clickable.
+  const dayKey = (value) => new Date(value).toDateString();
+  const GUARD_KINDS = new Set(['guard_flagged', 'guard_blocked']);
+  function itemHtml(item) {
+    const message = esc(notificationMessage(item));
+    const actor = item.actorName ? esc(item.actorName) : '';
+    const text = actor && message.startsWith(actor) ? `<strong>${actor}</strong>${message.slice(actor.length)}` : message;
+    const leading = GUARD_KINDS.has(item.kind)
+      ? `<span class="notification-icon is-guard">${icon(item.kind === 'guard_blocked' ? 'shield-x' : 'shield-alert')}</span>`
+      : item.actorUserId ? avatarHtml({ userId: item.actorUserId, displayName: item.actorName }, { label: false }) : `<span class="notification-icon">${icon('bell')}</span>`;
+    const meta = [item.groupName ? esc(item.groupName) : null, esc(relativeTime(item.createdAt))].filter(Boolean).join(' · ');
+    return `<li><button type="button" id="sp-notification-${esc(item.id)}" class="notification-item ${item.readAt ? 'is-read' : 'is-unread'}" data-notification-id="${esc(item.id)}" ${reading ? 'disabled' : ''}>
+      ${leading}<span class="notification-copy"><span class="notification-text">${text}</span><time class="notification-meta" datetime="${esc(item.createdAt)}" title="${esc(new Date(item.createdAt).toLocaleString())}">${meta}</time></span>
+      ${item.readAt ? '' : '<span class="notification-dot" aria-hidden="true"></span><span class="sr-only">Unread.</span>'}${icon('chevron-right')}</button></li>`;
+  }
+  function groupsHtml() {
+    const today = dayKey(Date.now());
+    const sections = [['Today', items.filter((i) => dayKey(i.createdAt) === today)], ['Earlier', items.filter((i) => dayKey(i.createdAt) !== today)]];
+    return sections.filter(([, list]) => list.length)
+      .map(([label, list]) => `<h3 class="notification-section">${label}</h3><ul>${list.map(itemHtml).join('')}</ul>`).join('');
+  }
   function render() {
     preserveFocus(host, () => {
       host.innerHTML = `<button type="button" id="sp-notification-bell" class="icon-button notification-bell" aria-label="Notifications, ${unreadCount} unread" aria-expanded="${open}" aria-controls="sp-notification-panel">${icon('bell')}${unreadCount ? `<span class="notification-badge" aria-hidden="true">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}</button>
         ${open ? `<section id="sp-notification-panel" class="notification-panel" aria-label="Notifications"><div class="notification-heading"><h2>Notifications</h2><button type="button" id="sp-notification-read-all" class="text-button" data-notification-action="read-all" ${reading || !unreadCount ? 'disabled' : ''}>Mark all read</button></div>
-        ${error ? `<p role="alert">${esc(error)}</p><button type="button" class="text-button" data-notification-action="retry">Retry</button>` : ''}
-        ${loading ? '<p role="status">Checking notifications…</p>' : ''}
-        ${reading ? '<p role="status">Opening notification…</p>' : ''}
-        <ul>${items.map((item) => `<li><button type="button" id="sp-notification-${esc(item.id)}" class="notification-item ${item.readAt ? '' : 'is-unread'}" data-notification-id="${esc(item.id)}" ${reading ? 'disabled' : ''}>
-          ${item.actorUserId ? avatarHtml({ userId: item.actorUserId, displayName: item.actorName }, { size: 'sm', label: false }) : ''}
-          <span>${esc(notificationMessage(item))}${item.readAt ? '' : '<span class="notification-unread"> · Unread</span>'}</span>
-          ${item.groupName ? `<span class="small muted">${esc(item.groupName)}</span>` : ''}
-          <time class="small muted" datetime="${esc(item.createdAt)}" title="${esc(new Date(item.createdAt).toLocaleString())}">${esc(relativeTime(item.createdAt))}</time></button></li>`).join('')}</ul>
-        ${!items.length && !loading && !error ? '<p>No notifications.</p>' : ''}
+        ${error ? `<p class="notification-error" role="alert">${esc(error)} <button type="button" class="text-button" data-notification-action="retry">Retry</button></p>` : ''}
+        ${reading ? '<p class="notification-status" role="status">Opening…</p>' : ''}
+        ${items.length ? groupsHtml() : loading ? '<p class="notification-status" role="status">Checking notifications…</p>' : !error ? `<div class="notification-empty">${icon('bell')}<p>You’re all caught up.</p></div>` : ''}
         <div class="notification-pages">${before ? '<button type="button" class="text-button" data-notification-action="latest">Latest</button>' : ''}${nextCursor ? `<button type="button" class="text-button" data-notification-action="older" ${loading ? 'disabled' : ''}>Older</button>` : ''}</div></section>` : ''}`;
       icons();
     });

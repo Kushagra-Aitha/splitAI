@@ -46,6 +46,8 @@ export function createGuardEventsHandler(query) {
         e.expense_id AS "expenseId", e.settlement_id AS "settlementId", e.comment_id AS "commentId",
         to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
         g.name AS "groupName", c.text AS "commentText", author.display_name AS "authorName", f.label AS feedback,
+        c.author_user_id AS "authorUserId", c.author_user_id = $1 AS "isAuthor",
+        c.guard_score AS confidence, coalesce(c.guard_reasons, '[]'::jsonb) AS "reasonCodes",
         CASE WHEN e.decision = 'flagged' THEN 'flagged' WHEN e.decision = 'blocked' THEN 'blocked'
           WHEN s.status = 'pending' THEN 'held' ELSE 'approved' END AS status
       ${joins} WHERE ${scope} AND (${filters[filter]})

@@ -51,12 +51,16 @@ test('live database: local comment Guard, private alerts, consent settings and f
     assert.ok(comment.guardReasons.includes('PROMPT_OVERRIDE')); assert.ok(comment.guardReasons.includes('OUTSIDE_PAYMENT'));
     assert.deepEqual(await post(body), { comment });
     const rows = (await db.query('SELECT actor_user_id FROM guard_events WHERE comment_id = $1', [comment.id])).rows;
-    assert.deepEqual(rows.map((row) => row.actor_user_id).sort(), [USERS.maya, USERS.priya, USERS.alex].sort());
+    // B16: the author gets a Guard entry too, but no notification about their own message.
+    assert.deepEqual(rows.map((row) => row.actor_user_id).sort(), [USERS.maya, USERS.priya, USERS.alex, USERS.sam].sort());
     const alerts = (await db.query('SELECT kind FROM notifications WHERE source_id = $1', [comment.id])).rows;
     assert.deepEqual(alerts.map((row) => row.kind), ['guard_flagged', 'guard_flagged', 'guard_flagged']);
     mayaEvent = (await list('maya', 'flagged')).events[0];
     assert.equal(mayaEvent.commentId, comment.id); assert.equal(mayaEvent.commentText, body.text);
-    assert.ok(!(await list('sam')).events.some((event) => event.commentId === comment.id));
+    assert.equal(mayaEvent.isAuthor, false); assert.equal(mayaEvent.authorUserId, USERS.sam);
+    assert.ok(mayaEvent.reasonCodes.includes('OUTSIDE_PAYMENT')); assert.ok(mayaEvent.confidence >= 0 && mayaEvent.confidence <= 1);
+    const samEvent = (await list('sam')).events.find((event) => event.commentId === comment.id);
+    assert.equal(samEvent.isAuthor, true);
     const page = await activity['activity.list']({ actor: actor('maya'), params: { id: groupId }, query: new URLSearchParams() });
     assert.equal(page.items.find((entry) => entry.id === comment.id).guardFlagged, true);
     const alertsPage = await notifications['notifications.list']({ actor: actor('maya'), query: new URLSearchParams() });
@@ -78,7 +82,7 @@ test('live database: local comment Guard, private alerts, consent settings and f
     const second = (await post(input())).comment;
     assert.equal(second.guardFlagged, true);
     assert.equal((await db.query('SELECT id FROM guard_events WHERE comment_id = $1 AND actor_user_id = $2', [second.id, USERS.maya])).rowCount, 0);
-    assert.equal((await db.query('SELECT id FROM guard_events WHERE comment_id = $1', [second.id])).rowCount, 2);
+    assert.equal((await db.query('SELECT id FROM guard_events WHERE comment_id = $1', [second.id])).rowCount, 3);
     assert.equal((await db.query("SELECT id FROM notifications WHERE source_id = $1 AND recipient_user_id = $2 AND kind = 'comment_added'", [second.id, USERS.maya])).rowCount, 1);
     const blocked = await withTransaction((tx) => recordGuardEvent(tx, { actorUserId: USERS.maya, reasonCode: 'UNTRUSTED_CONTEXT' }));
     assert.equal((await db.query("SELECT id FROM notifications WHERE source_id = $1 AND kind = 'guard_blocked'", [blocked])).rowCount, 1);
