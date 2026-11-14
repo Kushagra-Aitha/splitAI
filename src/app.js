@@ -125,7 +125,11 @@ export function mountApp(root) {
     shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go,
   };
   const goalsFeature = createGoals(context);
-  const overview = createOverview(context);
+  // Overview reuses A5's ticket; Together is created after it (it needs tx),
+  // so these resolve at call time.
+  const overview = createOverview({ ...context,
+    draftTicket: (draft) => together.draftTicket(draft),
+    registerReview: (draft, handlers) => together.registerReview(draft, handlers) });
   const together = createTogether({ ...context, tx: overview.tx });
   const guardFeature = createGuard(context);
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
@@ -152,6 +156,9 @@ export function mountApp(root) {
         guard: 'Guard log',
       }[state.page] || 'Overview';
     view.innerHTML = `<div class="content-enter">${(pages[state.page] || pages.home)()}</div>`;
+    // Overview and Profile carry no footer or marketing copy (B6).
+    const footer = root.querySelector('.page-footer');
+    if (footer) footer.style.display = ['home', 'profile'].includes(state.page) || !pages[state.page] ? 'none' : '';
     icons();
     overview.mountMoneyCharts();
     if (state.page === 'goals') goalsFeature.mountGoalScene();
