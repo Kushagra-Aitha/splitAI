@@ -1,10 +1,23 @@
+// B8 · Email/password accounts on top of F3's session boundary: an HttpOnly
+// SameSite=Strict cookie, a per-session CSRF token, and exact-Origin checks in
+// app.js. Users and sessions persist in the auth store (Tiger Data in the
+// server, memory in tests), so logins survive a restart.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { HttpError } from './http.js';
+import { hashPassword, PASSWORD_MAX_BYTES, PASSWORD_MIN_CHARS, verifyPassword } from './auth/password.js';
 
-const TTL_MS = 8 * 60 * 60 * 1000;
-const MAX_SESSIONS = 1000;
-const MAX_ATTEMPT_BUCKETS = 1000;
-const ATTEMPT_WINDOW_MS = 60_000;
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_BUCKETS = 10_000;
+const IP_WINDOW_MS = 60_000;
+const IP_LIMIT = 10; // sign-in and sign-up attempts per IP per minute
+const EMAIL_WINDOW_MS = 15 * 60_000;
+const EMAIL_FAILURES = 5; // wrong passwords per email per 15 minutes
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CONTROL = /\p{Cc}/u;
+
+const invalidCredentials = () => new HttpError(401, 'INVALID_CREDENTIALS', 'That email and password don’t match.');
+const invalid = (message) => new HttpError(422, 'VALIDATION_ERROR', message);
+const rateLimited = () => new HttpError(429, 'LOGIN_RATE_LIMITED', 'Too many sign-in attempts. Try again in a few minutes.');
 
 function equalSecret(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string') return false;
@@ -12,11 +25,40 @@ function equalSecret(left, right) {
   return timingSafeEqual(digest(left), digest(right));
 }
 
-export function createSessions(config, { now = Date.now } = {}) {
-  const sessions = new Map();
-  const attempts = new Map();
+const sha256 = (token) => createHash('sha256').update(token).digest();
+
+export function normalizeEmail(value) {
+  if (typeof value !== 'string') return null;
+  const email = value.trim().toLowerCase();
+  return email.length <= 254 && EMAIL.test(email) ? email : null;
+}
+
+function readName(value) {
+  const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  if (!name || name.length > 80 || CONTROL.test(name)) throw invalid('Enter your name (up to 80 characters).');
+  return name;
+}
+
+function readNewPassword(value) {
+  if (typeof value !== 'string' || [...value].length < PASSWORD_MIN_CHARS) {
+    throw invalid(`Use a password with at least ${PASSWORD_MIN_CHARS} characters.`);
+  }
+  if (Buffer.byteLength(value) > PASSWORD_MAX_BYTES) throw invalid('That password is too long.');
+  return value;
+}
+
+export function initialsFor(name) {
+  const parts = name.split(' ').filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts.at(-1)[0] : '')).toUpperCase() || '?';
+}
+
+export function createSessions(config, { store, now = Date.now }) {
+  if (!store) throw new Error('createSessions needs an auth store.');
+  const ipBuckets = new Map();
+  const emailBuckets = new Map();
   const cookieName = config.secureCookies ? '__Host-split-session' : 'split-session';
-  const cookie = (value, age) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${config.secureCookies ? '; Secure' : ''}`;
+  const cookie = (value, ageMs) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(ageMs / 1000)}${config.secureCookies ? '; Secure' : ''}`;
+  let lastSweep = 0;
 
   function tokenFrom(req) {
     const cookies = (req.headers.cookie || '').split(';').map((part) => part.trim().split('='));
@@ -24,64 +66,117 @@ export function createSessions(config, { now = Date.now } = {}) {
     return values.length === 1 && /^[a-f0-9]{64}$/.test(values[0][1]) ? values[0][1] : null;
   }
 
-  function prune() {
+  function prune(map) {
     const time = now();
-    for (const [token, session] of sessions) if (session.expiresAt <= time) sessions.delete(token);
-    for (const [ip, attempt] of attempts) if (attempt.until <= time) attempts.delete(ip);
+    for (const [k, bucket] of map) if (bucket.until <= time) map.delete(k);
+  }
+
+  // Trust the socket, never a client-supplied forwarding header. Behind a
+  // proxy this deliberately shares the limit; edge rate limits belong to B7.
+  function limitIp(req, res) {
+    prune(ipBuckets);
+    const ip = req.socket.remoteAddress;
+    let bucket = ipBuckets.get(ip);
+    if (!bucket) {
+      if (ipBuckets.size >= MAX_BUCKETS) throw rateLimited();
+      bucket = { count: 0, until: now() + IP_WINDOW_MS };
+      ipBuckets.set(ip, bucket);
+    }
+    if (++bucket.count > IP_LIMIT) {
+      res.setHeader('Retry-After', Math.max(1, Math.ceil((bucket.until - now()) / 1000)));
+      throw rateLimited();
+    }
+  }
+
+  function emailLocked(email, res) {
+    prune(emailBuckets);
+    const bucket = emailBuckets.get(email);
+    if (bucket && bucket.count >= EMAIL_FAILURES) {
+      res.setHeader('Retry-After', Math.max(1, Math.ceil((bucket.until - now()) / 1000)));
+      return true;
+    }
+    return false;
+  }
+
+  function recordFailure(email) {
+    if (!email) return;
+    let bucket = emailBuckets.get(email);
+    if (!bucket) {
+      if (emailBuckets.size >= MAX_BUCKETS) return;
+      bucket = { count: 0, until: now() + EMAIL_WINDOW_MS };
+      emailBuckets.set(email, bucket);
+    }
+    bucket.count++;
+  }
+
+  async function issue(req, res, actor) {
+    const oldToken = tokenFrom(req);
+    if (oldToken) await store.deleteSession(sha256(oldToken));
+    const time = now();
+    if (time - lastSweep > 60 * 60_000) {
+      lastSweep = time;
+      await store.deleteExpired(time);
+    }
+    const token = randomBytes(32).toString('hex');
+    const session = Object.freeze({
+      actor: Object.freeze({ userId: actor.userId, displayName: actor.displayName }),
+      csrfToken: randomBytes(32).toString('hex'),
+      expiresAt: time + SESSION_TTL_MS,
+    });
+    await store.createSession({ tokenHash: sha256(token), userId: actor.userId, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
+    res.setHeader('Set-Cookie', cookie(token, SESSION_TTL_MS));
+    return session;
   }
 
   return {
-    login(req, res, accessCode) {
-      prune();
-      // Trust the socket, never a client-supplied forwarding header. Behind a
-      // proxy this deliberately shares the limit; edge rate limits belong to B7.
-      const ip = req.socket.remoteAddress;
-      let bucket = attempts.get(ip);
-      if (!bucket) {
-        if (attempts.size >= MAX_ATTEMPT_BUCKETS) {
-          throw new HttpError(429, 'LOGIN_RATE_LIMITED', 'Too many sign-in attempts. Try again in a minute.');
-        }
-        bucket = { count: 0, until: now() + ATTEMPT_WINDOW_MS };
-        attempts.set(ip, bucket);
-      }
-      if (++bucket.count > 10) {
-        res.setHeader('Retry-After', Math.max(1, Math.ceil((bucket.until - now()) / 1000)));
-        throw new HttpError(429, 'LOGIN_RATE_LIMITED', 'Too many sign-in attempts. Try again in a minute.');
-      }
-      if (!equalSecret(accessCode, config.accessCode)) {
-        throw new HttpError(401, 'INVALID_ACCESS_CODE', 'The demo access code is incorrect.');
-      }
-      const oldToken = tokenFrom(req);
-      if (oldToken) sessions.delete(oldToken);
-      if (sessions.size >= MAX_SESSIONS) {
-        throw new HttpError(503, 'SESSION_CAPACITY', 'The demo is busy. Try again later.');
-      }
-      const token = randomBytes(32).toString('hex');
-      const session = Object.freeze({
-        actor: config.actor,
-        csrfToken: randomBytes(32).toString('hex'),
-        expiresAt: now() + TTL_MS,
+    // Only name, email and password are read; identity fields in the body are
+    // ignored, so signing up or in can never select another user or account.
+    async signup(req, res, body) {
+      limitIp(req, res);
+      const name = readName(body.name);
+      const email = normalizeEmail(body.email);
+      if (!email) throw invalid('Enter a valid email address.');
+      const password = readNewPassword(body.password);
+      const [first] = name.split(' ');
+      const user = await store.createUser({
+        email, displayName: first, fullName: name, initials: initialsFor(name), passwordHash: await hashPassword(password),
       });
-      sessions.set(token, session);
-      res.setHeader('Set-Cookie', cookie(token, TTL_MS / 1000));
-      return session;
+      if (!user) throw new HttpError(409, 'EMAIL_TAKEN', 'An account with that email already exists. Log in instead.');
+      return issue(req, res, user);
     },
-    require(req) {
-      const token = tokenFrom(req);
-      const session = sessions.get(token);
-      if (!session || session.expiresAt <= now()) {
-        if (token) sessions.delete(token);
-        throw new HttpError(401, 'SESSION_REQUIRED', 'Sign in to the demo to continue.');
+
+    async login(req, res, body) {
+      limitIp(req, res);
+      const email = normalizeEmail(body.email);
+      const password = typeof body.password === 'string' && Buffer.byteLength(body.password) <= PASSWORD_MAX_BYTES ? body.password : '';
+      if (email && emailLocked(email, res)) throw rateLimited();
+      const user = email ? await store.findUserByEmail(email) : null;
+      // Always run one scrypt verification so timing does not reveal accounts.
+      const ok = await verifyPassword(password, user?.passwordHash ?? null);
+      if (!user || !ok || !password) {
+        recordFailure(email);
+        throw invalidCredentials();
       }
-      return session;
+      emailBuckets.delete(email);
+      return issue(req, res, user);
     },
+
+    async require(req) {
+      const token = tokenFrom(req);
+      const session = token ? await store.findSession(sha256(token), now()) : null;
+      if (!session) throw new HttpError(401, 'SESSION_REQUIRED', 'Log in to continue.');
+      return Object.freeze({ ...session, actor: Object.freeze({ ...session.actor }) });
+    },
+
     requireCsrf(req, session) {
       if (!equalSecret(req.headers['x-csrf-token'], session.csrfToken)) {
         throw new HttpError(403, 'CSRF_FORBIDDEN', 'Refresh the app and try again.');
       }
     },
-    logout(req, res) {
-      sessions.delete(tokenFrom(req));
+
+    async logout(req, res) {
+      const token = tokenFrom(req);
+      if (token) await store.deleteSession(sha256(token));
       res.setHeader('Set-Cookie', cookie('', 0));
     },
   };

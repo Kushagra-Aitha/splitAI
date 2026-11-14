@@ -1,6 +1,7 @@
 import { optionalEnv } from '../lib/env.js';
 import { isMain } from '../lib/is-main.js';
-import { ACCOUNTS, BILLS, GROUPS, USERS } from './demo-ids.js';
+import { hashPassword, PASSWORD_MIN_CHARS } from '../auth/password.js';
+import { ACCOUNTS, BILLS, DEMO_EMAILS, GROUPS, USERS } from './demo-ids.js';
 import { insertDemoHistory } from './demo-history.js';
 import { closePool, dbSchema, getPool, withTransaction } from './pool.js';
 
@@ -55,16 +56,26 @@ export async function seed({ log = console.log } = {}) {
   );
   if (!rows[0].ready) throw new Error(`Schema "${schema}" is not migrated. Run npm run db:migrate first.`);
 
+  // Demo logins (B8): every demo user signs in with DEMO_PASSWORD. Unset keeps
+  // any password already stored, so re-seeding never locks people out.
+  const demoPassword = optionalEnv('DEMO_PASSWORD');
+  if (demoPassword && [...demoPassword].length < PASSWORD_MIN_CHARS) {
+    throw new Error(`DEMO_PASSWORD must have at least ${PASSWORD_MIN_CHARS} characters.`);
+  }
+  const hashes = {};
+  for (const u of users) hashes[u.key] = demoPassword ? await hashPassword(demoPassword) : null;
+
   await withTransaction(async (db) => {
     for (const u of users) {
       await db.query(
-        `INSERT INTO users (id, handle, display_name, full_name, initials, avatar_tone)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO users (id, handle, display_name, full_name, initials, avatar_tone, email, password_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (id) DO UPDATE SET
            handle = EXCLUDED.handle, display_name = EXCLUDED.display_name,
            full_name = EXCLUDED.full_name, initials = EXCLUDED.initials,
-           avatar_tone = EXCLUDED.avatar_tone`,
-        [USERS[u.key], u.key, u.display, u.fullName ?? null, u.initials, u.tone],
+           avatar_tone = EXCLUDED.avatar_tone, email = EXCLUDED.email,
+           password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash)`,
+        [USERS[u.key], u.key, u.display, u.fullName ?? null, u.initials, u.tone, DEMO_EMAILS[u.key], hashes[u.key]],
       );
       await db.query(
         `INSERT INTO bank_accounts (id, user_id, provider, nickname, account_type, account_mask)
@@ -134,6 +145,9 @@ export async function seed({ log = console.log } = {}) {
 
     log(`Seeded schema "${schema}": ${users.length} users, ${users.length} accounts, ${groups.length} groups, ${bills.length} bills, ${history} new demo history rows.`);
     log(mapped.length ? `  Nessie mapping: ${mapped.join(', ')}` : '  Nessie mapping: none set (NESSIE_ACCOUNT_ID_* empty)');
+    log(demoPassword
+      ? `  Demo logins: ${Object.values(DEMO_EMAILS).join(', ')} (password from DEMO_PASSWORD)`
+      : '  Demo logins: DEMO_PASSWORD not set; existing demo passwords kept');
   });
 }
 

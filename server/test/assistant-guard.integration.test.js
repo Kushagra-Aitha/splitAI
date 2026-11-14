@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import test from 'node:test';
+import { loginAs, memoryAuth } from './support/auth.js';
 import { createAskWorkflow } from '../assistant/workflow.js';
 import { createAssistantGuard } from '../assistant/guard.js';
 import { createGuardEventsHandler, recordGuardEvent } from '../guard/events.js';
@@ -51,8 +52,8 @@ test('live database: assistant Guard records real rejections with zero transfers
   const ask = createAskWorkflow({ query, withTransaction, parseIntent });
   let activeAsk = ask;
   const origin = 'http://localhost:3001';
-  const accessCode = 'synthetic-c3-local-test-code-only-123';
-  const server = createApp({ config: loadConfig({ NODE_ENV: 'test', APP_ORIGIN: origin, DEMO_ACTOR_ID: USERS.maya, DEMO_ACCESS_CODE: accessCode }),
+  const authStore = await memoryAuth([{ userId: USERS.maya, email: 'maya@split.test', displayName: 'Maya Chen' }]);
+  const server = createApp({ config: loadConfig({ NODE_ENV: 'test', APP_ORIGIN: origin }), authStore,
     handlers: { 'ask.create': (context) => activeAsk(context), 'guard.list': createGuardEventsHandler(query) },
   });
   server.listen(0, '127.0.0.1');
@@ -70,10 +71,9 @@ test('live database: assistant Guard records real rejections with zero transfers
     return originalFetch(input, options);
   };
   t.after(() => { globalThis.fetch = originalFetch; });
-  const login = await fetch(`${base}/api/session`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ accessCode }) });
+  const login = await loginAs(base, origin, 'maya@split.test');
   assert.equal(login.status, 200);
-  const session = await login.json();
-  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const { session, cookie } = login;
   const post = async (body, csrf = session.csrfToken) => {
     const response = await fetch(`${base}/api/ask`, { method: 'POST', headers: { Origin: origin, Cookie: cookie,
       'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });

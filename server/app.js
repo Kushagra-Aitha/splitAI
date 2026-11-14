@@ -4,13 +4,16 @@ import { HttpError, readJson, requireSameOrigin, sendJson } from './http.js';
 import { matchRoutes, routes } from './routes.js';
 import { createSessions } from './session.js';
 
-export function createApp({ config, handlers = {}, serveStatic, now, onError = () => {} }) {
+export function createApp({ config, handlers = {}, serveStatic, now, onError = () => {}, authStore }) {
   for (const [name, handler] of Object.entries(handlers)) {
     if (!routes.some((route) => route.name === name) || typeof handler !== 'function') {
       throw new Error('Unknown or invalid feature handler.');
     }
   }
-  const sessions = createSessions(config, { now });
+  // Users and sessions persist in the auth store (B8). There is deliberately
+  // no default: the server passes Tiger Data, tests pass a memory store.
+  if (!authStore) throw new Error('createApp needs an authStore.');
+  const sessions = createSessions(config, { store: authStore, now });
   const server = createServer({ maxHeaderSize: 16 * 1024, requestTimeout: 30_000, headersTimeout: 10_000 }, async (req, res) => {
     const requestId = randomUUID();
     res.setHeader('X-Request-Id', requestId);
@@ -45,28 +48,28 @@ export function createApp({ config, handlers = {}, serveStatic, now, onError = (
         throw new HttpError(403, 'ORIGIN_FORBIDDEN', 'This request must come from the app origin.');
       }
       if (pathname === '/api/session') {
-        if (req.method === 'POST') {
-          requireSameOrigin(req, config.origin);
-          const body = await readJson(req);
-          // Extra identity fields are deliberately ignored. Only server config
-          // selects the actor; signing in cannot select a payer or account.
-          return sendJson(res, 200, sessions.login(req, res, body.accessCode));
-        }
-        if (req.method === 'GET') return sendJson(res, 200, sessions.require(req));
-        if (req.method === 'DELETE') {
-          const session = sessions.require(req);
-          requireSameOrigin(req, config.origin);
-          sessions.requireCsrf(req, session);
-          sessions.logout(req, res);
-          res.writeHead(204);
-          return res.end();
-        }
-        res.setHeader('Allow', 'GET, POST, DELETE');
+        if (req.method === 'GET') return sendJson(res, 200, await sessions.require(req));
+        if (req.method === 'DELETE') return await logout(req, res);
+        res.setHeader('Allow', 'GET, DELETE');
         throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'This session method is not supported.');
+      }
+      if (pathname.startsWith('/api/auth/')) {
+        const action = pathname.slice('/api/auth/'.length);
+        if (!['signup', 'login', 'logout'].includes(action)) {
+          throw new HttpError(404, 'NOT_FOUND', 'The API route was not found.');
+        }
+        if (req.method !== 'POST') {
+          res.setHeader('Allow', 'POST');
+          throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'Use POST for this route.');
+        }
+        requireSameOrigin(req, config.origin);
+        if (action === 'logout') return await logout(req, res);
+        const body = await readJson(req);
+        return sendJson(res, 200, await sessions[action](req, res, body));
       }
       const matches = matchRoutes(pathname);
       if (!matches.length) throw new HttpError(404, 'NOT_FOUND', 'The API route was not found.');
-      const session = sessions.require(req);
+      const session = await sessions.require(req);
       const route = matches.find((match) => match.method === req.method);
       if (!route) {
         res.setHeader('Allow', matches.map((match) => match.method).join(', '));
@@ -100,6 +103,17 @@ export function createApp({ config, handlers = {}, serveStatic, now, onError = (
       });
     }
   });
+  // Logging out needs the session's CSRF token when a session exists; an
+  // already-expired cookie is simply cleared.
+  async function logout(req, res) {
+    requireSameOrigin(req, config.origin);
+    const session = await sessions.require(req).catch(() => null);
+    if (session) sessions.requireCsrf(req, session);
+    await sessions.logout(req, res);
+    res.writeHead(204);
+    return res.end();
+  }
+
   server.maxHeadersCount = 100;
   server.keepAliveTimeout = 5000;
   return server;

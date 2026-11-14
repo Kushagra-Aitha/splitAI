@@ -42,3 +42,16 @@
 .session-error { color: light-dark(#9e4e46, #e7a097); margin-top: 12px; }
 .session-status { margin-top: 12px; }
 .session-card [hidden] { display: none; }
+.session-card h1 { margin-top: 0; }
+.session-hint { margin-top: 6px; font-size: 13px; opacity: 0.75; }
+.session-switch { margin-top: 18px; text-align: center; }
+.session-card .session-link {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 4px;
+  background: none;
+  color: light-dark(#526d4c, #afc8a3);
+  text-decoration: underline;
+  font-weight: 600;
+}

@@ -1,13 +1,16 @@
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { createDbAuthStore } from './auth/store.js';
 import { loadConfig } from './config.js';
+import { getPool } from './db/pool.js';
 import { handlers } from './handlers.js';
 import { createStaticFiles } from './static.js';
 
 try {
   const config = loadConfig();
   const serveStatic = await createStaticFiles(fileURLToPath(new URL('../dist/', import.meta.url)));
-  const server = createApp({ config, handlers, serveStatic, onError: (event) => console.error(JSON.stringify(event)) });
+  const authStore = createDbAuthStore({ query: (...args) => getPool().query(...args) });
+  const server = createApp({ config, handlers, serveStatic, authStore, onError: (event) => console.error(JSON.stringify(event)) });
   server.on('error', (error) => {
     console.error(`API could not start (${error.code}). Check the configured host and port.`);
     process.exitCode = 1;
