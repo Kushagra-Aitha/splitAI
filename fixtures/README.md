@@ -12,6 +12,7 @@ backend work should return the same shapes.
 | `overview.json` | `GET /api/overview?from&to` (balance, chart buckets, recent) | B3, B5 |
 | `guard-events.json` | `GET /api/guard/events` | A9 |
 | `errors.json` | 403 / 409 / 422 error envelope | all |
+| `ask.json` | C1 `POST /api/ask`: extraction, missing details, intent routing, recoverable errors | C1, C2 |
 
 ## Conventions
 

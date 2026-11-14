@@ -1,9 +1,9 @@
 # Split AI API foundation
 
 F3 supplies the HTTP server, restricted demo session, route mounts, same-origin
-frontend serving, and a live Gemini connectivity check. Feature handlers,
-database migrations, Nessie calls, and deployment configuration belong to later
-issues. No financial endpoint is implemented here.
+frontend serving, and a live Gemini connectivity check. C1 adds the validated
+Ask intent parser and API handler; see [assistant/README.md](assistant/README.md).
+The Ask handler does not write financial records or submit payments.
 
 Use Node 22.15 or newer (Node 24 recommended). The backend has its own dependency
 manifest; it does not change the frontend lockfile. Its one dependency is `pg`.
@@ -88,7 +88,7 @@ in Vite mode it remains `http://localhost:5173`.
 ## Feature integration seam
 
 `routes.js` lists the agreed endpoints for groups, expense drafts, settlement
-reviews, settlements, Guard, banking, Overview, Ask, insight, and Goals. They
+reviews, settlements, Guard, banking, Overview, Ask, insight, and Goals. Unimplemented routes
 return **501 NOT_IMPLEMENTED** after authentication until their owner registers
 a handler. Unregistered endpoints never return fake success or perform writes.
 

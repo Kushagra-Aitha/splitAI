@@ -170,6 +170,28 @@ export function createLedgerHandlers({ query, withTransaction }) {
           const { id, groupId, totalCents, status, confirmedAt, expired, accountId, providerKey } = row;
           if (status === 'confirmed') return { expense: { id, groupId, totalCents, status, confirmedAt } };
           if (status !== 'draft' || expired) throw new HttpError(409, 'DRAFT_EXPIRED', 'Create a new expense draft.');
+          // Include every share, even zero-cent shares, and keep those
+          // membership keys locked until this confirmation transaction commits.
+          // A concurrent removal must finish before this check or wait for it.
+          const { rows: [{ authorized }] } = await db.query(`
+            WITH participants AS MATERIALIZED (
+              SELECT user_id FROM expense_shares WHERE expense_id = $1
+              UNION SELECT $3::uuid
+            ), current_members AS MATERIALIZED (
+              SELECT m.user_id FROM group_members m
+              JOIN participants p ON p.user_id = m.user_id
+              WHERE m.group_id = $2
+              ORDER BY m.user_id
+              FOR KEY SHARE OF m
+            )
+            SELECT NOT EXISTS (
+              SELECT 1 FROM participants p
+              WHERE NOT EXISTS (SELECT 1 FROM current_members m WHERE m.user_id = p.user_id)
+            ) AS authorized
+          `, [id, groupId, actor.userId]);
+          if (!authorized) {
+            throw new HttpError(403, 'PARTICIPANT_NOT_A_MEMBER', 'A participant is no longer in this group. Create a new expense draft.');
+          }
           if (accountId) await requirePurchase(db, actor.userId, { accountId, providerKey }, totalCents);
           const { rows: [confirmed] } = await db.query(`
             UPDATE expenses SET status = 'confirmed', confirmed_at = clock_timestamp(), updated_at = clock_timestamp()
@@ -218,7 +240,8 @@ export function createLedgerHandlers({ query, withTransaction }) {
       if (!uuid.test(params.id)) throw invalid('Enter a valid group ID.');
       const group = await requireGroup({ query }, params.id, actor.userId);
       const { rows: members } = await query(`
-        SELECT u.id AS "userId", u.display_name AS "displayName", u.initials, u.id = $2 AS "isYou"
+        SELECT u.id AS "userId", u.display_name AS "displayName", u.full_name AS "fullName",
+          u.handle, u.initials, u.id = $2 AS "isYou"
         FROM group_members m JOIN users u ON u.id = m.user_id
         WHERE m.group_id = $1
         ORDER BY "isYou" DESC, m.joined_at, u.id

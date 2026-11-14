@@ -1,137 +1,195 @@
-export function createAsk({ root, state, demo, icon, money, esc, heading, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, ticket, blockCard }) {
+import { apiRequest } from '../../api/session.js';
+import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
+import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
+import { preserveFocus } from '../../lib/focus.js';
+
+export function createAsk({ root, state, icon, esc, heading, render, announce,
+  draftTicket, registerReview, openGroupCreation }) {
+  const entries = [];
+  let composerText = '';
+  let sending = false;
+  let nextId = 0;
+  const label = '<div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>';
+  const refresh = () => { if (state.page === 'chat') preserveFocus(root, render); };
+  function focusResponse(entry) {
+    if (state.page !== 'chat') return;
+    const doc = root.ownerDocument;
+    if (doc.activeElement !== doc.body && doc.activeElement?.id !== 'sp-chat-input') return;
+    root.querySelector(`#sp-ask-${entry.error ? 'error' : 'result'}-${entry.id}`)?.focus({ preventScroll: true });
+  }
+
+  function selectionCard(entry) {
+    const data = entry.response;
+    const values = entry.values || {};
+    const merchant = values.merchant ?? data.extraction.merchant ?? '';
+    const amount = values.amount ?? (data.extraction.cents === null ? '' : centsToUsdText(data.extraction.cents));
+    const selected = values.memberGroupId === data.groupId ? values.participantIds : data.suggestedParticipantIds;
+    const names = data.unresolvedNames.length ? `<p>Choose the correct group members for: ${esc(data.unresolvedNames.join(', '))}.</p>` : '';
+    return `<section class="ask-selection" aria-label="Choose expense details"><p>Choose the group and people, then review the split.</p>${names}
+      <form data-ask-selection="${entry.id}" aria-describedby="sp-ask-error-${entry.id}" aria-busy="${entry.pending}"><fieldset ${entry.pending ? 'disabled' : ''}>
+      <label class="field">Group<select id="sp-ask-group-${entry.id}" name="groupId" data-ask-group="${entry.id}" required><option value="">Choose a group</option>
+      ${data.groups.map((group) => `<option value="${esc(group.id)}" ${group.id === data.groupId ? 'selected' : ''}>${esc(group.name)}</option>`).join('')}</select></label>
+      <div class="field-grid"><label class="field">Merchant<input id="sp-ask-merchant-${entry.id}" name="merchant" value="${esc(merchant)}" maxlength="60" required></label>
+      <label class="field">Total, USD<input id="sp-ask-amount-${entry.id}" name="amount" inputmode="decimal" value="${esc(amount)}" maxlength="20" required></label></div>
+      ${data.members.length ? `<fieldset><legend>Split with</legend>${data.members.map((member) => `<label class="check-label"><input id="sp-ask-member-${entry.id}-${esc(member.userId)}" type="checkbox" name="participant" value="${esc(member.userId)}" ${member.isYou || selected?.includes(member.userId) ? 'checked' : ''} ${member.isYou ? 'disabled' : ''}>${esc(member.fullName || member.displayName)}${member.handle ? ` (@${esc(member.handle)})` : ''}${member.isYou ? ' · You, the payer' : ''}</label>`).join('')}</fieldset>` : ''}
+      <div class="ask-selection-actions"><button id="sp-ask-review-${entry.id}" type="submit" class="primary" ${!data.groupId ? 'disabled' : ''}>Review split</button>
+      <button id="sp-ask-create-${entry.id}" type="button" class="secondary" data-ask-action="create-group" data-entry-id="${entry.id}">Create a group</button></div></fieldset></form></section>`;
+  }
+
+  function entryHtml(entry) {
+    let content = '';
+    if (entry.response?.type === 'selection_needed') content = selectionCard(entry);
+    else if (entry.response?.type === 'draft') content = `<p>${esc(entry.response.group.name)}</p>${draftTicket(entry.response.draft)}`;
+    else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
+    else if (entry.response?.type === 'answer') {
+      content = `<p>${esc(entry.response.answer)}</p>`;
+      if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
+      if (entry.response.plan) content += `<div class="ask-plan">${entry.response.plan.groups.filter((g) => g.debts.length).map((g) => `<section><h3>${esc(g.name)}</h3>${g.debts.map((d) => `<p>${esc(d.displayName)} · ${formatUsdCents(d.cents)} · ${({ fits: 'Fits this plan', does_not_fit: 'Does not fit', pending: 'Payment pending' })[d.recommendation]}</p>`).join('')}</section>`).join('')}</div>`;
+      if (entry.response.debts) content += `<div class="ask-plan">${entry.response.groups.map((g) => {
+        const debts = entry.response.debts.filter((d) => d.groupId === g.id);
+        return debts.length ? `<section><h3>${esc(g.name)}</h3>${debts.map((d) => `<p>${d.cents > 0 ? 'You owe' : 'You are owed'} ${formatUsdCents(Math.abs(d.cents))} ${d.cents > 0 ? 'to' : 'by'} ${esc(d.displayName)}.</p>`).join('')}</section>` : '';
+      }).join('')}</div>`;
+      if (entry.response.asOf) content += `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Refresh facts</button>`;
+    }
+    return `<div class="user-message">${esc(entry.message)}</div><div class="agent-message" id="sp-ask-result-${entry.id}" role="region" aria-label="Split response" tabindex="-1" aria-busy="${entry.pending}" data-ask-entry="${entry.id}">${label}${content}
+      ${entry.pending ? '<p role="status">Working on your request…</p>' : ''}
+      <p id="sp-ask-error-${entry.id}" role="alert" aria-atomic="true" tabindex="-1">${esc(entry.error)}</p>
+      ${entry.error && entry.retryBody ? `<button id="sp-ask-retry-${entry.id}" type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}</div>`;
+  }
+
   function chat() {
-    const initialBubble = state.logged
-      ? `<div class="user-message">${esc(`Spent ${money(demo.draft.cents)} at ${demo.draft.merchant}. Split with ${demo.draft.people.filter((n) => n !== 'Maya').join(' and ')}.`)}</div><div class="agent-message"><div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div><div class="saved-ticket"><div class="success-stamp">${icon('circle-check')}Saved. That’s one less thing to remember.</div><p style="margin-top:7px;font-size:12px">${esc(demo.draft.merchant)} · ${money(demo.draft.cents)} split ${demo.draft.people.length} ways.<br>Your share is <strong>${money(shareFor('Maya'))}</strong>. ${demo.draft.people.filter((n) => n !== 'Maya').join(' and ')} can see it in Puffton 4.</p></div></div>`
-      : demo.draftVisible
-        ? `<div class="user-message">${esc(`Spent ${money(demo.draft.cents)} at ${demo.draft.merchant}. Split with ${demo.draft.people.filter((n) => n !== 'Maya').join(' and ')}.`)}</div><div class="agent-message"><div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div><p>Pizza math, handled. Does this look right?</p>${ticket()}</div>`
-        : `<div class="agent-message"><div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div><p>Tell me what you spent, or ask about your numbers.</p></div>`;
-    return (
-      heading(
-        'Ask Split',
-        'Money talk. Less awkward.',
-        'Add a cost, make a plan, or clear up who owes what.',
-      ) +
-      `<div class="chat-thread">${initialBubble}${demo.messages.map((m) => (m.kind === 'user' ? `<div class="user-message">${esc(m.text)}</div>` : m.kind === 'blocked' ? `<div class="agent-message"><div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>${blockCard()}</div>` : `<div class="agent-message"><div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>${m.html || `<p>${esc(m.text)}</p>`}</div>`)).join('')}</div><div class="composer-area"><div class="chips"><button type="button" class="chip cursor-interaction" data-action="trip-question">${icon('luggage')}Can I afford Boston?</button><button type="button" class="chip cursor-interaction" data-action="receipt">${icon('scan-line')}Try a receipt</button><button type="button" class="chip cursor-interaction" data-action="chat-attack">${icon('shield-alert')}See Guard block a note</button></div><form class="composer" id="sp-chat-form"><button type="button" class="icon-button cursor-interaction" data-action="upload" aria-label="Attach receipt photo">${icon('paperclip')}</button><label for="sp-chat-input" class="sr-only">Message Split</label><input id="sp-chat-input" name="message" placeholder="Tell me about it…" autocomplete="off" maxlength="500"><button type="submit" class="icon-button send cursor-interaction" aria-label="Send message">${icon('arrow-up')}</button></form><p class="chat-footnote">Split can suggest. You confirm every change. Numbers come from your ledger.</p></div>`
-    );
+    return heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.') +
+      `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message">${label}<p>Tell me what you spent and who to split it with.</p></div>`}</div>
+      <div class="composer-area"><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
+      <input id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" value="${esc(composerText)}" ${sending ? 'disabled' : ''} required>
+      <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
+      <p id="sp-chat-help" class="chat-footnote">Only your confirmation saves an expense. No money is transferred.</p></div>`;
   }
-  function receipt(photo) {
-    openModal(
-      'Receipt preview',
-      `<div class="modal-header"><div><div class="eyebrow">${photo ? 'Your photo' : 'Sample receipt'}</div><h2>The little paper trail.</h2></div>${closeButton}</div>${photo ? '<img class="photo-preview" id="sp-photo-preview" alt="Your selected receipt">' : `<div class="receipt-sample"><div class="display">ANTONIO’S</div><p>Amherst, MA · Nov 13, 2026</p><div class="math-line"><span>Pizza & drinks</span><span>$42.00</span></div><div class="math-line total"><span>TOTAL</span><span>$42.00</span></div></div>`}<p>${photo ? 'Check the photo and enter the amount below. This design preview does not scan uploaded photos.' : 'Split found a total of $42.00 in this sample. Check the details before adding it.'}</p><form id="sp-receipt-form"><div class="field-grid"><label class="field">Merchant<input name="merchant" required maxlength="60" value="${photo ? '' : 'Antonio’s'}" placeholder="Merchant name"></label><label class="field">Total, USD<input name="amount" type="number" step="0.01" min="0.01" max="9999.99" required value="${photo ? '' : '42.00'}" placeholder="0.00"></label></div><div class="tag">Puffton 4 · You, Sam & Priya</div><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="upload">Choose photo</button><button type="submit" class="primary cursor-interaction">Review expense ${icon('arrow-right')}</button></div></form>`,
-    );
-    if (photo) root.querySelector('#sp-photo-preview').src = photo;
-  }
-  function tripQuestion() {
-    const available = 38800 - (state.logged ? demo.draft.cents : 0) - (state.settled ? 1800 : 0);
-    demo.messages.push(
-      { kind: 'user', text: 'Can I afford the Boston weekend?' },
-      {
-        kind: 'agent',
-        html: `<p>You have <strong>${money(available)} after upcoming bills</strong>. You’ve already booked $214 of your $400 trip share.</p><div class="expense-ticket"><div class="ticket-top"><div class="ticket-kicker"><span class="eyebrow">Boston weekend · Your share</span><span class="pending-label">Budget estimate</span></div><div class="ticket-amount display">$186.00</div><p class="small muted">Remaining in your trip budget</p></div><div class="ticket-middle"><div class="math-line"><span>Left after setting this aside</span><strong>${money(available - 18600)}</strong></div><p class="small muted" style="margin-top:11px">That’s before your other day-to-day spending. Keep a cushion that feels comfortable.</p><button type="button" class="text-button cursor-interaction" data-action="boston" style="margin-top:10px">See the trip budget ${icon('arrow-right')}</button></div></div>`,
-      },
-    );
-    state.page = 'chat';
-    render();
-    persist();
-    announce('Trip budget estimate is ready.');
-  }
-  function submitChat(text) {
-    if (!text.trim()) return;
-    const t = text.trim();
-    if (/boston|afford|trip/i.test(t)) {
-      tripQuestion();
-      return;
-    }
-    demo.messages.push({ kind: 'user', text: t });
-    if (/ignore previous|outside account|send.*500/i.test(t)) {
-      state.blocked = true;
-      demo.messages.push({ kind: 'blocked' });
-    } else if (/owe|owes/i.test(t)) {
-      demo.messages.push({
-        kind: 'agent',
-        text: `In Puffton 4, Sam owes you ${money(2800 + (state.logged ? shareFor('Sam') : 0))} and Priya owes you ${money(3650 + (state.logged ? shareFor('Priya') : 0))}.${state.settled ? ' You’re settled with Alex.' : ' You owe Alex $18.00.'} Everyone approves their own payment.`,
+
+  function receive(entry, response) {
+    entry.response = response;
+    if (response.type === 'draft') {
+      registerReview(response.draft, {
+        onConfirmed: (expense) => {
+          entry.response = null;
+          entry.expense = expense;
+          entry.groupName = response.group.name;
+          refresh();
+          focusResponse(entry);
+          announce('Expense saved. The group ledger has been updated.');
+        },
+        onDiscard: () => {
+          entry.response = { type: 'answer', answer: 'Review discarded. No ledger entry was added.' };
+          refresh();
+          focusResponse(entry);
+        },
       });
-    } else if (/\$?\d+(?:\.\d{1,2})?/.test(t) && !state.logged) {
-      const amount = t.match(/\$?(\d+(?:\.\d{1,2})?)/);
-      let cents = Math.round(Number(amount[1]) * 100);
-      if (cents > 0 && cents <= 999999) {
-        demo.draft.cents = cents;
-        const merchant = t.match(/(?:at|for)\s+(.+?)(?:,|\.\s|\s+split|$)/i);
-        demo.draft.merchant = merchant ? merchant[1].slice(0, 60) : 'Shared expense';
-        demo.draftVisible = false;
-        demo.messages.push({
-          kind: 'agent',
-          html: `<p>Here’s a preview. Check the amount and people before confirming.</p>${ticket()}`,
-        });
-      } else
-        demo.messages.push({
-          kind: 'agent',
-          text: 'Enter an amount from $0.01 to $9,999.99 for this preview.',
-        });
-    } else {
-      demo.messages.push({
-        kind: 'agent',
-        text: 'In this prototype, you can log an expense, ask who owes you, or check the Boston trip budget. Try “spent $42 at Antonio’s, split with Sam and Priya.”',
-      });
-    }
-    render();
-    persist();
+      announce('Expense draft ready. Review the shares before confirming.');
+    } else if (response.type === 'selection_needed') announce('Choose the expense group, members, and missing details.');
   }
-  root.addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    switch (b.dataset.action) {
-      case 'trip-question':
-        tripQuestion();
-        break;
-      case 'receipt':
-        if (state.logged) {
-          toast('This demo supports one new shared expense.');
-          break;
-        }
-        receipt();
-        break;
-      case 'upload':
-        if (state.logged) {
-          toast('Your shared expense is already saved.');
-          break;
-        }
-        root.querySelector('#sp-receipt-file').click();
-        break;
+
+  async function request(entry, body) {
+    if (entry.pending) return;
+    entry.pending = true;
+    entry.error = '';
+    entry.retryBody = body;
+    const revision = financialRevision();
+    refresh();
+    try {
+      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000 });
+      if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
+      receive(entry, response);
+    } catch (error) {
+      entry.error = error.name === 'TimeoutError' ? 'The request took too long. Try again when you are ready.'
+        : error.message || 'The request could not finish. Try again.';
+      announce(entry.error);
+    } finally { entry.pending = false; refresh(); if (!sending) focusResponse(entry); }
+  }
+
+  subscribeFinancialChanges(() => {
+    for (const entry of entries) {
+      if (!entry.response?.asOf) continue;
+      entry.response = null;
+      entry.error = 'Your financial facts changed. Refresh to get the current figures.';
     }
+    refresh();
   });
+
+  function rememberValues(entry, form) {
+    const fd = new FormData(form);
+    entry.values = { merchant: String(fd.get('merchant') || ''), amount: String(fd.get('amount') || ''),
+      participantIds: fd.getAll('participant'), memberGroupId: entry.response.groupId };
+    return fd;
+  }
+
+  function selectionBody(entry, groupId, includeMembers, form) {
+    const fd = rememberValues(entry, form);
+    const selection = { groupId };
+    if (entry.values.merchant.trim()) selection.merchant = entry.values.merchant.trim();
+    if (entry.values.amount.trim()) selection.cents = usdToCents(entry.values.amount.trim());
+    if (includeMembers) selection.participantIds = fd.getAll('participant');
+    return { proposalId: entry.response.proposalId, selection };
+  }
+
+  async function submitMessage(text) {
+    const message = text.trim();
+    if (!message || sending) return;
+    const previous = entries.at(-1);
+    const retry = previous?.error && previous.message === message && previous.retryBody?.message === message;
+    const entry = retry ? previous : { id: ++nextId, message, pending: false, error: '' };
+    if (!retry) entries.push(entry);
+    composerText = message;
+    sending = true;
+    await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID() });
+    if (!entry.error) composerText = '';
+    sending = false;
+    refresh();
+    focusResponse(entry);
+  }
+
   function handleAskForm(form, fd) {
-    if (form.id === 'sp-chat-form') {
-      submitChat(String(fd.get('message') || ''));
-
-    } else if (form.id === 'sp-receipt-form') {
-      demo.draft = {
-        ...demo.draft,
-        merchant: String(fd.get('merchant')).trim(),
-        cents: Math.round(Number(fd.get('amount')) * 100),
-        source: 'receipt',
-        people: ['Maya', 'Sam', 'Priya'],
-        category: 'Food & drink',
-      };
-      closeModal();
-      state.page = 'chat';
-      demo.draftVisible = true;
-      render();
-      persist();
+    if (form.id === 'sp-chat-form') { void submitMessage(String(fd.get('message') || '')); return; }
+    if (!form.hasAttribute('data-ask-selection')) return;
+    const entry = entries.find((value) => String(value.id) === form.dataset.askSelection);
+    if (!entry || entry.pending) return;
+    try { void request(entry, selectionBody(entry, String(fd.get('groupId')), true, form)); } catch (error) {
+      entry.error = error.message; entry.retryBody = null; refresh();
     }
   }
-  root.querySelector('#sp-receipt-file').addEventListener('change', (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    if (!f.type.startsWith('image/')) {
-      toast('Choose an image of your receipt.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => receipt(reader.result);
-    reader.readAsDataURL(f);
-    e.target.value = '';
-  });
 
+  root.addEventListener('input', (event) => {
+    if (event.target.id === 'sp-chat-input') composerText = event.target.value;
+    const form = event.target.closest('form[data-ask-selection]');
+    if (form) {
+      const entry = entries.find((value) => String(value.id) === form.dataset.askSelection);
+      if (entry && !entry.pending) rememberValues(entry, form);
+    }
+  });
+  root.addEventListener('change', (event) => {
+    if (!event.target.hasAttribute('data-ask-group') || !event.target.value) return;
+    const entry = entries.find((value) => String(value.id) === event.target.dataset.askGroup);
+    if (!entry || entry.pending) return;
+    try { void request(entry, selectionBody(entry, event.target.value, false, event.target.form)); } catch (error) {
+      entry.error = error.message; entry.retryBody = null; refresh();
+    }
+  });
+  root.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-ask-action]');
+    if (!button) return;
+    const entry = entries.find((value) => String(value.id) === button.dataset.entryId);
+    if (!entry || entry.pending) return;
+    if (button.dataset.askAction === 'retry' && entry.retryBody) void request(entry, entry.retryBody);
+    if (button.dataset.askAction === 'create-group') {
+      rememberValues(entry, button.closest('section').querySelector('form'));
+      const selection = {};
+      try {
+        if (entry.values.merchant.trim()) selection.merchant = entry.values.merchant.trim();
+        if (entry.values.amount.trim()) selection.cents = usdToCents(entry.values.amount.trim());
+      } catch (error) { entry.error = error.message; entry.retryBody = null; refresh(); return; }
+      openGroupCreation({ onCreated: (group) => request(entry, {
+        proposalId: entry.response.proposalId, selection: { ...selection, groupId: group.id },
+      }) });
+    }
+  });
   return { chat, handleAskForm };
 }

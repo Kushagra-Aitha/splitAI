@@ -384,3 +384,12 @@
     font-size: 36px;
   }
 }
+#split-common-ground .goal-form-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+#split-common-ground .goal-form-fields [role='alert'] { color: var(--sp-red); }
+#split-common-ground .goal-header-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 620px) {
+  #split-common-ground .goal-form-fields .field-grid { grid-template-columns: 1fr; }
+  #split-common-ground .goal-form-fields input,
+  #split-common-ground .goal-form-fields select { font-size: 16px; }
+  #split-common-ground .goal-amount { overflow-wrap: anywhere; }
+}
