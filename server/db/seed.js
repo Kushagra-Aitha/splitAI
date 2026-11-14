@@ -1,6 +1,7 @@
 import { optionalEnv } from '../lib/env.js';
 import { isMain } from '../lib/is-main.js';
 import { ACCOUNTS, BILLS, GROUPS, USERS } from './demo-ids.js';
+import { insertDemoHistory } from './demo-history.js';
 import { closePool, dbSchema, getPool, withTransaction } from './pool.js';
 
 const users = [
@@ -128,7 +129,10 @@ export async function seed({ log = console.log } = {}) {
       );
     }
 
-    log(`Seeded schema "${schema}": ${users.length} users, ${users.length} accounts, ${groups.length} groups, ${bills.length} bills.`);
+    // Labeled Jun 1 – Nov 13 history for Maya (source = 'demo'); see demo-history.js.
+    const history = await insertDemoHistory(db, ACCOUNTS.maya);
+
+    log(`Seeded schema "${schema}": ${users.length} users, ${users.length} accounts, ${groups.length} groups, ${bills.length} bills, ${history} new demo history rows.`);
     log(mapped.length ? `  Nessie mapping: ${mapped.join(', ')}` : '  Nessie mapping: none set (NESSIE_ACCOUNT_ID_* empty)');
   });
 }

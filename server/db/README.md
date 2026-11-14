@@ -20,6 +20,9 @@ inside it, set by `DB_SCHEMA` in `server/.env`:
 | `npm run db:setup` | Migrate, then seed |
 | `npm run db:verify` | F2 acceptance check on a throwaway `<DB_SCHEMA>_verify` schema |
 | `npm run nessie:smoke` | Nessie sandbox health, key and mapped-account check (read-only) |
+| `npm run nessie:demo-activity` | Creates a few real sandbox purchases, a deposit and a transfer (safe to rerun) |
+| `npm run banking:read` | B1: compares normalized balance and activity with the raw Nessie response |
+| `npm run banking:sync` | B2: syncs every mapped account into `bank_transactions` (`-- --verify` syncs twice and checks nothing doubled) |
 
 To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setup`.
 
@@ -37,6 +40,16 @@ To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setu
 | `0100`–`0199` | Member A (groups, expenses, settlements, Guard) |
 | `0200`–`0299` | Member B (banking, funds, bills) |
 | `0300`–`0399` | Member C (Ask, goals) |
+
+## Bank activity
+
+- `bank_transactions` rows have `source = 'nessie'` (synced from the sandbox) or
+  `source = 'demo'` (labeled Jun 1 – Nov 13 history for Maya, seeded by
+  `db:seed` from `db/demo-history.js`, because Nessie cannot backdate).
+- Dedupe is by `bank_import_keys (account_id, provider_key)`, never by
+  timestamp. A resync only refreshes status (pending → completed).
+- Sync writes run under `SELECT … FOR UPDATE` on the `bank_accounts` row, the
+  same lock B4 uses for funds.
 
 ## Stable demo IDs
 
