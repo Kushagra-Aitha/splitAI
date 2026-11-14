@@ -71,7 +71,7 @@ export function createReminderHandlers({ query, withTransaction }) {
       if (eligible.some((d) => !Number.isSafeInteger(d.cents))) throw new HttpError(409, 'DEBT_STATE_INVALID', 'Refresh your debts before sending a reminder.');
       // One bounded candidate read, regardless of the number of group debts.
       // Confirmation still recomputes the authoritative debt under the group lock.
-      const { rows: candidates } = await query(`SELECT e.group_id AS "groupId", g.name AS "groupName",
+      const candidateQuery = `SELECT e.group_id AS "groupId", g.name AS "groupName",
         owed."userId" AS "recipientUserId", u.display_name AS "recipientName", e.id AS "expenseId",
         e.merchant, -owed.cents AS "amountCents"
         FROM jsonb_to_recordset($2::jsonb) AS owed("groupId" uuid, "userId" uuid, cents bigint)
@@ -84,12 +84,17 @@ export function createReminderHandlers({ query, withTransaction }) {
         WHERE ($3::text IS NULL OR position(lower($3) in lower(e.merchant)) > 0)
           AND NOT EXISTS (SELECT 1 FROM settlements pending WHERE pending.group_id = g.id
             AND pending.payer_user_id = u.id AND pending.payee_user_id = $1 AND pending.status = 'pending')
-        ORDER BY e.confirmed_at DESC, e.id, u.id LIMIT 6`,
-      [actor.userId, JSON.stringify(eligible.map(({ groupId, userId, cents }) => ({ groupId, userId, cents }))), hints.merchant]);
-      if (candidates.length === 1) return draft({ actor, body: { groupId: candidates[0].groupId,
+        ORDER BY e.confirmed_at DESC, e.id, u.id LIMIT 6`;
+      const args = [actor.userId, JSON.stringify(eligible.map(({ groupId, userId, cents }) => ({ groupId, userId, cents }))), hints.merchant];
+      let { rows: candidates } = await query(candidateQuery, args);
+      const needsChoice = !candidates.length && !!hints.merchant;
+      // A food nickname may not match the bank merchant. Offer explicit
+      // authorized choices instead of guessing that an unrelated charge fits.
+      if (needsChoice) ({ rows: candidates } = await query(candidateQuery, [...args.slice(0, 2), null]));
+      if (candidates.length === 1 && !needsChoice) return draft({ actor, body: { groupId: candidates[0].groupId,
         recipientUserId: candidates[0].recipientUserId, expenseId: candidates[0].expenseId, requestKey } });
       return { type: 'reminder_selection', candidates, requestKey,
-        answer: candidates.length ? 'Choose the person and group debt, then review a reminder.' : 'No matching unpaid debt is available to remind. Check the person, expense and group.' };
+        answer: candidates.length ? needsChoice ? 'No expense matched that description. Choose the related expense and group debt explicitly.' : 'Choose the person and group debt, then review a reminder.' : 'No matching unpaid debt is available to remind. Check the person, expense and group.' };
     },
     'reminders.draft': draft,
     async 'reminders.confirm'({ actor, params, body }) {

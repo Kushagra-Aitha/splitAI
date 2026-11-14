@@ -65,12 +65,32 @@ test('live database: reminders require confirmation and durable daily limits; go
     await db.query('UPDATE group_members SET left_at = now() WHERE group_id = $1 AND user_id = $2', [g.id, USERS.sam]);
     await assert.rejects(confirm(departed), (error) => error.status === 404);
   });
+  await t.test('a pending payment suppresses reminders and notification failure rolls back the send', async () => {
+    const g = await group(), e = await expense(g), { reminder } = await make(g, e);
+    const { rows: [payment] } = await db.query(`INSERT INTO settlements(group_id, payer_user_id, payee_user_id, created_by,
+      payer_account_id, payee_account_id, amount_cents, status, review_expires_at)
+      VALUES ($1,$2,$3,$2,$4,$5,1500,'pending',now() + interval '10 minutes') RETURNING id`,
+    [g.id, USERS.sam, USERS.maya, ACCOUNTS.sam, ACCOUNTS.maya]);
+    await assert.rejects(confirm(reminder), (error) => error.code === 'PAYMENT_PENDING');
+    await db.query("UPDATE settlements SET status = 'failed' WHERE id = $1", [payment.id]);
+    const flaky = createReminderHandlers({ query, withTransaction: (fn) => withTransaction((tx) => fn({ query: (...args) => {
+      if (args[0].includes('INSERT INTO notifications')) throw new Error('Synthetic notification failure');
+      return tx.query(...args);
+    } })) });
+    await assert.rejects(flaky['reminders.confirm']({ actor, params: { id: reminder.id }, body: {} }), /Synthetic notification failure/);
+    assert.equal((await db.query('SELECT status FROM debt_reminders WHERE id = $1', [reminder.id])).rows[0].status, 'draft');
+    assert.equal((await db.query('SELECT id FROM notifications WHERE source_id = $1', [reminder.id])).rowCount, 0);
+    assert.equal((await confirm(reminder)).type, 'reminder_sent');
+  });
   await t.test('Ask resolves scoped reminder hints and requires choice for ambiguous expenses', async () => {
     const g = await group(); await expense(g); await expense(g);
     const ask = createAskWorkflow({ ...deps, prepareReminder: reminders.prepare, parseIntent: async () => ({ intent: 'reminder', expense: { merchant: 'Pizza', cents: null, participantNames: ['Sam'], groupHint: g.name } }) });
     const result = await ask({ actor, body: { message: 'Remind Sam about Pizza', requestKey: randomUUID() } });
     assert.equal(result.type, 'reminder_selection'); assert.equal(result.candidates.length, 2);
     assert.ok(result.candidates.every((c) => c.groupId === g.id && c.amountCents === 3000));
+    const fallback = await reminders.prepare(actor, { merchant: 'Dinner', cents: null, participantNames: ['Sam'], groupHint: g.name }, randomUUID());
+    assert.equal(fallback.type, 'reminder_selection'); assert.equal(fallback.candidates.length, 2);
+    assert.match(fallback.answer, /No expense matched/);
   });
   await t.test('goal history paginates without exposing another user and Ask reports canonical saved money', async () => {
     await db.query('UPDATE bank_accounts SET balance_cents = 100000, available_cents = 100000, linked_at = now(), balance_as_of = now() WHERE id = $1', [ACCOUNTS.maya]);

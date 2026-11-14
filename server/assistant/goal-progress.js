@@ -17,7 +17,7 @@ export function progressForGoal(goal, now = new Date()) {
 export async function answerGoalProgress(db, actorId, now = new Date()) {
   const { goals } = await listGoals(db, actorId);
   const progress = goals.map((goal) => progressForGoal(goal, now));
-  const answer = progress.length ? progress.map((g) => `${g.name}: ${money(g.savedCents)} of ${money(g.targetCents)} set aside. ${
+  const answer = progress.length ? progress.map((g) => `${g.name}: ${money(g.savedCents)} of ${money(g.targetCents)} set aside; observed net pace is ${money(g.paceCentsPerDay)} per day. ${
     ({ funded: 'Fully funded.', no_date: 'No target date is set.', on_track: 'On track at the observed net savings pace.', short: 'Short of the target at the observed net savings pace.' })[g.status]
   }${g.requiredCentsPerDay !== null && g.remainingCents ? ` Reaching the date requires about ${money(g.requiredCentsPerDay)} per day.` : ''}`).join(' ')
     : 'You have no savings goals yet. Create one in Goals to start setting money aside.';

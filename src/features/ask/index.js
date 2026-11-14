@@ -64,7 +64,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
     else if (entry.response?.type === 'answer') {
       content = `<p>${esc(entry.response.answer)}</p>`;
-      if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
+      if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${entry.response.intent === 'goal_progress' ? '' : entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
       if (entry.response.plan) content += `<div class="ask-plan">${entry.response.plan.groups.filter((g) => g.debts.length).map((g) => `<section><h3>${esc(g.name)}</h3>${g.debts.map((d) => `<p>${esc(d.displayName)} · ${formatUsdCents(d.cents)} · ${({ fits: 'Fits this plan', does_not_fit: 'Does not fit', pending: 'Payment pending' })[d.recommendation]}</p>`).join('')}</section>`).join('')}</div>`;
       if (entry.response.debts) content += `<div class="ask-plan">${entry.response.groups.map((g) => {
         const debts = entry.response.debts.filter((d) => d.groupId === g.id);

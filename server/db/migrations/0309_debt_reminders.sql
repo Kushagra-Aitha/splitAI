@@ -14,6 +14,7 @@ CREATE TABLE debt_reminders (
   CHECK ((status = 'sent') = (sent_on IS NOT NULL)),
   UNIQUE (sender_user_id, request_key)
 );
+CREATE INDEX debt_reminders_sender_time_idx ON debt_reminders(sender_user_id, created_at DESC);
 CREATE UNIQUE INDEX debt_reminders_daily_idx ON debt_reminders(sender_user_id, recipient_user_id, group_id, sent_on)
   WHERE status = 'sent';
 ALTER TABLE notifications DROP CONSTRAINT notifications_kind_check;
