@@ -377,6 +377,13 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.explainEntry) {
+      const groupId=state.group;b.disabled=true;
+      void apiRequest(`/api/groups/${encodeURIComponent(groupId)}/explain`,{method:'POST',body:{itemId:b.dataset.explainEntry,type:b.dataset.explainType},timeoutMs:30000})
+        .then(result=>{if(state.group===groupId)openModal('About this charge',`<h2>About this charge</h2>${closeButton}<p>${esc(result.answer)}</p><p class="small muted">${result.explanationSource==='gemini'?'Gemini arranged verified facts.':'Verified ledger facts · available without AI.'}</p>`);})
+        .catch(error=>toast(error.message)).finally(()=>{b.disabled=false;});return;
+    }
+
     b.closest('details.group-menu')?.removeAttribute('open');
     if (b.dataset.groupTab) { selectTab(b.dataset.groupTab); return; }
     if (b.hasAttribute('data-group-bank-expense')) {

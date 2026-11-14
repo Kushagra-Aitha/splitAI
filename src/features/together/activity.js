@@ -26,7 +26,8 @@ export function createActivity({ root, state, esc, money, announce }) {
       <p class="comment-text">${esc(item.text)}</p>${item.guardFlagged ? `<p class="comment-warning" role="note">⚠ Guard warning: ${esc((item.guardReasons || []).map((reason) => GUARD_REASONS[reason]).filter(Boolean).join(' '))}</p>` : ''}`;
     else if (item.type === 'expense') content = `<h3>${esc(item.merchant)} · ${money(item.amountCents)}</h3>
       <p class="small muted">Paid by ${esc(item.authorName)} · Your share ${money(item.yourShareCents)}</p>${threadButton(item.id, 'expense', `Comments (${item.commentCount ?? 0})`)}`;
-    else content = `<h3>Settlement · ${money(item.amountCents)}</h3><p>${esc(item.authorName)} to ${esc(item.payeeName)} · ${esc(item.status)}</p>${threadButton(item.id, 'settlement', `Comments (${item.commentCount ?? 0})`)}`;
+    else content = `<h3>${item.authorUserId === actorId ? `Settled up with ${esc(item.payeeName)}` : `${esc(item.authorName)} paid ${item.payeeUserId === actorId ? 'you' : esc(item.payeeName)}`} · ${money(item.amountCents)}</h3><p>${esc(item.status === 'posted' ? 'Posted' : item.status === 'pending' ? 'Pending verification' : 'Failed')}</p>${threadButton(item.id, 'settlement', `Comments (${item.commentCount ?? 0})`)}`;
+    if (item.type !== 'comment') content += `<button type="button" class="text-button" data-explain-entry="${esc(item.id)}" data-explain-type="${item.type}">Explain this ${item.type === 'expense' ? 'charge' : 'payment'}</button>`;
     return `<li><article id="sp-activity-${esc(item.id)}" data-ledger-entry="${esc(item.id)}" tabindex="-1" class="activity-entry">${content}${date(item.occurredAt)}${item.id === threadId ? '<div data-inline-thread></div>' : ''}</article></li>`;
   }
   function render() {

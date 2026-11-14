@@ -1,3 +1,4 @@
+import { createChargeExplainer } from './ledger/explanations.js';
 // Feature handler registry: one line per slice. createApp() rejects any name
 // that is not in routes.js. Keep imports alphabetical to avoid merge conflicts.
 import { createActivityHandlers } from './activity/handlers.js';
@@ -27,6 +28,7 @@ const recurringSplits = createRecurringSplits(db);
 export const capitalService = createCapitalService({ ...db, generateRecurringSplits: recurringSplits.generate });
 
 export const handlers = Object.freeze({
+  'charges.explain': createChargeExplainer({ ...db, explain:createFactExplainer({generate}) }),
   ...createCapitalHandlers(capitalService),
   ...recurringSplits.handlers,
   ...createActivityHandlers({ withTransaction }),

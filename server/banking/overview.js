@@ -1,3 +1,4 @@
+import { transactionDescriptionSql } from './description.js';
 // B3 · Spending and earnings buckets with TimescaleDB time_bucket.
 //
 // Rules:
@@ -121,7 +122,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   // and, once split, the group it was split with.
   const recent = await db.query(
     `SELECT t.id, t.provider_transaction_id AS "providerTransactionId", t.kind, t.direction,
-            t.amount_cents AS "amountCents", t.description, t.merchant_name AS "merchantName",
+            t.amount_cents AS "amountCents", ${transactionDescriptionSql} AS description, t.merchant_name AS "merchantName",
             t.category, t.payment_method AS "paymentMethod", t.status, t.source,
             t.occurred_at AS "occurredAt", t.account_id AS "accountId", acct.kind AS "accountKind",
             acct.account_mask AS "accountMask", k.provider_key AS "providerKey",

@@ -1,3 +1,4 @@
+import { transactionDescriptionSql } from './description.js';
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from './overview.js';
 
@@ -15,7 +16,7 @@ export async function listTransactions(db, userId, query) {
   }
 
   const { rows } = await db.query(`
-    SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", t.description,
+    SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", ${transactionDescriptionSql} AS description,
            t.merchant_name AS "merchantName", t.category, t.status, t.source,
            t.occurred_at AS "occurredAt", a.id AS "accountId", a.kind AS "accountKind",
            a.account_mask AS "accountMask", k.provider_key AS "providerKey",

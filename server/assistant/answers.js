@@ -82,8 +82,10 @@ export function createFinancialAnswers({ withTransaction, explain, now = () => n
   return async ({ actor, intent, query }) => {
     const facts = await readFinancialFacts({ withTransaction, actorId: actor.userId, query, now: now() });
     const plan = intent === 'affordability' ? affordabilityPlan(facts) : null;
-    const answer = await explain(answerStatements(intent, facts, plan));
-    return { type: 'answer', intent, answer, asOf: facts.asOf, balanceAsOf: facts.funds.balanceAsOf,
+    const statements=answerStatements(intent,facts,plan);
+    let answer,explanationSource='gemini';
+    try { answer=await explain(statements); } catch { answer=Object.values(statements).join(' ');explanationSource='template'; }
+    return { type: 'answer', intent, answer, explanationSource, asOf: facts.asOf, balanceAsOf: facts.funds.balanceAsOf,
       ...(plan ? { plan } : intent === 'debt_summary' ? { groups: facts.groups, debts: facts.debts } : { spending: facts.spending }),
     };
   };

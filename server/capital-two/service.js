@@ -1,3 +1,4 @@
+import { transactionDescriptionSql } from '../banking/description.js';
 import { nessie as defaultNessie } from '../lib/nessie.js';
 import { HttpError } from '../http.js';
 import { normalizeTransaction } from '../banking/provider.js';
@@ -75,7 +76,7 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
         query(`SELECT t.id, t.account_id AS "accountId", t.kind, t.direction, t.amount_cents AS "amountCents", t.status, t.category,
           o.kind = 'deposit' AND o.category = 'Salary' AS "isSalary",
           (s.day_of_month IS NOT NULL OR s.kind = 'salary') AS "isRecurring",
-          t.merchant_name AS merchant, regexp_replace(t.description, ' \\[[0-9a-f-]{36}\\]$', '') AS description, t.occurred_at AS "occurredAt"
+          t.merchant_name AS merchant, regexp_replace(${transactionDescriptionSql}, ' \\[[0-9a-f-]{36}\\]$', '') AS description, t.occurred_at AS "occurredAt"
           FROM bank_transactions t JOIN bank_accounts a ON a.id = t.account_id
           LEFT JOIN capital_operations o ON o.account_id = a.id AND o.provider_reference = t.provider_transaction_id
           LEFT JOIN capital_schedules s ON s.id = o.schedule_id
