@@ -88,16 +88,18 @@ export function mountApp(root) {
     toastTimer = setTimeout(() => root.querySelector('#sp-toast-root').replaceChildren(), 3500);
   }
   function go(page) {
+    const fromView = view.contains(document.activeElement);
     clearTimeout(toastTimer);
     root.querySelector('#sp-toast-root').replaceChildren();
     if (page === 'guard') guardFeature.invalidate();
     state.page = page;
     state.group = null;
     render();
+    if (fromView) view.querySelector('h1')?.focus({ preventScroll: true });
     persist();
   }
   function heading(eyebrow, title, sub, action = '') {
-    return `<div class="heading"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${action}</div>`;
+    return `<div class="heading"><div><div class="eyebrow">${eyebrow}</div><h1 tabindex="-1">${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${action}</div>`;
   }
   function openModal(title, html) {
     clearTimeout(toastTimer);
@@ -107,10 +109,7 @@ export function mountApp(root) {
     root.querySelector('.book-header').inert = true;
     modalRoot.innerHTML = `<div class="modal-layer"><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">${html}</section></div>`;
     icons();
-    setTimeout(
-      () => modalRoot.querySelector('button,input,select')?.focus({ preventScroll: true }),
-      30,
-    );
+    modalRoot.querySelector('button,input,select')?.focus({ preventScroll: true });
   }
   function closeModal() {
     root.querySelector('.main').inert = false;
@@ -228,10 +227,11 @@ export function mountApp(root) {
     }
     if (e.key === 'Tab') {
       const nodes = [
-          ...modalRoot.querySelectorAll('button,input,select,textarea,a[href],summary'),
-        ].filter((n) => !n.disabled && !n.hidden),
+          ...modalRoot.querySelectorAll('button,input,select,textarea,a[href],summary,[tabindex]'),
+        ].filter((n) => !n.matches(':disabled') && !n.hidden && n.tabIndex >= 0 && n.getClientRects().length && !n.closest('[inert]')),
         first = nodes[0],
         last = nodes.at(-1);
+      if (!first) { e.preventDefault(); return; }
       if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
         last.focus();
