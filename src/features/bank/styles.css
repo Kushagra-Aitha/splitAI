@@ -85,3 +85,6 @@
   #split-common-ground .capital-bank .bank-card, #split-common-ground .capital-bank .bank-card-inner { transition: none; }
   #split-common-ground .capital-bank .bank-card.is-swiping { animation: none; }
 }
+#split-common-ground .capital-bank .bank-section-title { font-size: 22px; margin: 0 0 18px; }
+#split-common-ground .capital-bank .bank-badge { display: inline-block; border: 1px solid var(--bank-line); padding: 3px 6px; font-size: 11px; font-weight: 600; }
+#split-common-ground .capital-bank .bank-receipt-detail { margin: 8px 0 0; color: var(--bank-muted); font-size: 13px; }

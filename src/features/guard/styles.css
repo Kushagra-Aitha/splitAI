@@ -1,5 +1,53 @@
-#split-common-ground .guard-setting { display: flex; align-items: center; gap: 10px; margin-top: 12px; min-height: 44px; cursor: pointer; }
-#split-common-ground .guard-setting input { width: 18px; height: 18px; }
-#split-common-ground .guard-comment { margin: 12px 0; padding: 12px 16px; border-left: 3px solid var(--sp-red); background: var(--sp-soft); border-radius: 6px; }
-#split-common-ground .guard-comment p { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; }
-#split-common-ground .guard-feedback { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+/* B16 · Guard page: flagged chat messages first, each with who, where, why. */
+#split-common-ground .guard-toggle {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 14px;
+  border: 1px solid var(--sp-line); background: var(--sp-paper); cursor: pointer; font-size: 14px; font-weight: 600;
+}
+#split-common-ground .guard-toggle input { width: 18px; height: 18px; accent-color: var(--sp-pine-ink); }
+#split-common-ground .guard-status {
+  display: flex; align-items: flex-start; gap: 14px; margin: 0 0 18px; padding: 16px 20px;
+  border: 1px solid var(--sp-line); background: var(--sp-paper);
+}
+#split-common-ground .guard-status > svg { width: 28px; height: 28px; color: var(--sp-pine-ink); flex-shrink: 0; }
+#split-common-ground .guard-status p { margin: 0; }
+#split-common-ground .guard-status p + p { margin-top: 4px; }
+#split-common-ground .guard-tabs { margin-bottom: 14px; }
+#split-common-ground .guard-list { display: grid; gap: 12px; }
+#split-common-ground .guard-item {
+  display: grid; gap: 12px; padding: 18px 20px; border: 1px solid var(--sp-line); background: var(--sp-paper);
+}
+#split-common-ground .guard-item.is-flagged { border-left: 4px solid var(--sp-red); }
+#split-common-ground .guard-item:not(.is-flagged) { grid-template-columns: 36px 1fr; align-items: center; }
+#split-common-ground .guard-item p { margin: 0; }
+#split-common-ground .guard-item-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  background: var(--sp-soft); color: var(--sp-pine-ink);
+}
+#split-common-ground .guard-item.is-blocked .guard-item-icon { background: var(--sp-red-soft); color: var(--sp-red); }
+#split-common-ground .guard-item-icon svg { width: 19px; height: 19px; }
+#split-common-ground .guard-item-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
+#split-common-ground .guard-item-head p:first-child { font-size: 15px; }
+#split-common-ground .guard-state { font-size: 12px; font-weight: 700; padding: 4px 8px; background: var(--sp-soft); color: var(--sp-pine-ink); }
+#split-common-ground .guard-state.is-reported { background: var(--sp-red-soft); color: var(--sp-red); }
+#split-common-ground .guard-reasons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#split-common-ground .guard-reason {
+  padding: 4px 9px; font-size: 12px; font-weight: 650; background: var(--sp-red-soft); color: var(--sp-red);
+}
+#split-common-ground .guard-message {
+  position: relative; display: block; width: 100%; min-height: 56px; padding: 14px 16px;
+  border: 1px solid var(--sp-line); background: var(--sp-soft); box-shadow: none; text-align: left; color: var(--sp-ink);
+  font-size: 15px; line-height: 1.45; cursor: pointer;
+}
+#split-common-ground .guard-message.is-hidden .guard-message-text { filter: blur(6px); user-select: none; }
+#split-common-ground .guard-message-cover {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 650; color: var(--sp-ink);
+}
+#split-common-ground .guard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#split-common-ground .guard-actions .primary svg { width: 17px; height: 17px; }
+#split-common-ground .guard-actions .is-danger { color: var(--sp-red); }
+#split-common-ground .guard-pages { display: flex; justify-content: space-between; margin-top: 12px; }
+@media (max-width: 620px) {
+  #split-common-ground .guard-item-head { grid-template-columns: auto 1fr; }
+  #split-common-ground .guard-state { grid-column: 1 / -1; justify-self: start; }
+}

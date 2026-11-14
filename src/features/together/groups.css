@@ -1,0 +1,69 @@
+#split-common-ground .groups-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+#split-common-ground .group-tile { margin: 0; padding: 0; overflow: hidden; }
+#split-common-ground .group-tile > button { display: block; width: 100%; height: 100%; text-align: left; padding: 0; color: inherit; }
+#split-common-ground .group-tile > button:hover { background: var(--sp-soft); }
+#split-common-ground .group-tile > button:focus-visible { outline-offset: -3px; }
+#split-common-ground .group-tile-photo { display: block; width: 100%; height: clamp(110px, 12vw, 140px); object-fit: cover; }
+#split-common-ground .group-tile-body { display: grid; gap: 5px; padding: 12px; min-width: 0; }
+#split-common-ground .group-type { font-size: .75rem; font-weight: 650; }
+#split-common-ground .group-tile-name { font-size: 1.25rem; font-weight: 750; overflow-wrap: anywhere; }
+#split-common-ground .group-tile-balances { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .96rem; }
+#split-common-ground .group-owe { color: var(--sp-red); }
+#split-common-ground .group-credit { color: var(--sp-pine-ink); }
+#split-common-ground .group-tile-context { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#split-common-ground .group-tile-members { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+
+#split-common-ground .group-detail { display: grid; gap: 12px; min-width: 0; }
+#split-common-ground .group-detail > .back-button { justify-self: start; margin: 0; }
+#split-common-ground .group-hero { position: relative; display: grid; align-items: end; isolation: isolate; min-height: clamp(132px, 17vw, 210px); color: white; background: #14251f; }
+#split-common-ground .group-hero img { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; }
+#split-common-ground .group-hero::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(0deg, #0a1916eb, #0a191626); }
+#split-common-ground .group-hero-copy { min-width: 0; padding: clamp(12px, 2vw, 22px); overflow-wrap: anywhere; }
+#split-common-ground .group-hero h1 { color: inherit; font-size: clamp(1.7rem, 5vw, 2.55rem); margin: 0; }
+#split-common-ground .group-hero p { margin: 5px 0 0; }
+#split-common-ground .group-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#split-common-ground .group-actions :is(button, summary) { padding-inline: 10px; min-height: 36px; }
+#split-common-ground .group-menu { position: relative; }
+#split-common-ground .group-menu summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; }
+#split-common-ground .group-menu summary::-webkit-details-marker { display: none; }
+#split-common-ground .group-menu > div { position: absolute; z-index: 5; left: 0; top: calc(100% + 4px); width: max-content; max-width: 220px; padding: 4px; background: var(--sp-paper); border: 1px solid var(--sp-line); box-shadow: 0 4px 12px #0002; }
+#split-common-ground .group-menu:last-child > div { left: auto; right: 0; }
+#split-common-ground .group-menu > div button { display: block; width: 100%; text-align: left; }
+#split-common-ground .group-menu > div button:hover { background: var(--sp-soft); }
+#split-common-ground .group-balance-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px; }
+#split-common-ground .group-balance-card h2, #split-common-ground .group-members h2 { font-size: 1rem; margin: 0 0 4px; }
+#split-common-ground .group-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--sp-line); }
+#split-common-ground .group-tabs button { padding: 8px 4px; border-bottom: 2px solid transparent; }
+#split-common-ground .group-tabs [aria-selected="true"] { border-color: var(--sp-pine-ink); font-weight: 700; }
+#split-common-ground .group-balance-list, #split-common-ground .group-members ul { list-style: none; margin: 0; padding: 8px 12px; }
+#split-common-ground .group-balance-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding-block: 5px; }
+#split-common-ground .group-members { margin-top: 8px; padding: 12px; }
+#split-common-ground .group-members ul { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0; }
+#split-common-ground #sp-group-panel-Activity > .activity-list { display: grid; gap: 8px; margin: 0; }
+#split-common-ground #sp-group-panel-Activity > .activity-list > li > .activity-entry {
+  background: var(--sp-paper); border: 1px solid var(--sp-line); padding: 10px 12px;
+}
+#split-common-ground #sp-group-panel-Activity > .activity-list > li > .activity-entry h3 { margin: 0; }
+#split-common-ground #sp-group-panel-Activity > .activity-list > li > .activity-entry p { margin: 4px 0; }
+#split-common-ground .group-banner-picker { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0; border: 0; }
+#split-common-ground .group-banner-picker label { display: grid; grid-template-columns: auto 1fr; gap: 4px; align-items: center; cursor: pointer; border: 1px solid var(--sp-line); padding: 4px; }
+#split-common-ground .group-banner-picker img { width: 100%; height: auto; order: -1; grid-column: 1 / -1; }
+#split-common-ground .group-banner-picker input { margin: 0; }
+#split-common-ground .group-banner-picker label:has(:checked) { border-color: var(--sp-pine-ink); background: var(--sp-soft); }
+
+@media (max-width: 950px) {
+  #split-common-ground .groups-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  #split-common-ground .groups-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  #split-common-ground .group-detail { gap: 8px; }
+  #split-common-ground .group-tile-photo { height: 116px; }
+  #split-common-ground .group-menu > div { max-width: min(220px, calc(100vw - 36px)); }
+}
+
+#split-common-ground .group-balance-card { margin: 0; }
+#split-common-ground .group-tile-members .avatar-stack .avatar + .avatar { margin-left: -7px; }

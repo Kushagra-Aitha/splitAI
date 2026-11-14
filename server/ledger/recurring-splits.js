@@ -55,7 +55,7 @@ export function createRecurringSplits({ query, withTransaction }) {
       const { rows: schedules } = await query(`SELECT s.id, s.payee, s.amount_cents AS "amountCents",
         s.status, a.kind AS "accountKind"
         FROM capital_schedules s JOIN bank_accounts a ON a.id = s.account_id AND a.user_id = s.user_id
-        WHERE s.user_id = $1 AND s.day_of_month IS NOT NULL AND s.status IN ('active','paused')
+        WHERE s.user_id = $1 AND s.kind = 'purchase' AND s.day_of_month IS NOT NULL AND s.status IN ('active','paused')
           AND a.linked_at IS NOT NULL ORDER BY s.payee, s.id`, [actor.userId]);
       const { rows: rules } = await query(`SELECT r.id, r.paused, s.id AS "scheduleId", g.id AS "groupId", g.name AS "groupName",
         s.payee, s.status AS "scheduleStatus", r.allocation->>'mode' AS mode
@@ -105,7 +105,7 @@ export function createRecurringSplits({ query, withTransaction }) {
           const { rows: [schedule] } = await db.query(`SELECT s.amount_cents AS cents
             FROM capital_schedules s JOIN bank_accounts a ON a.id = s.account_id AND a.user_id = s.user_id
             WHERE s.id = $1 AND s.user_id = $2 AND a.linked_at IS NOT NULL
-              AND s.day_of_month IS NOT NULL AND s.status IN ('active','paused')`, [scheduleId, actor.userId]);
+              AND s.kind = 'purchase' AND s.day_of_month IS NOT NULL AND s.status IN ('active','paused')`, [scheduleId, actor.userId]);
           if (!schedule) throw invalid('Choose a shared monthly Capital Two payment.');
           await db.query('SELECT id FROM groups WHERE id = $1 FOR UPDATE', [groupId]);
           const { rows: members } = await db.query(`SELECT user_id AS "userId" FROM group_members

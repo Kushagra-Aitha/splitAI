@@ -15,7 +15,7 @@ export function createNotificationHandlers({ query }) {
         SELECT n.id, n.kind, n.source_id AS "sourceId", n.group_id AS "groupId", n.expense_id AS "expenseId",
           to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
           n.read_at AS "readAt", g.name AS "groupName", u.id AS "actorUserId", u.display_name AS "actorName",
-          e.merchant, e.total_cents::text AS "totalCents", es.share_cents::text AS "yourShareCents",
+          c.settlement_id AS "settlementId", e.merchant, e.total_cents::text AS "totalCents", es.share_cents::text AS "yourShareCents",
           recurring_operation.occurrence AS "recurringOccurrence", e.created_by = $1 AS "isExpensePayer",
           s.amount_cents::text AS "settlementCents", s.payer_user_id = $1 AS "isPayer",
           payee.display_name AS "payeeName", reminder.amount_cents::text AS "reminderCents"

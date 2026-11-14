@@ -6,7 +6,7 @@ import { HttpError } from './http.js';
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2',
-  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon',
 };
 
 export async function createStaticFiles(directory) {
