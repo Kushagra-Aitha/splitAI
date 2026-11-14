@@ -189,6 +189,7 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
     assert.equal(provider.createCalls, before + 1);
     const recovered = await service.schedules.run(users[0], schedule.id, {});
     assert.equal(recovered.status, 'completed'); assert.equal(recovered.kind, 'deposit');
+    assert.ok([...provider.transactions.values()].some((tx) => tx.kind === 'deposit' && tx.description.startsWith('Payroll · Demo employer [')));
     const summary = await service.sync(users[0]);
     const salary = summary.transactions.find((tx) => tx.id === recovered.transactionId);
     assert.equal(salary.direction, 'credit'); assert.equal(salary.category, 'Salary'); assert.equal(salary.isSalary, true);
