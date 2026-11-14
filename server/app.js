@@ -4,7 +4,7 @@ import { HttpError, readJson, requireSameOrigin, sendJson } from './http.js';
 import { matchRoutes, routes } from './routes.js';
 import { createSessions } from './session.js';
 
-export function createApp({ config, handlers = {}, serveStatic, now, onError = () => {}, authStore }) {
+export function createApp({ config, handlers = {}, serveStatic, now, onError = () => {}, authStore, onSignup }) {
   for (const [name, handler] of Object.entries(handlers)) {
     if (!routes.some((route) => route.name === name) || typeof handler !== 'function') {
       throw new Error('Unknown or invalid feature handler.');
@@ -13,7 +13,7 @@ export function createApp({ config, handlers = {}, serveStatic, now, onError = (
   // Users and sessions persist in the auth store (B8). There is deliberately
   // no default: the server passes Tiger Data, tests pass a memory store.
   if (!authStore) throw new Error('createApp needs an authStore.');
-  const sessions = createSessions(config, { store: authStore, now });
+  const sessions = createSessions(config, { store: authStore, now, onSignup });
   const server = createServer({ maxHeaderSize: 16 * 1024, requestTimeout: 30_000, headersTimeout: 10_000 }, async (req, res) => {
     const requestId = randomUUID();
     res.setHeader('X-Request-Id', requestId);
