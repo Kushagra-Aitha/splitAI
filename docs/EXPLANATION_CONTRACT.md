@@ -1,0 +1,3 @@
+# Charge explanation contract
+
+A16 uses POST /api/groups/:id/explain with {itemId,type:"expense"|"settlement"}. Current membership is required. Response: {type:"answer",intent:"charge_explanation",answer,explanationSource:"template"|"gemini",facts}. The exported createChargeExplainer({query,explain}) in server/ledger/explanations.js is reusable by C14. Gemini only orders complete code-generated statements through createFactExplainer; failures return the same facts in a fixed template. Expense settlements are group-level, not allocated to individual expense IDs. Provider descriptions remain unchanged for reconciliation; user-facing bank read models substitute names and group labels.
