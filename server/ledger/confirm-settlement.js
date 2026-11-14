@@ -90,20 +90,24 @@ export function createSettlementConfirmation({ withTransaction, lockAccount, res
         const { rows: [settlement] } = await db.query(`
           UPDATE settlements SET status = 'failed', hold_cents = 0,
             failure_reason = 'provider_rejected', resolved_at = clock_timestamp(), updated_at = clock_timestamp()
-          WHERE id = $1 RETURNING ${reviewColumns}
+          WHERE id = $1 AND status = 'pending' RETURNING ${reviewColumns}
         `, [id]);
-        return { settlement };
+        if (settlement) return { settlement };
+        const { rows } = await db.query(`SELECT ${reviewColumns} FROM settlements WHERE id = $1`, [id]);
+        return { settlement: rows[0] };
       });
     }
 
     const { data } = result;
     if (typeof data?.id !== 'string' || !data.id.trim()) return { settlement: claim.settlement };
     return withTransaction(async (db) => {
-      const { rows: [settlement] } = await db.query(`
+      await lockAccount(db, claim.payer.id);
+      await db.query(`
         UPDATE settlements SET provider_reference = $2, provider_status = $3, updated_at = clock_timestamp()
-        WHERE id = $1 RETURNING ${reviewColumns}
+        WHERE id = $1 AND status = 'pending' AND provider_reference IS NULL
       `, [id, data.id, typeof data.status === 'string' ? data.status : null]);
-      return { settlement };
+      const { rows } = await db.query(`SELECT ${reviewColumns} FROM settlements WHERE id = $1`, [id]);
+      return { settlement: rows[0] };
     });
   };
 }

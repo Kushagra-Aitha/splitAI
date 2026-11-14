@@ -35,6 +35,7 @@ export async function getMappedAccountForUser(db, userId) {
 
 /** Balance snapshot for one provider account, in cents. */
 export async function readProviderBalance(providerAccountId) {
+  const balanceAsOf = new Date().toISOString();
   const { data } = await nessie(`/accounts/${encodeURIComponent(providerAccountId)}`);
   return {
     providerAccountId: data.id,
@@ -44,7 +45,7 @@ export async function readProviderBalance(providerAccountId) {
     balanceCents: data.balance_cents,
     availableCents: data.available_cents,
     pendingDebitsCents: data.pending_debits_cents ?? 0,
-    balanceAsOf: new Date().toISOString(),
+    balanceAsOf,
   };
 }
 
@@ -114,10 +115,11 @@ export function normalizeTransaction(tx, providerAccountId, merchants = new Map(
  */
 export async function readAccountActivity(providerAccountId, { merchants, limit = 1000 } = {}) {
   const names = merchants ?? (await readMerchants());
-  const balance = await readProviderBalance(providerAccountId);
   const { data } = await nessie(
     `/accounts/${encodeURIComponent(providerAccountId)}/transactions?limit=${limit}`,
   );
+  // Read the balance after transaction statuses so reconciliation can release completed holds.
+  const balance = await readProviderBalance(providerAccountId);
   const raw = data.items ?? [];
   const transactions = raw
     .map((tx) => normalizeTransaction(tx, providerAccountId, names))

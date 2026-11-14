@@ -7,6 +7,7 @@
 // the DB transaction; the DB writes run under the account row lock that B4
 // also uses for funds, so a balance refresh never interleaves with a reserve.
 import { withTransaction } from '../db/pool.js';
+import { reconcileSettlements } from '../ledger/reconcile-settlements.js';
 import { lockAccount } from './funds.js';
 import {
   getMappedAccountForUser,
@@ -28,6 +29,16 @@ const PAYMENT_METHOD = {
  */
 export async function persistActivity(db, accountId, activity) {
   await lockAccount(db, accountId);
+  const { rows: [current] } = await db.query(`
+    SELECT balance_cents AS "balanceCents", available_cents AS "availableCents",
+      balance_as_of AS "balanceAsOf", balance_as_of >= $2::timestamptz AS stale
+    FROM bank_accounts WHERE id = $1
+  `, [accountId, activity.balance.balanceAsOf]);
+  if (current.stale) {
+    const { balanceCents, availableCents, balanceAsOf } = current;
+    return { accountId, inserted: 0, updated: 0, unchanged: activity.transactions.length,
+      skipped: activity.skipped, balanceCents, availableCents, balanceAsOf };
+  }
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
@@ -82,6 +93,7 @@ export async function persistActivity(db, accountId, activity) {
                 balance_as_of AS "balanceAsOf"`,
     [accountId, b.balanceCents, b.availableCents, b.balanceAsOf, b.accountType, b.accountMask],
   );
+  await reconcileSettlements(db, accountId, activity);
   return { accountId, inserted, updated, unchanged, skipped: activity.skipped, ...acct.rows[0] };
 }
 
