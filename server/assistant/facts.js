@@ -44,13 +44,12 @@ export async function readFinancialFacts({ withTransaction, actorId, query, now 
       WHERE m.user_id = $1 AND m.left_at IS NULL ORDER BY g.created_at, g.id`, [actorId]);
     const debts = await readDebts(db, groups.map((group) => group.id), actorId);
     const funds = await getSpendableFunds(accountId, db);
-    // Hold-backed payments are already reserved in B4's spendable figure.
-    // Expose them separately so the plan can avoid proposing the same debt;
-    // never subtract these holds from spendable a second time.
+    // Pending payments may be reserved locally or reflected by the provider.
+    // Expose both so the plan avoids suggesting that the debt be paid again.
     const { rows: heldPayments } = await db.query(`
       SELECT id, group_id AS "groupId", payee_user_id AS "payeeUserId",
         amount_cents::text AS "amountCents", hold_cents::text AS "holdCents", status
-      FROM settlements WHERE payer_account_id = $1 AND payer_user_id = $2 AND hold_cents > 0
+      FROM settlements WHERE payer_account_id = $1 AND payer_user_id = $2 AND status = 'pending'
       ORDER BY created_at, id`, [accountId, actorId]);
     const overview = await getOverview(db, accountId, range);
     const snapshot = {
