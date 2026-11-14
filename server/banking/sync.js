@@ -10,12 +10,15 @@ import { withTransaction } from '../db/pool.js';
 import { reconcileSettlements } from '../ledger/reconcile-settlements.js';
 import { lockAccount } from './funds.js';
 import {
-  getMappedAccountForUser,
+  listLinkedAccountsForUser,
   listMappedAccounts,
   readAccountActivity,
   readMerchants,
 } from './provider.js';
 
+// Purchases say which card paid (B12): the checking debit card or the
+// Capital Two credit card.
+const PURCHASE_METHOD = { checking: 'Debit card', credit_card: 'Credit card' };
 const PAYMENT_METHOD = {
   purchase: 'Card',
   bill_payment: 'Bank transfer',
@@ -30,14 +33,14 @@ const PAYMENT_METHOD = {
 export async function persistActivity(db, accountId, activity) {
   await lockAccount(db, accountId);
   const { rows: [current] } = await db.query(`
-    SELECT balance_cents AS "balanceCents", available_cents AS "availableCents",
+    SELECT balance_cents AS "balanceCents", available_cents AS "availableCents", kind,
       balance_as_of AS "balanceAsOf", balance_as_of >= $2::timestamptz AS stale
     FROM bank_accounts WHERE id = $1
   `, [accountId, activity.balance.balanceAsOf]);
   if (current.stale) {
     const { balanceCents, availableCents, balanceAsOf } = current;
-    return { accountId, inserted: 0, updated: 0, unchanged: activity.transactions.length,
-      skipped: activity.skipped, balanceCents, availableCents, balanceAsOf };
+    return { accountId, kind: current.kind, inserted: 0, updated: 0, unchanged: activity.transactions.length,
+      skipped: activity.skipped, balanceCents, availableCents, balanceAsOf, changed: false };
   }
   let inserted = 0;
   let updated = 0;
@@ -60,7 +63,8 @@ export async function persistActivity(db, accountId, activity) {
         [
           key.rows[0].transaction_id, key.rows[0].occurred_at, accountId, t.providerTransactionId,
           t.kind, t.direction, t.amountCents, t.status, t.description, t.merchantName,
-          t.counterpartyAccountId, t.category, PAYMENT_METHOD[t.kind] ?? null,
+          t.counterpartyAccountId, t.category,
+          (t.kind === 'purchase' ? PURCHASE_METHOD[current.kind] : null) ?? PAYMENT_METHOD[t.kind] ?? null,
         ],
       );
       inserted++;
@@ -87,14 +91,18 @@ export async function persistActivity(db, accountId, activity) {
         SET balance_cents = $2, available_cents = $3, balance_as_of = $4,
             account_type = COALESCE($5, account_type),
             account_mask = COALESCE(account_mask, $6),
+            credit_limit_cents = COALESCE($7, credit_limit_cents),
             updated_at = now()
       WHERE id = $1
       RETURNING balance_cents AS "balanceCents", available_cents AS "availableCents",
                 balance_as_of AS "balanceAsOf"`,
-    [accountId, b.balanceCents, b.availableCents, b.balanceAsOf, b.accountType, b.accountMask],
+    [accountId, b.balanceCents, b.availableCents, b.balanceAsOf, b.accountType, b.accountMask, b.creditLimitCents ?? null],
   );
   await reconcileSettlements(db, accountId, activity);
-  return { accountId, inserted, updated, unchanged, skipped: activity.skipped, ...acct.rows[0] };
+  // `changed` lets the app skip refreshing every view when a sync found nothing new.
+  const changed = inserted > 0 || updated > 0 ||
+    current.balanceCents !== b.balanceCents || current.availableCents !== b.availableCents;
+  return { accountId, kind: current.kind, inserted, updated, unchanged, skipped: activity.skipped, changed, ...acct.rows[0] };
 }
 
 /** Reads one mapped account from Nessie and persists it. */
@@ -103,10 +111,26 @@ export async function syncAccount(account, { merchants } = {}) {
   return withTransaction((db) => persistActivity(db, account.id, activity));
 }
 
-/** Syncs the account mapped to one user; null when the user has none. */
+/**
+ * Syncs every account one user has linked (checking and card). Returns the
+ * checking result plus totals across accounts, or null when nothing is linked.
+ */
 export async function syncForUser(db, userId) {
-  const account = await getMappedAccountForUser(db, userId);
-  return account ? syncAccount(account) : null;
+  const accounts = await listLinkedAccountsForUser(db, userId);
+  if (!accounts.length) return null;
+  const merchants = await readMerchants();
+  const results = [];
+  for (const account of accounts) results.push(await syncAccount(account, { merchants }));
+  const checking = results.find((r) => r.kind === 'checking') ?? results[0];
+  const sum = (key) => results.reduce((total, r) => total + r[key], 0);
+  return {
+    ...checking,
+    inserted: sum('inserted'),
+    updated: sum('updated'),
+    unchanged: sum('unchanged'),
+    changed: results.some((r) => r.changed),
+    accounts: results,
+  };
 }
 
 /** Syncs every mapped demo account (deploy, scripts). */

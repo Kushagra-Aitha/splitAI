@@ -5,7 +5,7 @@ import { getPool, withTransaction } from '../db/pool.js';
 import { NessieError } from '../lib/nessie.js';
 import { RangeError422, TIME_ZONE, accountIdForUser, getOverview, parseRange } from './overview.js';
 import { listBills } from './bills.js';
-import { provisionBankAccount } from './provision.js';
+import { linkBankAccounts, listBankAccounts, provisionBankAccount } from './provision.js';
 import { syncForUser } from './sync.js';
 
 /** Today's date in the app time zone, as YYYY-MM-DD. */
@@ -45,6 +45,7 @@ function syncResponse(result) {
     imported: result.inserted,
     updated: result.updated,
     unchanged: result.unchanged,
+    changed: Boolean(result.changed),
   };
 }
 
@@ -58,14 +59,23 @@ export const bankingHandlers = {
     return syncResponse(result);
   },
 
+  /** GET /api/banking/accounts (B12) → the Connect screen and account menu. */
+  'banking.accounts': async ({ actor }) => listBankAccounts(getPool(), actor.userId),
+
   /**
-   * POST /api/banking/connect (B9) → open the actor's Nessie account if it
-   * doesn't exist yet, then sync it. Safe to repeat: never opens a second one.
+   * POST /api/banking/connect (B9/B12) → the Connect screen's Allow. Opens any
+   * missing Capital Two account (checking, card), links them all to Split,
+   * then syncs. Safe to repeat: never opens a second account of a kind.
    */
   'banking.connect': async ({ actor }) => {
-    const { created } = await withProvider(() => provisionBankAccount({ withTransaction }, actor.userId));
+    const { accounts } = await withProvider(() => provisionBankAccount({ withTransaction }, actor.userId));
+    await withTransaction((db) => linkBankAccounts(db, actor.userId));
     const result = await withProvider(() => syncForUser(getPool(), actor.userId));
-    return { created, ...syncResponse(result) };
+    return {
+      created: accounts.some((account) => account.created),
+      ...syncResponse(result),
+      ...(await listBankAccounts(getPool(), actor.userId)),
+    };
   },
 
   /**

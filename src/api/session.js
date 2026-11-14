@@ -32,7 +32,7 @@ export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_00
   if (!response.ok) {
     throw new ApiError(response.status, data.error?.code || 'REQUEST_FAILED', data.error?.message || 'The request failed.');
   }
-  if (method === 'POST' && /^\/api\/(?:goals(?:\/|$)|banking\/(?:sync|connect)$|expense-drafts\/[^/]+\/confirm$|settlement-reviews\/[^/]+\/confirm$)/.test(path)) financialChanged();
+  if (method === 'POST' && /^\/api\/(?:goals(?:\/|$)|expense-drafts\/[^/]+\/confirm$|settlement-reviews\/[^/]+\/confirm$)/.test(path)) financialChanged();
   return data;
 }
 

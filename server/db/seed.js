@@ -100,7 +100,8 @@ export async function seed({ log = console.log } = {}) {
         [providerId, ACCOUNTS[u.key]],
       );
       await db.query(
-        `UPDATE bank_accounts SET provider_account_id = $1, updated_at = now() WHERE id = $2`,
+        // Demo checking accounts come pre-linked; their card is opened on Connect (B12).
+        `UPDATE bank_accounts SET provider_account_id = $1, linked_at = COALESCE(linked_at, now()), updated_at = now() WHERE id = $2`,
         [providerId, ACCOUNTS[u.key]],
       );
       mapped.push(`${u.display}→${providerId}`);
