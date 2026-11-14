@@ -7,6 +7,7 @@ export function createActivity({ root, state, esc, money, announce }) {
   const actorId = getSession()?.actor.userId;
   let groupId = null, expenseId = null, host = null, items = [], expense = null;
   let before = null, focus = null, nextCursor = null, loading = false, error = '', postError = '';
+  let ledger = [], chatOpen = false, unread = 0;
   let controller, postController, generation = 0, posting = false, needsFocus = false, fingerprint = '';
   const drafts = new Map();
   const owned = () => !!actorId && getSession()?.actor.userId === actorId;
@@ -17,25 +18,25 @@ export function createActivity({ root, state, esc, money, announce }) {
     return drafts.get(key);
   };
   const date = (value) => `<time class="small muted" datetime="${esc(value)}">${esc(new Date(value).toLocaleString())}</time>`;
-  const threadButton = (id, label = 'View expense comments') => `<button type="button" class="text-button" data-expense-thread="${esc(id)}">${label}</button>`;
+  const threadButton = (id, label) => `<button type="button" class="text-button" data-expense-thread="${esc(id)}">${label}</button>`;
   function entry(item) {
     let content;
     if (item.type === 'comment') content = `<p class="small"><strong>${esc(item.authorName)}</strong> commented</p>
-      <p class="comment-text">${esc(item.text)}</p>${item.expenseId && !expenseId ? threadButton(item.expenseId) : ''}`;
+      <p class="comment-text">${esc(item.text)}</p>${item.expenseId && !expenseId ? threadButton(item.expenseId, 'View expense comments') : ''}`;
     else if (item.type === 'expense') content = `<h3>${esc(item.merchant)} · ${money(item.amountCents)}</h3>
-      <p class="small muted">Paid by ${esc(item.authorName)} · Your share ${money(item.yourShareCents)}</p>${threadButton(item.id, 'Comments on this expense')}`;
+      <p class="small muted">Paid by ${esc(item.authorName)} · Your share ${money(item.yourShareCents)}</p>${threadButton(item.id, `Comments (${item.commentCount ?? 0})`)}`;
     else content = `<h3>Settlement · ${money(item.amountCents)}</h3><p>${esc(item.authorName)} to ${esc(item.payeeName)} · ${esc(item.status)}</p>`;
-    return `<li><article id="sp-activity-${esc(item.id)}" data-ledger-entry="${esc(item.id)}" tabindex="-1" class="activity-entry">${content}${date(item.occurredAt)}</article></li>`;
+    return `<li><article id="sp-activity-${esc(item.id)}" data-ledger-entry="${esc(item.id)}" tabindex="-1" class="activity-entry">${content}${date(item.occurredAt)}${item.id === expenseId ? '<div data-inline-thread></div>' : ''}</article></li>`;
   }
   function render() {
     if (!active()) return;
     preserveFocus(host, () => {
-      host.innerHTML = `<div class="activity-heading"><h2 id="sp-activity-title" tabindex="-1">${expenseId ? 'Expense comments' : 'Group activity'}</h2>
-        <div>${expenseId ? '<button type="button" class="text-button" data-activity-action="group">All activity</button>' : ''}
+      const conversation = `<div class="activity-heading"><h2 id="sp-activity-title" tabindex="-1">${expenseId ? 'Expense comments' : 'Group chat'}</h2>
+        <div>${expenseId ? '<button type="button" class="text-button" data-activity-action="group">Close thread</button>' : ''}
         <button type="button" id="sp-activity-refresh" class="text-button" data-activity-action="refresh" ${loading ? 'disabled' : ''}>Refresh</button></div></div>
-        ${expense ? `<article data-ledger-entry="${esc(expense.id)}" class="activity-expense"><h3>${esc(expense.merchant)} · ${money(expense.totalCents)}</h3><p>Your share ${money(expense.yourShareCents)}</p>${date(expense.occurredAt)}</article>` : ''}
+
         ${error ? `<p role="alert">${esc(error)}</p>` : ''}${loading ? '<p role="status">Loading activity…</p>' : ''}
-        <ul class="activity-list">${items.map(entry).join('')}</ul>
+        <ul class="activity-list">${items.filter((item) => expenseId || (item.type === 'comment' && !item.expenseId)).map(entry).join('')}</ul>
         ${!items.length && !loading && !error ? `<p>${expenseId ? 'No comments yet.' : 'No shared activity yet.'}</p>` : ''}
         <div class="activity-pages">${before || focus ? '<button type="button" class="text-button" data-activity-action="latest">Latest</button>' : ''}
         ${nextCursor ? `<button type="button" class="text-button" data-activity-action="older" ${loading ? 'disabled' : ''}>Older</button>` : ''}</div>
@@ -46,12 +47,23 @@ export function createActivity({ root, state, esc, money, announce }) {
           <button type="submit" class="primary" ${posting ? 'disabled' : ''}>${posting ? 'Posting…' : 'Post comment'}</button>
           <p role="alert">${esc(postError)}</p>
         </form>`;
+      host.innerHTML = `<h2>Ledger</h2><ul class="activity-list">${ledger.map(entry).join('')}</ul>
+        ${!ledger.length ? '<p>No shared expenses yet.</p>' : ''}
+        ${chatOpen ? `<aside class="a12-drawer" aria-label="Group chat">
+          <button type="button" class="secondary" data-activity-action="close">Close chat</button>${conversation}</aside>` : ''}`;
+      if (expenseId) {
+        const panel = host.querySelector('[data-inline-thread]');
+        if (panel) panel.innerHTML = conversation;
+      }
+      const badge = root.querySelector('#sp-group-unread');
+      if (badge) badge.textContent = unread ? `(${unread})` : '';
+
     });
   }
   function abortRead() { generation++; controller?.abort(); controller = null; loading = false; }
   function reset() {
     abortRead(); postController?.abort(); postController = null;
-    groupId = null; expenseId = null; host = null; items = []; expense = null;
+    ledger = []; chatOpen = false; unread = 0; groupId = null; expenseId = null; host = null; items = []; expense = null;
     before = null; focus = null; nextCursor = null; error = ''; postError = '';
     drafts.clear(); posting = false; needsFocus = false; fingerprint = '';
   }
@@ -67,7 +79,11 @@ export function createActivity({ root, state, esc, money, announce }) {
     try {
       const data = await apiRequest(`/api/groups/${encodeURIComponent(groupId)}/activity?${params}`, { signal: request.signal });
       if (token !== generation || !active()) return;
-      items = data.items; expense = data.expense; nextCursor = data.nextCursor;
+      items = data.items; expense = data.expense;
+      if (!expenseId && !chatOpen && !before && (!focus || focus.type === 'settlement')) ledger = items.filter((item) => item.type !== 'comment');
+      if (expenseId && expense && !ledger.some((item) => item.id === expenseId)) {
+        ledger = [{ ...expense, amountCents: expense.totalCents, type: 'expense', authorName: expense.authorName ?? 'Group member' }, ...ledger];
+      } nextCursor = data.nextCursor;
     } catch (failure) {
       if (token !== generation || request.signal.aborted || !active()) return;
       if ([401, 403, 404].includes(failure.status)) { items = []; expense = null; nextCursor = null; drafts.clear(); }
@@ -83,7 +99,7 @@ export function createActivity({ root, state, esc, money, announce }) {
     }
   }
   function selectThread(id, target = null) {
-    abortRead(); expenseId = id; before = null; focus = target; items = []; expense = null;
+    abortRead(); expenseId = id; chatOpen = !id; before = null; focus = target; items = []; expense = null;
     nextCursor = null; postError = ''; needsFocus = true;
     void refresh();
   }
@@ -123,10 +139,19 @@ export function createActivity({ root, state, esc, money, announce }) {
   });
   root.addEventListener('click', (event) => {
     const button = event.target.closest('[data-expense-thread], [data-activity-action]');
-    if (!active() || !button || !host.contains(button)) return;
+    if (!active() || !button || (!host.contains(button) && button.dataset.activityAction !== 'chat')) return;
     if (posting) return; // Keep the submitted comment bound to its expense.
     if (button.dataset.expenseThread) selectThread(button.dataset.expenseThread);
-    else if (button.dataset.activityAction === 'group') selectThread(null);
+    else if (button.dataset.activityAction === 'chat') selectThread(null);
+    else if (['close', 'group'].includes(button.dataset.activityAction)) {
+      const thread = expenseId;
+      abortRead();
+      expenseId = null; chatOpen = false; before = null; focus = null;
+      render();
+      if (thread) [...host.querySelectorAll('[data-expense-thread]')].find((button) => button.dataset.expenseThread === thread)?.focus();
+      else root.querySelector('[data-activity-action="chat"]')?.focus();
+      void refresh();
+    }
     else {
       if (button.dataset.activityAction === 'older') { before = nextCursor; focus = null; needsFocus = true; }
       else if (button.dataset.activityAction === 'latest') { before = null; focus = null; needsFocus = true; }
@@ -145,10 +170,15 @@ export function createActivity({ root, state, esc, money, announce }) {
       const changed = id !== groupId;
       if (changed) { reset(); groupId = id; }
       host = nextHost;
-      if (target) {
+      render();
+      if (target?.expenseId && !target.commentId) {
+        selectThread(target.expenseId);
+      } else if (target?.commentId || target?.settlementId) {
         const point = target.commentId ? { id: target.commentId, type: 'comment' } :
           target.settlementId ? { id: target.settlementId, type: 'settlement' } : null;
-        selectThread(target.expenseId || null, point);
+        if (target.settlementId) {
+          focus = point; needsFocus = true; void refresh();
+        } else selectThread(target.expenseId || null, point);
       } else if (changed) void refresh();
       else render();
     },
@@ -156,7 +186,11 @@ export function createActivity({ root, state, esc, money, announce }) {
     handleForm(form) { if (form.id !== 'sp-comment-form') return false; void post(); return true; },
     onNotifications(notifications) {
       if (!active() || document.hidden) return;
-      const next = notifications.filter((item) => item.groupId === groupId).map((item) => item.id).join(',');
+      const relevant = notifications.filter((item) => item.groupId === groupId);
+      unread = relevant.filter((item) => item.kind === 'comment_added' && !item.readAt).length;
+      const badge = root.querySelector('#sp-group-unread');
+      if (badge) badge.textContent = unread ? `(${unread})` : '';
+      const next = relevant.map((item) => item.id).join(',');
       if (next !== fingerprint && !loading && !posting) { fingerprint = next; void refresh(); }
     },
   };
