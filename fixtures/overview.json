@@ -1,6 +1,9 @@
 {
-  "request": { "method": "GET", "path": "/api/overview?from=2026-11-01&to=2026-11-13&bucket=day" },
-  "note": "B3/B5. from/to are local dates (America/New_York); bucket defaults to day up to 62 days, else month. Buckets are per-period totals (not cumulative), zero-filled, clipped to the range. Spending = purchases only, earnings = deposits only; transfers and declined/cancelled rows never count (countsAs: null). recent[].bucketStart ties a row to its bucket. Bad input is 422 INVALID_RANGE.",
+  "request": {
+    "method": "GET",
+    "path": "/api/overview?from=2026-11-01&to=2026-11-13&bucket=day"
+  },
+  "note": "B3/B5. from/to are local dates (America/New_York); bucket defaults to day up to 62 days, else month. Buckets are per-period totals (not cumulative), zero-filled, clipped to the range. Spending = purchases only, earnings = deposits only; transfers and declined/cancelled rows never count (countsAs: null). recent[].bucketStart ties a row to its bucket. Bad input is 422 INVALID_RANGE. Also returns today (local date) and bills: the actor's bill_schedules with nextDueOn rolled forward to today or later; source is 'nessie' or 'demo'.",
   "response": {
     "account": {
       "id": "20000000-0000-4000-8000-000000000001",
@@ -13,22 +16,108 @@
       "settlementHoldsCents": 0,
       "spendableCents": 104800
     },
-    "range": { "from": "2026-11-01", "to": "2026-11-13", "bucket": "day", "timeZone": "America/New_York" },
-    "totals": { "earnedCents": 102000, "spentCents": 109200 },
+    "range": {
+      "from": "2026-11-01",
+      "to": "2026-11-13",
+      "bucket": "day",
+      "timeZone": "America/New_York"
+    },
+    "totals": {
+      "earnedCents": 102000,
+      "spentCents": 109200
+    },
     "buckets": [
-      { "start": "2026-11-01", "end": "2026-11-01", "earnedCents": 28000, "spentCents": 16000, "transactionCount": 3 },
-      { "start": "2026-11-02", "end": "2026-11-02", "earnedCents": 0, "spentCents": 4000, "transactionCount": 2 },
-      { "start": "2026-11-03", "end": "2026-11-03", "earnedCents": 0, "spentCents": 7000, "transactionCount": 3 },
-      { "start": "2026-11-04", "end": "2026-11-04", "earnedCents": 0, "spentCents": 5000, "transactionCount": 2 },
-      { "start": "2026-11-05", "end": "2026-11-05", "earnedCents": 27000, "spentCents": 3000, "transactionCount": 2 },
-      { "start": "2026-11-06", "end": "2026-11-06", "earnedCents": 0, "spentCents": 6000, "transactionCount": 3 },
-      { "start": "2026-11-07", "end": "2026-11-07", "earnedCents": 0, "spentCents": 6000, "transactionCount": 2 },
-      { "start": "2026-11-08", "end": "2026-11-08", "earnedCents": 47000, "spentCents": 10000, "transactionCount": 4 },
-      { "start": "2026-11-09", "end": "2026-11-09", "earnedCents": 0, "spentCents": 20000, "transactionCount": 3 },
-      { "start": "2026-11-10", "end": "2026-11-10", "earnedCents": 0, "spentCents": 7000, "transactionCount": 3 },
-      { "start": "2026-11-11", "end": "2026-11-11", "earnedCents": 0, "spentCents": 6000, "transactionCount": 2 },
-      { "start": "2026-11-12", "end": "2026-11-12", "earnedCents": 0, "spentCents": 9000, "transactionCount": 3 },
-      { "start": "2026-11-13", "end": "2026-11-13", "earnedCents": 0, "spentCents": 10200, "transactionCount": 4 }
+      {
+        "start": "2026-11-01",
+        "end": "2026-11-01",
+        "earnedCents": 28000,
+        "spentCents": 16000,
+        "transactionCount": 3
+      },
+      {
+        "start": "2026-11-02",
+        "end": "2026-11-02",
+        "earnedCents": 0,
+        "spentCents": 4000,
+        "transactionCount": 2
+      },
+      {
+        "start": "2026-11-03",
+        "end": "2026-11-03",
+        "earnedCents": 0,
+        "spentCents": 7000,
+        "transactionCount": 3
+      },
+      {
+        "start": "2026-11-04",
+        "end": "2026-11-04",
+        "earnedCents": 0,
+        "spentCents": 5000,
+        "transactionCount": 2
+      },
+      {
+        "start": "2026-11-05",
+        "end": "2026-11-05",
+        "earnedCents": 27000,
+        "spentCents": 3000,
+        "transactionCount": 2
+      },
+      {
+        "start": "2026-11-06",
+        "end": "2026-11-06",
+        "earnedCents": 0,
+        "spentCents": 6000,
+        "transactionCount": 3
+      },
+      {
+        "start": "2026-11-07",
+        "end": "2026-11-07",
+        "earnedCents": 0,
+        "spentCents": 6000,
+        "transactionCount": 2
+      },
+      {
+        "start": "2026-11-08",
+        "end": "2026-11-08",
+        "earnedCents": 47000,
+        "spentCents": 10000,
+        "transactionCount": 4
+      },
+      {
+        "start": "2026-11-09",
+        "end": "2026-11-09",
+        "earnedCents": 0,
+        "spentCents": 20000,
+        "transactionCount": 3
+      },
+      {
+        "start": "2026-11-10",
+        "end": "2026-11-10",
+        "earnedCents": 0,
+        "spentCents": 7000,
+        "transactionCount": 3
+      },
+      {
+        "start": "2026-11-11",
+        "end": "2026-11-11",
+        "earnedCents": 0,
+        "spentCents": 6000,
+        "transactionCount": 2
+      },
+      {
+        "start": "2026-11-12",
+        "end": "2026-11-12",
+        "earnedCents": 0,
+        "spentCents": 9000,
+        "transactionCount": 3
+      },
+      {
+        "start": "2026-11-13",
+        "end": "2026-11-13",
+        "earnedCents": 0,
+        "spentCents": 10200,
+        "transactionCount": 4
+      }
     ],
     "recent": [
       {
@@ -82,30 +171,158 @@
     ],
     "breakdown": {
       "categories": [
-        { "category": "Home & bills", "cents": 61800 },
-        { "category": "Food & drink", "cents": 23400 },
-        { "category": "Other", "cents": 10000 },
-        { "category": "Just for fun", "cents": 9200 },
-        { "category": "Getting around", "cents": 4800 }
+        {
+          "category": "Home & bills",
+          "cents": 61800
+        },
+        {
+          "category": "Food & drink",
+          "cents": 23400
+        },
+        {
+          "category": "Other",
+          "cents": 10000
+        },
+        {
+          "category": "Just for fun",
+          "cents": 9200
+        },
+        {
+          "category": "Getting around",
+          "cents": 4800
+        }
       ],
       "paymentMethods": [
-        { "paymentMethod": "Bank transfer", "cents": 61800 },
-        { "paymentMethod": "Card", "cents": 40600 },
-        { "paymentMethod": "Contactless", "cents": 4800 },
-        { "paymentMethod": "Cash", "cents": 2000 }
+        {
+          "paymentMethod": "Bank transfer",
+          "cents": 61800
+        },
+        {
+          "paymentMethod": "Card",
+          "cents": 40600
+        },
+        {
+          "paymentMethod": "Contactless",
+          "cents": 4800
+        },
+        {
+          "paymentMethod": "Cash",
+          "cents": 2000
+        }
       ],
       "merchants": [
-        { "name": "Rent · Puffton Village", "category": "Home & bills", "paymentMethod": "Bank transfer", "cents": 60000, "count": 1 },
-        { "name": "DoorDash", "category": "Food & drink", "paymentMethod": "Card", "cents": 14000, "count": 5 },
-        { "name": "Concert tickets", "category": "Just for fun", "paymentMethod": "Card", "cents": 9200, "count": 1 },
-        { "name": "Class supplies", "category": "Other", "paymentMethod": "Card", "cents": 8000, "count": 2 },
-        { "name": "Campus café", "category": "Food & drink", "paymentMethod": "Card", "cents": 5400, "count": 12 },
-        { "name": "Transit", "category": "Getting around", "paymentMethod": "Contactless", "cents": 4800, "count": 8 },
-        { "name": "Trader Joe’s", "category": "Food & drink", "paymentMethod": "Card", "cents": 4000, "count": 3 },
-        { "name": "Laundry", "category": "Other", "paymentMethod": "Cash", "cents": 2000, "count": 4 },
-        { "name": "Utilities", "category": "Home & bills", "paymentMethod": "Bank transfer", "cents": 1800, "count": 1 }
+        {
+          "name": "Rent · Puffton Village",
+          "category": "Home & bills",
+          "paymentMethod": "Bank transfer",
+          "cents": 60000,
+          "count": 1
+        },
+        {
+          "name": "DoorDash",
+          "category": "Food & drink",
+          "paymentMethod": "Card",
+          "cents": 14000,
+          "count": 5
+        },
+        {
+          "name": "Concert tickets",
+          "category": "Just for fun",
+          "paymentMethod": "Card",
+          "cents": 9200,
+          "count": 1
+        },
+        {
+          "name": "Class supplies",
+          "category": "Other",
+          "paymentMethod": "Card",
+          "cents": 8000,
+          "count": 2
+        },
+        {
+          "name": "Campus café",
+          "category": "Food & drink",
+          "paymentMethod": "Card",
+          "cents": 5400,
+          "count": 12
+        },
+        {
+          "name": "Transit",
+          "category": "Getting around",
+          "paymentMethod": "Contactless",
+          "cents": 4800,
+          "count": 8
+        },
+        {
+          "name": "Trader Joe’s",
+          "category": "Food & drink",
+          "paymentMethod": "Card",
+          "cents": 4000,
+          "count": 3
+        },
+        {
+          "name": "Laundry",
+          "category": "Other",
+          "paymentMethod": "Cash",
+          "cents": 2000,
+          "count": 4
+        },
+        {
+          "name": "Utilities",
+          "category": "Home & bills",
+          "paymentMethod": "Bank transfer",
+          "cents": 1800,
+          "count": 1
+        }
       ]
     },
-    "sync": { "lastSyncedAt": "2026-11-14T11:58:00-05:00" }
+    "sync": {
+      "lastSyncedAt": "2026-11-14T11:58:00-05:00"
+    },
+    "today": "2026-11-14",
+    "bills": [
+      {
+        "id": "40000000-0000-4000-8000-000000000001",
+        "name": "Rent",
+        "amountCents": 80000,
+        "isEstimate": false,
+        "recurrence": "monthly",
+        "nextDueOn": "2026-11-14",
+        "paymentMethod": "Bank transfer",
+        "icon": "house",
+        "note": "Puffton 4 · your share",
+        "source": "demo",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "groupName": "Puffton 4"
+      },
+      {
+        "id": "40000000-0000-4000-8000-000000000002",
+        "name": "Utilities",
+        "amountCents": 6000,
+        "isEstimate": true,
+        "recurrence": "monthly",
+        "nextDueOn": "2026-11-14",
+        "paymentMethod": "Bank transfer",
+        "icon": "plug",
+        "note": "Puffton 4 · estimated share",
+        "source": "demo",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "groupName": "Puffton 4"
+      },
+      {
+        "id": "40000000-0000-4000-8000-000000000003",
+        "name": "Spotify Student",
+        "amountCents": 1199,
+        "isEstimate": false,
+        "recurrence": "monthly",
+        "nextDueOn": "2026-11-18",
+        "paymentMethod": "Card · 0421",
+        "icon": "music-2",
+        "note": "Monthly subscription",
+        "source": "demo",
+        "groupId": null,
+        "groupName": null
+      }
+    ]
   }
 }

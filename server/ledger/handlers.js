@@ -1,3 +1,5 @@
+import { getMappedAccountForUser } from '../banking/provider.js';
+import { readDebts, readLedger, summarizeDebts } from './debts.js';
 import { HttpError } from '../http.js';
 
 const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
@@ -40,6 +42,19 @@ async function requireGroup(db, id, userId) {
   return group;
 }
 
+async function requirePurchase(db, userId, { accountId, providerKey }, cents) {
+  const { rowCount } = await db.query(`
+    SELECT t.id
+    FROM bank_import_keys k
+    JOIN bank_accounts a ON a.id = k.account_id
+    JOIN bank_transactions t ON t.account_id = k.account_id
+      AND t.id = k.transaction_id AND t.occurred_at = k.occurred_at
+    WHERE a.user_id = $1 AND k.account_id = $2 AND k.provider_key = $3
+      AND t.kind = 'purchase' AND t.direction = 'debit' AND t.amount_cents = $4
+  `, [userId, accountId, providerKey, cents]);
+  if (!rowCount) throw invalid('Choose an imported purchase from your account with the same amount.');
+}
+
 export function createLedgerHandlers({ query, withTransaction }) {
   return {
     async 'groups.list'({ actor }) {
@@ -52,7 +67,11 @@ export function createLedgerHandlers({ query, withTransaction }) {
         GROUP BY g.id
         ORDER BY g.created_at, g.id
       `, [actor.userId]);
-      return { groups: rows.map((group) => ({ ...group, youOweCents: 0, owedToYouCents: 0 })) };
+      const debtRows = await readDebts({ query }, rows.map(({ id }) => id), actor.userId);
+      return { groups: rows.map((group) => {
+        const { youOweCents, owedToYouCents } = summarizeDebts(debtRows.filter(({ groupId }) => groupId === group.id));
+        return { ...group, youOweCents, owedToYouCents };
+      }) };
     },
 
     async 'groups.create'({ actor, body }) {
@@ -93,12 +112,15 @@ export function createLedgerHandlers({ query, withTransaction }) {
       if (!participantIds.length || new Set(participantIds).size !== participantIds.length) {
         throw invalid('Choose a nonempty list of distinct participants.');
       }
-      if (body.bankRef != null) {
-        throw new HttpError(501, 'BANK_LINK_NOT_IMPLEMENTED', 'Linking a bank purchase is not available yet.');
+      const bankRef = body.bankRef ?? null;
+      if (bankRef !== null && (typeof bankRef.accountId !== 'string' || !uuid.test(bankRef.accountId) ||
+          typeof bankRef.providerKey !== 'string' || !bankRef.providerKey.trim())) {
+        throw invalid('Choose a valid imported purchase.');
       }
 
       return withTransaction(async (db) => {
         const group = await requireGroup(db, groupId, actor.userId);
+        if (bankRef !== null) await requirePurchase(db, actor.userId, bankRef, cents);
         const { rows: participants } = await db.query(`
           SELECT u.id AS "userId", u.display_name AS "displayName"
           FROM group_members m JOIN users u ON u.id = m.user_id
@@ -114,10 +136,10 @@ export function createLedgerHandlers({ query, withTransaction }) {
           ...member, cents: base + (index < remainder ? 1 : 0),
         }));
         const { rows: [draft] } = await db.query(`
-          INSERT INTO expenses (group_id, created_by, merchant, category, total_cents, expires_at)
-          VALUES ($1, $2, $3, $4, $5, now() + interval '15 minutes')
+          INSERT INTO expenses (group_id, created_by, merchant, category, total_cents, expires_at, bank_account_id, bank_provider_key)
+          VALUES ($1, $2, $3, $4, $5, now() + interval '15 minutes', $6, $7)
           RETURNING id, status, created_at AS "createdAt", expires_at AS "expiresAt"
-        `, [group.id, actor.userId, merchant, category, cents]);
+        `, [group.id, actor.userId, merchant, category, cents, bankRef?.accountId ?? null, bankRef?.providerKey ?? null]);
         await db.query(`
           INSERT INTO expense_shares (expense_id, user_id, share_cents)
           SELECT $1, user_id, share_cents
@@ -126,13 +148,71 @@ export function createLedgerHandlers({ query, withTransaction }) {
         return {
           draft: {
             ...draft, groupId: group.id, payerUserId: actor.userId, merchant, category,
-            totalCents: cents, shares, bankRef: null,
+            totalCents: cents, shares, bankRef,
           },
         };
       });
     },
 
+    async 'expenseDrafts.confirm'({ actor, params }) {
+      if (!uuid.test(params.id)) throw invalid('Choose a valid expense draft.');
+      try {
+        return await withTransaction(async (db) => {
+          const { rows: [row] } = await db.query(`
+            SELECT e.id, e.group_id AS "groupId", e.status, e.total_cents AS "totalCents",
+              e.confirmed_at AS "confirmedAt", e.expires_at <= clock_timestamp() AS expired,
+              e.bank_account_id AS "accountId", e.bank_provider_key AS "providerKey"
+            FROM expenses e JOIN group_members m ON m.group_id = e.group_id AND m.user_id = e.created_by
+            WHERE e.id = $1 AND e.created_by = $2
+            FOR UPDATE OF e
+          `, [params.id, actor.userId]);
+          if (!row) throw new HttpError(404, 'DRAFT_NOT_FOUND', 'Expense draft not found.');
+          const { id, groupId, totalCents, status, confirmedAt, expired, accountId, providerKey } = row;
+          if (status === 'confirmed') return { expense: { id, groupId, totalCents, status, confirmedAt } };
+          if (status !== 'draft' || expired) throw new HttpError(409, 'DRAFT_EXPIRED', 'Create a new expense draft.');
+          if (accountId) await requirePurchase(db, actor.userId, { accountId, providerKey }, totalCents);
+          const { rows: [confirmed] } = await db.query(`
+            UPDATE expenses SET status = 'confirmed', confirmed_at = clock_timestamp(), updated_at = clock_timestamp()
+            WHERE id = $1
+            RETURNING status, confirmed_at AS "confirmedAt"
+          `, [id]);
+          return { expense: { id, groupId, totalCents, ...confirmed } };
+        });
+      } catch (error) {
+        if (error.code === '23505' && error.constraint === 'expenses_confirmed_bank_purchase_uq') {
+          throw new HttpError(409, 'PURCHASE_ALREADY_LINKED', 'This purchase is already linked to an expense.');
+        }
+        throw error;
+      }
+    },
 
+    async 'settlementReviews.create'({ actor, body }) {
+      const { groupId, payeeUserId } = body;
+      if (typeof groupId !== 'string' || !uuid.test(groupId) ||
+          typeof payeeUserId !== 'string' || !uuid.test(payeeUserId)) {
+        throw invalid('Choose a valid group and recipient.');
+      }
+      const payerUserId = actor.userId;
+      return withTransaction(async (db) => {
+        const group = await requireGroup(db, groupId, payerUserId);
+        await requireGroup(db, groupId, payeeUserId);
+        const debts = await readDebts(db, [group.id], payerUserId);
+        const debt = debts.find(({ userId, cents }) => userId === payeeUserId.toLowerCase() && cents > 0);
+        if (!debt) throw new HttpError(409, 'NO_OUTSTANDING_DEBT', 'There is no outstanding debt to this member.');
+        const payer = await getMappedAccountForUser(db, payerUserId);
+        const payee = await getMappedAccountForUser(db, debt.userId);
+        if (!payer || !payee) throw new HttpError(409, 'NO_LINKED_ACCOUNT', 'Both members need a connected sandbox account.');
+        const { rows: [review] } = await db.query(`
+          INSERT INTO settlements (group_id, created_by, payer_user_id, payee_user_id,
+            payer_account_id, payee_account_id, amount_cents, review_expires_at)
+          VALUES ($1, $2, $2, $3, $4, $5, $6, now() + interval '15 minutes')
+          RETURNING id, group_id AS "groupId", payer_user_id AS "payerUserId",
+            payee_user_id AS "payeeUserId", amount_cents AS "amountCents",
+            status, review_expires_at AS "expiresAt"
+        `, [group.id, payerUserId, debt.userId, payer.id, payee.id, debt.cents]);
+        return { review };
+      });
+    },
 
     async 'groups.get'({ actor, params }) {
       if (!uuid.test(params.id)) throw invalid('Enter a valid group ID.');
@@ -143,7 +223,11 @@ export function createLedgerHandlers({ query, withTransaction }) {
         WHERE m.group_id = $1
         ORDER BY "isYou" DESC, m.joined_at, u.id
       `, [group.id, actor.userId]);
-      return { group, members, debts: { youOwe: [], owedToYou: [], youOweCents: 0, owedToYouCents: 0 }, ledger: [] };
+      const [debts, ledger] = await Promise.all([
+        readDebts({ query }, [group.id], actor.userId).then(summarizeDebts),
+        readLedger({ query }, group.id, actor.userId),
+      ]);
+      return { group, members, debts, ledger };
     },
   };
 }

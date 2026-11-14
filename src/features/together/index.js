@@ -1,47 +1,121 @@
+import { apiRequest } from '../../api/session.js';
+import { GROUPS, USERS } from '../../../server/db/demo-ids.js';
+
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
   function ticket() {
     const names = demo.draft.people;
     let share = Math.floor(demo.draft.cents / names.length);
     return `<div class="expense-ticket"><div class="ticket-top"><div class="ticket-kicker"><span class="eyebrow">Ready when you are</span><span class="pending-label">Not saved yet</span></div><div class="ticket-amount display money">${money(demo.draft.cents)}</div><h3>${esc(demo.draft.merchant)}</h3><span class="small muted">${esc(demo.draft.category)} · Paid by you</span></div><div class="ticket-middle"><div class="math-line small"><span class="muted">Split equally in</span><strong>Puffton 4</strong></div><div class="split-equation"><div class="split-people">${names.map((n, i) => `<div class="split-person">${avatar(n)}<span>${n === 'Maya' ? 'You' : n}</span><strong class="money">${money(share + (i === 0 ? demo.draft.cents - share * names.length : 0))}</strong></div>`).join('')}</div><button type="button" class="text-button cursor-interaction" data-action="edit-split">Edit</button></div><div class="ticket-actions"><button type="button" class="primary cursor-interaction" data-action="confirm-expense">${icon('check')}Confirm expense</button><button type="button" class="secondary cursor-interaction" data-action="discard">Discard</button></div></div><div class="ticket-foot">${icon('shield-check')}Adds a shared expense. No money will be transferred.</div></div>`;
   }
+  let cached;
+  let review;
+
+  async function loadGroup(id) {
+    if (cached?.id === id) return;
+    const pending = { id };
+    cached = pending;
+    try {
+      pending.data = await apiRequest(id ? `/api/groups/${encodeURIComponent(id)}` : '/api/groups');
+    } catch (error) {
+      pending.error = error.message;
+    }
+    if (cached === pending && state.page === 'groups' && state.group === id) render();
+  }
+
   function groups() {
-    if (state.group) return ledger(state.group);
-    return (
-      heading(
-        'Your groups',
-        'Good company. Clear tabs.',
-        'The shared stuff, without the “you still owe me” text.',
-      ) +
-      `<div class="group-list"><section class="group-large"><div class="group-title"><span class="group-picture">${icon('house')}</span><div><h2>Puffton 4</h2><p class="small muted">Roommates · 4 people</p></div>${stack()}</div><div class="group-summary"><div><div class="display money">${money((state.settled ? 6450 : 4650) + (state.logged ? demo.draft.cents - shareFor('Maya') : 0))}</div><p class="small muted">you’re owed, after your share</p></div><div class="group-actions"><button type="button" class="secondary cursor-interaction" data-action="puffton">View ledger</button><button type="button" class="primary cursor-interaction" data-action="settle">${state.settled ? 'View payment' : 'Settle up'}${icon('arrow-right')}</button></div></div><div class="group-caption"><span>Rent & utilities split 4 ways</span><span>${state.settled ? 'Your share is paid · 2 payments pending' : '7 IOUs simplified to 3 transfers'}</span></div></section><section class="group-large" style="border-radius:8px 24px 24px 24px"><div class="group-title"><span class="group-picture trip">${icon('luggage')}</span><div><h2>Boston weekend</h2><p class="small muted">Nov 20–22 · 3 people</p></div>${stack(['Maya', 'Sam', 'Priya'])}</div><div class="group-summary"><div><div class="display money">$642 <small class="muted">of $1,200</small></div><p class="small muted">Shared trip budget · $400 each</p></div><button type="button" class="secondary cursor-interaction" data-action="boston">Open trip ${icon('arrow-right')}</button></div><div class="trip-meter" role="progressbar" aria-label="Trip budget used" aria-valuemin="0" aria-valuemax="1200" aria-valuenow="642"><span></span></div><div class="group-caption" style="border:0;padding:0;margin-top:9px"><span>54% of the trip budget used</span><span>$558 still unplanned</span></div></section></div><div class="insight">${icon('heart-handshake')}<div><div class="insight-label">Everyone gets a say</div><p>Each person approves their own payment. A group balance never gives Split permission to move money.</p></div></div>`
-    );
+    const id = state.group;
+    void loadGroup(id);
+    if (cached.error) return `<p role="alert">${esc(cached.error)}</p><button data-action="retry-groups">Retry</button>`;
+    if (!cached.data) return '<p role="status">Loading groups…</p>';
+    if (!id) {
+      return heading('Your groups', 'Together', '', '<button class="primary" data-action="new-group">New group</button>') +
+        `<div class="group-list">${cached.data.groups.map((g) => `
+          <section class="group-large"><h2>${esc(g.name)}</h2><p>${g.memberCount} members</p>
+          <p>You owe ${money(g.youOweCents)} · Owed to you ${money(g.owedToYouCents)}</p>
+          <button class="secondary" data-group-id="${esc(g.id)}">Open group</button></section>`).join('') || '<p>No groups yet.</p>'}</div>`;
+    }
+    const { group, members, debts, ledger } = cached.data;
+    return '<button class="back-button" data-go="groups">All groups</button>' +
+      heading(group.kind === 'trip' ? 'Trip' : 'Roommates', esc(group.name), esc(group.tagline ?? ''),
+        '<button class="primary" data-action="new-group-expense">Add expense</button>') +
+      `<div class="member-list">${members.map((m) => `<p>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</p>`).join('')}</div>
+        <section><h2>You owe ${money(debts.youOweCents)}</h2>
+          ${debts.youOwe.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}
+        <h2>Owed to you ${money(debts.owedToYouCents)}</h2>
+          ${debts.owedToYou.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}</section>
+        <section><h2>Recent shared costs</h2>${ledger.map((entry) => entry.type === 'expense'
+          ? tx(esc(entry.merchant), 'Your share', money(entry.yourShareCents), 'receipt')
+          : tx('Settlement', esc(entry.status), money(entry.amountCents), 'users')).join('') || '<p>No shared activity yet.</p>'}</section>`;
   }
-  function ledger(group) {
-    const trip = group === 'boston';
-    return `<button type="button" class="back-button cursor-interaction" data-go="groups">${icon('arrow-left')}All groups</button><div class="ledger-title"><span class="group-picture ${trip ? 'trip' : ''}">${icon(trip ? 'luggage' : 'house')}</span><div><h1>${trip ? 'Boston weekend' : 'Puffton 4'}</h1><p class="small muted">${trip ? 'November 20–22 · $400 per person' : 'Roommates · 4 people · USD'}</p></div></div>${
-      trip
-        ? `<div class="balance-strip"><div class="available"><div class="label">Your remaining trip budget</div><div class="figure display money">$186<span class="cents">.00</span></div><p class="footnote">$214 of your $400 share is already booked.</p></div><div class="balance-math"><div class="math-line"><span class="muted">The whole trip</span><strong>$1,200.00</strong></div><div class="math-line"><span class="muted">Booked together</span><span>− $642.00</span></div><div class="math-line"><span>Still to plan</span><span>$558.00</span></div></div></div><div class="section-head"><h2>Booked & shared</h2><span class="tag">Split equally</span></div>${tx('A place in Cambridge', 'Priya paid · 3 people', '$510.00', 'bed-double')}${tx('Train tickets', 'Sam paid · 3 people', '$132.00', 'train-front')}<button type="button" class="primary cursor-interaction" data-action="trip-question" style="margin-top:22px">${icon('message-circle')}Check my trip budget</button><div class="insight">${icon('flag')}<div><div class="insight-label">Trip budget</div><p>We’ll flag the group at $960 — 80% of your shared budget. Everyone can see the same running total.</p></div></div>`
-        : `<div class="ledger-note">${icon('git-pull-request-arrow')}<div><strong>Fewer payments. Same fair split.</strong><br><span class="muted">7 IOUs become 3 transfers. Only you can approve your payment.</span></div></div><div class="section-head"><h2>Your shared balances</h2><span class="small muted">After simplifying IOUs</span></div><div class="member-list">${[
-            ['Sam', 2800 + (state.logged ? shareFor('Sam') : 0), 'owes you'],
-            ['Priya', 3650 + (state.logged ? shareFor('Priya') : 0), 'owes you'],
-            [
-              'Alex',
-              Math.abs((state.settled ? 0 : 1800) - (state.logged ? shareFor('Alex') : 0)),
-              (state.settled ? 0 : 1800) - (state.logged ? shareFor('Alex') : 0) > 0
-                ? 'you owe'
-                : (state.settled ? 0 : 1800) - (state.logged ? shareFor('Alex') : 0) < 0
-                  ? 'owes you'
-                  : 'Settled',
-            ],
-          ]
-            .map(
-              ([n, c, label]) =>
-                `<div class="member-row">${avatar(n)}<div><strong>${n}</strong><div class="small muted">${label}</div></div><strong class="money ${label === 'owes you' ? 'positive' : label === 'you owe' ? 'negative' : 'muted'}">${money(c)}</strong></div>`,
-            )
-            .join(
-              '',
-            )}</div><div class="section-head"><h2>Recent shared costs</h2><button type="button" class="text-button cursor-interaction" data-go="chat">Add a cost ${icon('plus')}</button></div>${state.logged ? tx(esc(demo.draft.merchant), 'You paid · ' + demo.draft.people.length + ' people', money(demo.draft.cents), 'utensils') : ''}${tx('Trader Joe’s', 'Priya paid · Nov 12', '$36.50', 'shopping-basket')}${tx('Utilities', 'Alex paid · Nov 10 · Recurring', '$72.00', 'plug')}${tx('Pizza night', 'You paid · Nov 8', '$56.00', 'pizza')}<div style="display:flex;justify-content:end;margin-top:22px"><button type="button" class="primary cursor-interaction" data-action="settle">${state.settled ? 'View payment' : 'Review my payment'}${icon('arrow-right')}</button></div>`
-    }`;
+
+  function showGroup(id) {
+    cached = undefined;
+    state.page = 'groups';
+    state.group = id;
+    render();
   }
+
+  function newGroup() {
+    openModal('New group', `<h2>New group</h2>${closeButton}
+      <form id="sp-group-form" class="field-grid">
+      <label class="field">Name<input name="name" required></label>
+      <label class="field">Type<select name="kind"><option value="roommates">Roommates</option><option value="trip">Trip</option></select></label>
+      <label class="field">Starts on<input name="startsOn" type="date"></label>
+      <label class="field">Ends on<input name="endsOn" type="date"></label>
+      <fieldset><legend>Demo members</legend>${Object.entries(USERS).map(([name, id]) =>
+        `<label><input type="checkbox" name="member" value="${id}"> ${name[0].toUpperCase() + name.slice(1)}</label> `).join('')}</fieldset>
+      <button class="primary" type="submit">Create group</button><p role="alert"></p></form>`);
+  }
+
+  function newExpense() {
+    const { members } = cached.data;
+    openModal('Add shared expense', `<h2>Add shared expense</h2>${closeButton}
+      <form id="sp-group-expense-form" class="field-grid">
+      <label class="field">Merchant<input name="merchant" required></label>
+      <label class="field">Total, USD<input name="amount" type="number" step="0.01" min="0.01" required></label>
+      <fieldset><legend>Split with</legend>${members.map((m) => `<label><input type="checkbox" name="participant" value="${esc(m.userId)}" checked> ${esc(m.displayName)}</label> `).join('')}</fieldset>
+      <button class="primary" type="submit">Review split</button><p role="alert"></p></form>`);
+  }
+
+  function draftTicket(draft) {
+    return `<div class="expense-ticket"><h3>${esc(draft.merchant)} · ${money(draft.totalCents)}</h3>
+      ${draft.shares.map((s) => `<div class="math-line"><span>${esc(s.displayName)}</span><strong>${money(s.cents)}</strong></div>`).join('')}
+      <form id="sp-group-confirm-form"><button class="primary" type="submit">Confirm expense</button><p role="alert"></p></form></div>`;
+  }
+
+  async function submitGroupForm(form, fd) {
+    const button = form.querySelector('[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      if (form.id === 'sp-group-form') {
+        const { group } = await apiRequest('/api/groups', { method: 'POST', body: {
+          name: fd.get('name'), kind: fd.get('kind'), startsOn: fd.get('startsOn') || null, endsOn: fd.get('endsOn') || null,
+          memberIds: fd.getAll('member'),
+        } });
+        closeModal();
+        showGroup(group.id);
+      } else if (form.id === 'sp-group-expense-form') {
+        const { draft } = await apiRequest('/api/expense-drafts', { method: 'POST', body: {
+          groupId: state.group, merchant: fd.get('merchant'), cents: Math.round(Number(fd.get('amount')) * 100),
+          participantIds: fd.getAll('participant'),
+        } });
+        if (!form.isConnected) return;
+        review = draft;
+        openModal('Review split', `<h2>Review split</h2>${closeButton}${draftTicket(draft)}`);
+      } else {
+        await apiRequest(`/api/expense-drafts/${encodeURIComponent(review.id)}/confirm`, { method: 'POST', body: {} });
+        closeModal();
+        showGroup(review.groupId);
+        toast('Expense saved.');
+      }
+    } catch (error) {
+      form.querySelector('[role="alert"]').textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function settlement() {
     if (state.settled) {
       paymentSuccess(false);
@@ -67,6 +141,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.groupId) { showGroup(b.dataset.groupId); return; }
     if (b.dataset.filter) {
       state.filter = b.dataset.filter;
       render();
@@ -75,16 +150,19 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
     switch (b.dataset.action) {
       case 'puffton':
-        state.page = 'groups';
-        state.group = 'puffton';
-        render();
-        persist();
+        showGroup(GROUPS.puffton4);
         break;
       case 'boston':
-        state.page = 'groups';
-        state.group = 'boston';
-        render();
-        persist();
+        showGroup(GROUPS.bostonWeekend);
+        break;
+      case 'retry-groups':
+        showGroup(state.group);
+        break;
+      case 'new-group':
+        newGroup();
+        break;
+      case 'new-group-expense':
+        newExpense();
         break;
       case 'settle':
         settlement();
@@ -121,6 +199,10 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   });
   function handleExpenseForm(form, fd) {
+    if (['sp-group-form', 'sp-group-expense-form', 'sp-group-confirm-form'].includes(form.id)) {
+      void submitGroupForm(form, fd);
+      return;
+    }
     if (form.id !== 'sp-edit-form') return;
       const amount = Math.round(Number(fd.get('amount')) * 100),
         selected = ['Maya', ...fd.getAll('person').filter((n) => n !== 'Maya')];
@@ -148,5 +230,5 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       announce('Expense preview updated. Not saved yet.');
   }
 
-  return { groups, ticket, handleExpenseForm };
+  return { groups, ticket, draftTicket, handleExpenseForm };
 }
