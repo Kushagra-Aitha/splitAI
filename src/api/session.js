@@ -74,10 +74,10 @@ export async function initializeSession(root) {
   gate.className = 'session-gate';
   gate.setAttribute('aria-label', 'Log in to Split');
   // Static markup only. Server and user values are assigned through textContent.
-  gate.innerHTML = `<div class="session-shell"><aside class="session-aside" aria-hidden="true"><p class="session-brand">split<span>.</span></p>
+  gate.innerHTML = `<div class="session-shell"><aside class="session-aside" aria-hidden="true"><p class="session-brand"><span class="session-mark" aria-hidden="true"></span>split<span>.</span></p>
     <p class="session-pitch">Split shared costs straight from your bank.</p>
     <ul><li>Your Capital Two purchases sync automatically</li><li>Pick a transaction, choose a group, done</li><li>Guard flags shady payment requests</li></ul></aside>
-    <div class="session-card"><p class="session-brand session-brand-inline">split<span>.</span></p>
+    <div class="session-card"><p class="session-brand session-brand-inline"><span class="session-mark" aria-hidden="true"></span>split<span>.</span></p>
     <form data-mode="login" aria-labelledby="sp-login-title"><h1 id="sp-login-title">Welcome back.</h1><p>Log in to see your money and your groups.</p>
       <label for="sp-login-email">Email</label><input id="sp-login-email" name="email" type="email" autocomplete="username" maxlength="254" required>
       <label for="sp-login-password">Password</label><input id="sp-login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
