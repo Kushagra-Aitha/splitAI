@@ -108,7 +108,8 @@ test('live database: private, atomic and repeat-safe notifications with real ses
     ]);
     const item = (await list('sam')).items.find((entry) => entry.sourceId === id);
     assert.equal(item.groupId, null); assert.equal(item.expenseId, null);
-    assert.deepEqual(Object.keys(item).sort(), ['createdAt', 'expenseId', 'groupId', 'groupName', 'id', 'kind', 'readAt', 'sourceId']);
+    assert.deepEqual(Object.keys(item).sort(), ['actorName', 'actorUserId', 'createdAt', 'expenseId', 'groupId', 'groupName',
+      'id', 'isPayer', 'kind', 'merchant', 'payeeName', 'readAt', 'settlementCents', 'sourceId', 'totalCents', 'yourShareCents']);
     const before = (await list('sam')).unreadCount;
     await assert.rejects(withTransaction(async (tx) => {
       await recordGuardEvent(tx, { actorUserId: USERS.sam, reasonCode: 'UNTRUSTED_CONTEXT' });
@@ -119,7 +120,7 @@ test('live database: private, atomic and repeat-safe notifications with real ses
 
   await t.test('sent waits for acknowledgement; reconciliation publishes posted/failed once to both parties', async () => {
     await db.query(`UPDATE bank_accounts SET provider_account_id = 'synthetic-' || id,
-      balance_cents = 100000, available_cents = 100000, balance_as_of = now()`);
+      balance_cents = 100000, available_cents = 100000, balance_as_of = now(), linked_at = now()`);
     async function review() {
       await confirm(ledger, await draft(ledger, 600));
       return (await ledger['settlementReviews.create']({ actor: actor('maya'), body: {
@@ -191,5 +192,20 @@ test('live database: private, atomic and repeat-safe notifications with real ses
     } while (cursor);
     assert.deepEqual(actual.sort(), expected);
     for (const params of ['limit=0', 'limit=51', 'before=invalid']) await assert.rejects(list('maya', params), (error) => error.status === 422);
+  });
+  await t.test('readable metadata is canonical; mark all read is actor-scoped and hides former-group rows', async () => {
+    const expense = await draft(); await confirm(ledger, expense);
+    const item = (await list('maya')).items.find((entry) => entry.sourceId === expense.id);
+    assert.equal(item.actorUserId, USERS.sam); assert.equal(item.actorName, 'Sam');
+    assert.equal(item.merchant, 'Synthetic Dinner'); assert.equal(item.totalCents, 4200); assert.equal(item.yourShareCents, 2100);
+    const samBefore = (await list('sam')).unreadCount;
+    const response = await fetch(`${base}/api/notifications/read`, { method: 'POST', headers: { Origin: origin,
+      Cookie: maya.cookie, 'Content-Type': 'application/json', 'X-CSRF-Token': maya.session.csrfToken }, body: JSON.stringify({ all: true }) });
+    assert.equal(response.status, 200);
+    assert.equal((await list('maya')).unreadCount, 0);
+    assert.equal((await list('sam')).unreadCount, samBefore);
+    assert.equal((await db.query(`SELECT id FROM notifications n WHERE recipient_user_id = $1 AND read_at IS NULL
+      AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = n.group_id AND m.user_id = $1 AND m.left_at IS NOT NULL)`, [USERS.maya])).rowCount, 1);
+    await assert.rejects(notifications['notifications.read']({ actor: actor('maya'), body: { all: true, userId: USERS.sam } }), (error) => error.status === 422);
   });
 });
