@@ -82,6 +82,55 @@ export function createLedgerHandlers({ query, withTransaction }) {
       });
     },
 
+    async 'expenseDrafts.create'({ actor, body }) {
+      const { groupId, cents } = body;
+      if (typeof groupId !== 'string' || !uuid.test(groupId)) throw invalid('Choose a valid group.');
+      if (!Number.isSafeInteger(cents) || cents < 1) throw invalid('Enter a positive amount in integer cents.');
+      const merchant = optionalText(body.merchant, 'merchant');
+      if (!merchant) throw invalid('Enter a merchant.');
+      const category = optionalText(body.category, 'category');
+      const participantIds = readIds(body.participantIds, 'participantIds');
+      if (!participantIds.length || new Set(participantIds).size !== participantIds.length) {
+        throw invalid('Choose a nonempty list of distinct participants.');
+      }
+      if (body.bankRef != null) {
+        throw new HttpError(501, 'BANK_LINK_NOT_IMPLEMENTED', 'Linking a bank purchase is not available yet.');
+      }
+
+      return withTransaction(async (db) => {
+        const group = await requireGroup(db, groupId, actor.userId);
+        const { rows: participants } = await db.query(`
+          SELECT u.id AS "userId", u.display_name AS "displayName"
+          FROM group_members m JOIN users u ON u.id = m.user_id
+          WHERE m.group_id = $1 AND u.id = ANY($2::uuid[])
+          ORDER BY (u.id = $3) DESC, u.id
+        `, [group.id, participantIds, actor.userId]);
+        if (participants.length !== participantIds.length) {
+          throw invalid('Choose participants who belong to the group.');
+        }
+        const base = Math.floor(cents / participants.length);
+        const remainder = cents % participants.length;
+        const shares = participants.map((member, index) => ({
+          ...member, cents: base + (index < remainder ? 1 : 0),
+        }));
+        const { rows: [draft] } = await db.query(`
+          INSERT INTO expenses (group_id, created_by, merchant, category, total_cents, expires_at)
+          VALUES ($1, $2, $3, $4, $5, now() + interval '15 minutes')
+          RETURNING id, status, created_at AS "createdAt", expires_at AS "expiresAt"
+        `, [group.id, actor.userId, merchant, category, cents]);
+        await db.query(`
+          INSERT INTO expense_shares (expense_id, user_id, share_cents)
+          SELECT $1, user_id, share_cents
+          FROM unnest($2::uuid[], $3::bigint[]) AS shares(user_id, share_cents)
+        `, [draft.id, shares.map((share) => share.userId), shares.map((share) => share.cents)]);
+        return {
+          draft: {
+            ...draft, groupId: group.id, payerUserId: actor.userId, merchant, category,
+            totalCents: cents, shares, bankRef: null,
+          },
+        };
+      });
+    },
 
 
 
