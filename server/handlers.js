@@ -13,6 +13,7 @@ import { createCapitalHandlers } from './capital-two/handlers.js';
 import { getPool, withTransaction } from './db/pool.js';
 import { createGoalHandlers } from './goals/handlers.js';
 import { createGuardEventsHandler } from './guard/events.js';
+import { createGuardSettings } from './guard/settings.js';
 import { createSettlementConfirmation } from './ledger/confirm-settlement.js';
 import { createLedgerHandlers } from './ledger/handlers.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
@@ -33,6 +34,7 @@ export const handlers = Object.freeze({
   ...bankingHandlers,
   ...createNotificationHandlers({ query: (...args) => getPool().query(...args) }),
   'guard.list': createGuardEventsHandler((...args) => getPool().query(...args)),
+  ...createGuardSettings({ query: (...args) => getPool().query(...args), withTransaction }),
   ...createGoalHandlers({ query: (...args) => getPool().query(...args), withTransaction }),
   'settlements.get': createSettlementLookup((...args) => getPool().query(...args)),
   'settlementReviews.confirm': createSettlementConfirmation({ withTransaction, lockAccount, reserveFunds }),

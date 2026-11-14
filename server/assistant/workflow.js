@@ -4,13 +4,14 @@ import { createLedgerHandlers } from '../ledger/handlers.js';
 import { createAskHandler } from './ask.js';
 import { validateIntent, validateMessage } from './intent.js';
 import { createAssistantGuard, rejectedProposalReason } from './guard.js';
+import { bankQuery, matchPurchases } from './bank-match.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const normalized = (value) => value.normalize('NFKC').trim().toLocaleLowerCase('en-US');
 const invalid = (message) => new HttpError(422, 'INVALID_ASK_SELECTION', message);
 const columns = `id, message_hash AS "messageHash", extraction,
-  draft_id AS "draftId", selection_hash AS "selectionHash", expires_at AS "expiresAt"`;
+  draft_id AS "draftId", selection_hash AS "selectionHash", expires_at AS "expiresAt", bank_query AS "bankQuery"`;
 
 function id(value, label) {
   if (typeof value !== 'string' || !UUID.test(value)) throw invalid(`Choose a valid ${label}.`);
@@ -60,7 +61,8 @@ async function readDraft(db, proposal, actorId) {
   const { rows: [row] } = await db.query(`
     SELECT e.id, e.status, e.group_id AS "groupId", e.created_by AS "payerUserId",
       e.merchant, e.category, e.total_cents::text AS "totalCents",
-      e.created_at AS "createdAt", e.expires_at AS "expiresAt", g.name AS "groupName", g.kind
+      e.created_at AS "createdAt", e.expires_at AS "expiresAt", g.name AS "groupName", g.kind,
+      e.bank_account_id AS "bankAccountId", e.bank_provider_key AS "bankProviderKey"
     FROM expenses e JOIN groups g ON g.id = e.group_id
     JOIN group_members m ON m.group_id = e.group_id AND m.user_id = $2 AND m.left_at IS NULL
     WHERE e.id = $1 AND e.created_by = $2`, [proposal.draftId, actorId]);
@@ -79,11 +81,12 @@ async function readDraft(db, proposal, actorId) {
   if (shares.reduce((sum, share) => sum + BigInt(share.cents), 0n) !== BigInt(row.totalCents)) {
     throw new HttpError(409, 'DRAFT_STATE_INVALID', 'This expense review needs to be created again.');
   }
-  const { groupName, kind, ...draft } = row;
+  const { groupName, kind, bankAccountId, bankProviderKey, ...draft } = row;
   return {
     type: 'draft', proposalId: proposal.id,
     group: { id: row.groupId, name: groupName, kind },
-    draft: { ...draft, totalCents, shares: shares.map((share) => ({ ...share, cents: Number(share.cents) })), bankRef: null },
+    draft: { ...draft, totalCents, shares: shares.map((share) => ({ ...share, cents: Number(share.cents) })),
+      bankRef: bankAccountId ? { accountId: bankAccountId, providerKey: bankProviderKey } : null },
   };
 }
 
@@ -95,6 +98,11 @@ async function advance(db, proposal, actor, selection) {
     throw new HttpError(409, 'PROPOSAL_EXPIRED', 'This expense proposal expired. Start a new message.');
   }
   const extraction = details(original, selection);
+  const bank = await matchPurchases(db, actor.userId, proposal.bankQuery, selection?.bankRef, proposal.draftId);
+  if (bank.purchase && selection?.cents !== undefined && selection.cents !== bank.purchase.cents) {
+    throw invalid('The amount must match the selected bank purchase.');
+  }
+  if (bank.purchase) { extraction.merchant = bank.purchase.merchant || extraction.merchant; extraction.cents = bank.purchase.cents; }
   const { groups } = await ledger['groups.list']({ actor });
   const groupOptions = groups.map(({ id, name, kind }) => ({ id, name, kind }));
   let groupId = selection?.groupId !== undefined && selection.groupId !== null ? id(selection.groupId, 'group') : null;
@@ -123,6 +131,7 @@ async function advance(db, proposal, actor, selection) {
   const missingFields = [];
   if (extraction.merchant === null) missingFields.push('merchant');
   if (extraction.cents === null) missingFields.push('cents');
+  if (proposal.bankQuery && !bank.purchase) missingFields.push('bankPurchase');
   if (!explicitMembers && !extraction.participantNames.length) missingFields.push('participantNames');
   if (!groupId || missingFields.length || unresolvedNames.length) {
     return {
@@ -130,9 +139,12 @@ async function advance(db, proposal, actor, selection) {
       reason: !groupId ? 'GROUP_REQUIRED' : missingFields.length ? 'EXPENSE_DETAILS_REQUIRED' : 'MEMBERS_REQUIRED',
       extraction, missingFields, groups: groupOptions, groupId, members,
       suggestedParticipantIds: participantIds, unresolvedNames, expiresAt: proposal.expiresAt,
+      bankCandidates: bank.candidates, requiresBankPurchase: !!proposal.bankQuery,
+      selectedBankRef: bank.purchase ? { accountId: bank.purchase.accountId, providerKey: bank.purchase.providerKey } : null,
     };
   }
-  const selectionHash = hash({ groupId, merchant: extraction.merchant, cents: extraction.cents, participantIds: [...participantIds].sort() });
+  const bankRef = bank.purchase ? { accountId: bank.purchase.accountId, providerKey: bank.purchase.providerKey } : null;
+  const selectionHash = hash({ groupId, merchant: extraction.merchant, cents: extraction.cents, participantIds: [...participantIds].sort(), bankRef });
   if (proposal.draftId) {
     if (proposal.selectionHash !== selectionHash) throw new HttpError(409, 'PROPOSAL_ALREADY_REVIEWED', 'This proposal already has a review. Start a new message to change it.');
     return readDraft(db, proposal, actor.userId);
@@ -141,7 +153,7 @@ async function advance(db, proposal, actor, selection) {
   // commit together or roll back together. A2's own transaction wrapper is
   // deliberately bound to this client, so a lost response cannot orphan a draft.
   const { draft } = await ledger['expenseDrafts.create']({ actor, body: {
-    groupId, merchant: extraction.merchant, cents: extraction.cents, participantIds,
+    groupId, merchant: extraction.merchant, cents: extraction.cents, participantIds, bankRef,
   } });
   await db.query("UPDATE expenses SET source = 'chat' WHERE id = $1", [draft.id]);
   await db.query('UPDATE assistant_proposals SET draft_id = $2, selection_hash = $3 WHERE id = $1', [proposal.id, draft.id, selectionHash]);
@@ -156,7 +168,7 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
       if (Object.keys(body).some((key) => !['proposalId', 'selection'].includes(key))) throw invalid('Send only the proposal ID and selection.');
       const proposalId = id(body.proposalId, 'proposal');
       if (!body.selection || typeof body.selection !== 'object' || Array.isArray(body.selection) ||
-          Object.keys(body.selection).some((key) => !['groupId', 'participantIds', 'merchant', 'cents'].includes(key))) {
+          Object.keys(body.selection).some((key) => !['groupId', 'participantIds', 'merchant', 'cents', 'bankRef'].includes(key))) {
         throw invalid('Choose the expense group, participants, and details.');
       }
       return withTransaction(async (db) => {
@@ -181,10 +193,11 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
       if (answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });
     }
+    const criteria = existing ? existing.bankQuery : bankQuery(message, parsed.expense);
     return withTransaction(async (db) => {
-      await db.query(`INSERT INTO assistant_proposals (actor_user_id, request_key, message_hash, extraction)
-        VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (actor_user_id, request_key) DO NOTHING`,
-      [actor.userId, requestKey, messageHash, JSON.stringify(parsed.expense)]);
+      await db.query(`INSERT INTO assistant_proposals (actor_user_id, request_key, message_hash, extraction, bank_query)
+        VALUES ($1, $2, $3, $4::jsonb, $5::jsonb) ON CONFLICT (actor_user_id, request_key) DO NOTHING`,
+      [actor.userId, requestKey, messageHash, JSON.stringify(parsed.expense), criteria == null ? null : JSON.stringify(criteria)]);
       const { rows: [proposal] } = await db.query(`SELECT ${columns} FROM assistant_proposals
         WHERE actor_user_id = $1 AND request_key = $2 FOR UPDATE`, [actor.userId, requestKey]);
       if (proposal.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');

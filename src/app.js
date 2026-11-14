@@ -33,6 +33,8 @@ export function mountApp(root) {
     ...parseHash(window.location.hash),
   };
   const state = { ...initial };
+  const openAskOnMount = state.page === 'chat';
+  if (openAskOnMount) state.page = 'home';
   const demo = {
     messages: [],
     draftVisible: true,
@@ -92,6 +94,8 @@ export function mountApp(root) {
     toastTimer = setTimeout(() => root.querySelector('#sp-toast-root').replaceChildren(), 3500);
   }
   function go(page) {
+    if (page === 'chat') { ask.open(); return; }
+    ask.close({ restoreFocus: false });
     const fromView = view.contains(document.activeElement);
     clearTimeout(toastTimer);
     root.querySelector('#sp-toast-root').replaceChildren();
@@ -111,13 +115,15 @@ export function mountApp(root) {
     dialogReturn = document.activeElement;
     root.querySelector('.main').inert = true;
     root.querySelector('.book-header').inert = true;
+    for (const element of root.querySelectorAll('.bottom-nav, .ask-fab, .ask-panel')) element.inert = true;
     modalRoot.innerHTML = `<div class="modal-layer"><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">${html}</section></div>`;
     icons();
     modalRoot.querySelector('button,input,select')?.focus({ preventScroll: true });
   }
   function closeModal() {
-    root.querySelector('.main').inert = false;
-    root.querySelector('.book-header').inert = false;
+    const panelOpen = !!root.querySelector('.ask-layer:not([hidden])');
+    for (const element of root.querySelectorAll('.main, .book-header, .bottom-nav, .ask-fab')) element.inert = panelOpen;
+    root.querySelector('.ask-panel')?.removeAttribute('inert');
     modalRoot.replaceChildren();
     if (dialogReturn?.isConnected) dialogReturn.focus({ preventScroll: true });
   }
@@ -135,10 +141,11 @@ export function mountApp(root) {
     draftTicket: (draft) => together.draftTicket(draft),
     registerReview: (draft, handlers) => together.registerReview(draft, handlers) });
   const together = createTogether({ ...context, tx: overview.tx });
-  const guardFeature = createGuard(context);
+  const guardFeature = createGuard({ ...context, openGroup: together.openGroup });
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
-  createNotifications({ ...context, icons, openGroup: together.openGroup, onRefresh: together.onNotifications });
+  createNotifications({ ...context, icons, openGroup: together.openGroup,
+    onRefresh(items) { together.onNotifications(items); guardFeature.onNotifications(items); } });
   const pages = {
     home: overview.home, transactions: overview.transactions, profile: overview.profile, groups: together.groups,
     guard: guardFeature.guard, goals: goalsFeature.goals, chat: ask.chat,
@@ -157,7 +164,9 @@ export function mountApp(root) {
   }
   window.addEventListener('hashchange', () => {
     const next = parseHash(window.location.hash);
+    if (next.page === 'chat') { window.history.replaceState(null, '', hashFor(state)); ask.open(); return; }
     if (next.page === state.page && next.group === state.group) return;
+    ask.close({ restoreFocus: false });
     closeModal();
     if (next.page === 'guard') guardFeature.invalidate();
     Object.assign(state, next);
@@ -263,4 +272,5 @@ export function mountApp(root) {
   });
   render();
   overview.observe();
+  if (openAskOnMount) ask.open();
 }

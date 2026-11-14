@@ -1,18 +1,29 @@
-import { apiRequest } from '../../api/session.js';
+import { apiRequest, getSession } from '../../api/session.js';
 import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { preserveFocus } from '../../lib/focus.js';
+import { createAskPanel } from './panel.js';
 
-export function createAsk({ root, state, icon, esc, heading, render, announce, go,
+export function createAsk({ root, state, icon, icons, esc, heading, render, announce, go,
   draftTicket, registerReview, openGroupCreation }) {
   const entries = [];
   let composerText = '';
   let sending = false;
   let nextId = 0;
+  let epoch = 0;
+  const controllers = new Set();
+  const actorId = getSession()?.actor.userId;
+  const owned = () => !!actorId && getSession()?.actor.userId === actorId;
+  const prompts = ["Split last night's Domino's with Flat 7", 'What do I owe?', 'Food spending this month'];
+  const panel = createAskPanel({ root, icon, icons, renderChat: () => chat(true) });
   const label = '<div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>';
-  const refresh = () => { if (state.page === 'chat') preserveFocus(root, render); };
+  const refresh = () => {
+    if (!owned()) return;
+    if (panel.isOpen()) panel.refresh();
+    else if (state.page === 'chat') preserveFocus(root, render);
+  };
   function focusResponse(entry) {
-    if (state.page !== 'chat') return;
+    if (!panel.isOpen() && state.page !== 'chat') return;
     const doc = root.ownerDocument;
     if (doc.activeElement !== doc.body) return;
     root.querySelector(`#sp-ask-${entry.error ? 'error' : 'result'}-${entry.id}`)?.focus({ preventScroll: true });
@@ -29,8 +40,11 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
       <form data-ask-selection="${entry.id}" aria-describedby="sp-ask-error-${entry.id}" aria-busy="${entry.pending}"><fieldset ${entry.pending ? 'disabled' : ''}>
       <label class="field">Group<select id="sp-ask-group-${entry.id}" name="groupId" data-ask-group="${entry.id}" required><option value="">Choose a group</option>
       ${data.groups.map((group) => `<option value="${esc(group.id)}" ${group.id === data.groupId ? 'selected' : ''}>${esc(group.name)}</option>`).join('')}</select></label>
-      <div class="field-grid"><label class="field">Merchant<input id="sp-ask-merchant-${entry.id}" name="merchant" value="${esc(merchant)}" maxlength="60" required></label>
-      <label class="field">Total, USD<input id="sp-ask-amount-${entry.id}" name="amount" inputmode="decimal" value="${esc(amount)}" maxlength="20" aria-invalid="${entry.invalidField === 'amount'}" aria-describedby="sp-ask-error-${entry.id}" required></label></div>
+      ${data.requiresBankPurchase ? `<label class="field">Matching bank purchase<select id="sp-ask-bank-${entry.id}" name="bankPurchase" data-ask-bank="${entry.id}" required><option value="">Choose a purchase</option>
+        ${(data.bankCandidates || []).map((purchase, index) => `<option value="${index}" ${data.selectedBankRef?.accountId === purchase.accountId && data.selectedBankRef?.providerKey === purchase.providerKey ? 'selected' : ''}>${esc(purchase.merchant || merchant)} · ${formatUsdCents(purchase.cents)} · ${esc(new Date(purchase.occurredAt).toLocaleString())} · ${esc(purchase.accountKind)} ••${esc(purchase.mask || '••••')}</option>`).join('')}</select></label>
+        ${!data.bankCandidates?.length ? '<p>No matching unsplit purchase was found in your shared bank accounts. Sync your bank or refine the merchant/date in a new message.</p>' : '<p class="small muted">The bank supplies the merchant and amount. You still choose the group and participants.</p>'}` : ''}
+      <div class="field-grid"><label class="field">Merchant<input id="sp-ask-merchant-${entry.id}" name="merchant" value="${esc(merchant)}" maxlength="60" ${data.requiresBankPurchase ? 'readonly' : ''} required></label>
+      <label class="field">Total, USD<input id="sp-ask-amount-${entry.id}" name="amount" inputmode="decimal" value="${esc(amount)}" maxlength="20" ${data.requiresBankPurchase ? 'readonly' : ''} aria-invalid="${entry.invalidField === 'amount'}" aria-describedby="sp-ask-error-${entry.id}" required></label></div>
       ${data.members.length ? `<fieldset><legend>Split with</legend>${data.members.map((member) => `<label class="check-label"><input id="sp-ask-member-${entry.id}-${esc(member.userId)}" type="checkbox" name="participant" value="${esc(member.userId)}" ${member.isYou || selected?.includes(member.userId) ? 'checked' : ''} ${member.isYou ? 'disabled' : ''}>${esc(member.fullName || member.displayName)}${member.handle ? ` (@${esc(member.handle)})` : ''}${member.isYou ? ' · You, the payer' : ''}</label>`).join('')}</fieldset>` : ''}
       <div class="ask-selection-actions"><button id="sp-ask-review-${entry.id}" type="submit" class="primary" ${!data.groupId ? 'disabled' : ''}>Review split</button>
       <button id="sp-ask-create-${entry.id}" type="button" class="secondary" data-ask-action="create-group" data-entry-id="${entry.id}">Create a group</button></div></fieldset></form></section>`;
@@ -58,10 +72,10 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
       ${entry.error && entry.retryBody ? `<button id="sp-ask-retry-${entry.id}" type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}</div>`;
   }
 
-  function chat() {
-    return heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.') +
+  function chat(compact = false) {
+    return (compact ? '' : heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.')) +
       `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message">${label}<p>Tell me what you spent and who to split it with.</p></div>`}</div>
-      <div class="composer-area"><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
+      <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(prompt)}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
       <input id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" value="${esc(composerText)}" ${sending ? 'disabled' : ''} required>
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
       <p id="sp-chat-help" class="chat-footnote">Only your confirmation saves an expense. No money is transferred.</p></div>`;
@@ -69,6 +83,10 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
 
   function receive(entry, response) {
     entry.response = response;
+    if (response.type === 'selection_needed' && response.requiresBankPurchase && response.selectedBankRef && entry.values) {
+      entry.values.merchant = response.extraction.merchant;
+      entry.values.amount = centsToUsdText(response.extraction.cents);
+    }
     if (response.type === 'draft') {
       registerReview(response.draft, {
         onConfirmed: (expense) => {
@@ -91,7 +109,8 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
   }
 
   async function request(entry, body) {
-    if (entry.pending) return;
+    if (entry.pending || !owned()) return;
+    const generation = epoch, controller = new AbortController(); controllers.add(controller);
     entry.pending = true;
     entry.error = '';
     entry.retryBody = body;
@@ -99,14 +118,20 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     refresh();
     announce('Working on your request.');
     try {
-      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000 });
+      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000, signal: controller.signal });
+      if (generation !== epoch || !owned()) return;
       if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
       receive(entry, response);
     } catch (error) {
+      if (generation !== epoch || controller.signal.aborted) return;
+      if (!owned() || error.status === 401) { reset(); return; }
       entry.error = error.name === 'TimeoutError' ? 'The request took too long. Try again when you are ready.'
         : error.message || 'The request could not finish. Try again.';
       announce(entry.error);
-    } finally { entry.pending = false; refresh(); if (!sending) focusResponse(entry); }
+    } finally {
+      controllers.delete(controller);
+      if (generation === epoch && owned()) { entry.pending = false; refresh(); if (!sending) focusResponse(entry); }
+    }
   }
 
   subscribeFinancialChanges(() => {
@@ -127,9 +152,14 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
 
   function selectionBody(entry, groupId, includeMembers, form) {
     const fd = rememberValues(entry, form);
-    const selection = { groupId };
-    if (entry.values.merchant.trim()) selection.merchant = entry.values.merchant.trim();
-    if (entry.values.amount.trim()) {
+    const selection = groupId ? { groupId } : {};
+    if (entry.response.requiresBankPurchase) {
+      const selected = fd.get('bankPurchase');
+      const purchase = selected !== null && selected !== '' ? entry.response.bankCandidates[Number(selected)] : null;
+      if (purchase) selection.bankRef = { accountId: purchase.accountId, providerKey: purchase.providerKey };
+    }
+    if (!entry.response.requiresBankPurchase && entry.values.merchant.trim()) selection.merchant = entry.values.merchant.trim();
+    if (!entry.response.requiresBankPurchase && entry.values.amount.trim()) {
       try { selection.cents = usdToCents(entry.values.amount.trim()); } catch (error) { entry.invalidField = 'amount'; throw error; }
     }
     if (includeMembers) selection.participantIds = fd.getAll('participant');
@@ -147,6 +177,7 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     composerText = message;
     sending = true;
     await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID(), ...(context ? { context } : {}) });
+    if (!owned()) return;
     if (!entry.error) composerText = '';
     sending = false;
     refresh();
@@ -176,6 +207,13 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     }
   });
   root.addEventListener('change', (event) => {
+    if (event.target.hasAttribute('data-ask-bank') && event.target.value !== '') {
+      const entry = entries.find((value) => String(value.id) === event.target.dataset.askBank);
+      if (!entry || entry.pending) return;
+      try { void request(entry, selectionBody(entry, event.target.form.elements.groupId.value, false, event.target.form)); }
+      catch (error) { entry.error = error.message; entry.retryBody = null; refresh(); }
+      return;
+    }
     if (!event.target.hasAttribute('data-ask-group') || !event.target.value) return;
     const entry = entries.find((value) => String(value.id) === event.target.dataset.askGroup);
     if (!entry || entry.pending) return;
@@ -184,6 +222,8 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     }
   });
   root.addEventListener('click', (event) => {
+    const prompt = event.target.closest('[data-ask-prompt]');
+    if (prompt && !sending) { composerText = prompts[Number(prompt.dataset.askPrompt)] || ''; refresh(); root.querySelector('#sp-chat-input')?.focus(); return; }
     const note = event.target.closest('[data-ask-note-group]');
     if (note) {
       go('chat');
@@ -207,5 +247,11 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
       }) });
     }
   });
-  return { chat, handleAskForm };
+  function reset() {
+    epoch++; for (const controller of controllers) controller.abort(); controllers.clear();
+    entries.length = 0; composerText = ''; sending = false; panel.clear();
+  }
+  root.addEventListener('click', (event) => { if (event.target.closest('#sp-logout')) reset(); }, true);
+  window.addEventListener('pagehide', reset, { once: true });
+  return { chat, handleAskForm, open() { if (owned()) panel.open(); else reset(); }, close: panel.close, isOpen: panel.isOpen };
 }
