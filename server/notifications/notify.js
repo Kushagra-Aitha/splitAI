@@ -14,7 +14,7 @@ export async function notify(db, { kind, sourceId }) {
     targets = `SELECT es.user_id AS recipient, e.group_id, e.id AS expense_id
       FROM expenses e JOIN expense_shares es ON es.expense_id = e.id
       JOIN group_members m ON m.group_id = e.group_id AND m.user_id = es.user_id AND m.left_at IS NULL
-      WHERE e.id = $1 AND e.status = 'confirmed' AND es.user_id <> e.created_by`;
+      WHERE e.id = $1 AND e.status = 'confirmed' AND (es.user_id <> e.created_by OR e.bank_account_id IS NOT NULL)`;
   } else if (Object.hasOwn(settlementConditions, kind)) {
     targets = `SELECT p.user_id AS recipient, s.group_id, NULL::uuid AS expense_id
       FROM settlements s CROSS JOIN LATERAL (VALUES (s.payer_user_id), (s.payee_user_id)) p(user_id)
