@@ -90,6 +90,7 @@ export function mountApp(root) {
   function go(page) {
     clearTimeout(toastTimer);
     root.querySelector('#sp-toast-root').replaceChildren();
+    if (page === 'guard') guardFeature.invalidate();
     state.page = page;
     state.group = null;
     render();
@@ -152,7 +153,6 @@ export function mountApp(root) {
       }[state.page] || 'Overview';
     view.innerHTML = `<div class="content-enter">${(pages[state.page] || pages.home)()}</div>`;
     icons();
-    root.querySelector('[data-page="guard"] .nav-count').textContent = state.blocked ? '2' : '1';
     overview.mountMoneyCharts();
     if (state.page === 'goals') goalsFeature.mountGoalScene();
   }

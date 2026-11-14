@@ -30,6 +30,10 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   function groups() {
+    return `<button type="button" class="guard-pill" data-go="guard">${icon('shield-check')}Guard is on</button>` + renderGroups();
+  }
+
+  function renderGroups() {
     const id = state.group;
     void loadGroup(id);
     if (cached.error) return `<p role="alert">${esc(cached.error)}</p><button data-action="retry-groups">Retry</button>`;

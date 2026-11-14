@@ -9,6 +9,7 @@ import { bankingHandlers } from './banking/handlers.js';
 
 import { getPool, withTransaction } from './db/pool.js';
 import { createGoalHandlers } from './goals/handlers.js';
+import { createGuardEventsHandler } from './guard/events.js';
 import { createSettlementConfirmation } from './ledger/confirm-settlement.js';
 import { createLedgerHandlers } from './ledger/handlers.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
@@ -23,6 +24,7 @@ export const handlers = Object.freeze({
   }),
   'insight.get': (context) => answerFinancial({ ...context, intent: 'spending_insight' }),
   ...bankingHandlers,
+  'guard.list': createGuardEventsHandler((...args) => getPool().query(...args)),
   ...createGoalHandlers({ query: (...args) => getPool().query(...args), withTransaction }),
   'settlements.get': createSettlementLookup((...args) => getPool().query(...args)),
   'settlementReviews.confirm': createSettlementConfirmation({ withTransaction, lockAccount, reserveFunds }),
