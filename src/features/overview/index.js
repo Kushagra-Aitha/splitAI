@@ -365,13 +365,22 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   const clock = (iso) =>
     new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 
+  // C's assistant errors are worded for Ask ("enter the expense manually");
+  // the insight card says what happened to the thought instead.
+  function insightErrorText(err) {
+    if (err.code === 'ASSISTANT_NOT_CONFIGURED') return 'Split AI isn’t set up on this server yet, so there’s no thought to share.';
+    if (err.code === 'ASSISTANT_TIMEOUT') return 'Split AI took too long to think this one through.';
+    if (/ASSISTANT/.test(err.code ?? '')) return 'Split AI couldn’t put a thought together just now.';
+    return esc(err.message);
+  }
+
   function insightCard() {
     const data = needInsight();
     const failed = !data && insight.error && insight.revision === financialRevision();
     const body = data
       ? `<p>${esc(data.answer)}</p><span class="small muted">Worked out at ${clock(data.asOf)} from your balance and this month’s activity.</span>`
       : failed
-        ? `<p>${insight.error.code === 'ASSISTANT_NOT_CONFIGURED' ? 'Split AI isn’t set up on this server yet, so there’s no thought to share.' : esc(insight.error.message)}</p><button type="button" class="cursor-interaction" data-action="insight-retry">Try again</button>`
+        ? `<p>${insightErrorText(insight.error)}</p><button type="button" class="cursor-interaction" data-action="insight-retry">Try again</button>`
         : '<p class="muted" role="status">Reading this month’s activity…</p>';
     return `<div class="insight" data-insight aria-busy="${!data && !failed}">${icon('sprout')}<div><div class="insight-label">A thought from Split · AI</div>${body}</div></div>`;
   }
