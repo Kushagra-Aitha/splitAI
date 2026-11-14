@@ -23,7 +23,12 @@ export async function notify(db, { kind, sourceId }) {
   } else if (kind === 'comment_added') {
     targets = `SELECT m.user_id AS recipient, c.group_id, c.expense_id
       FROM group_comments c JOIN group_members m ON m.group_id = c.group_id AND m.left_at IS NULL
-      WHERE c.id = $1 AND m.user_id <> c.author_user_id`;
+      WHERE c.id = $1 AND m.user_id <> c.author_user_id
+        AND NOT EXISTS (SELECT 1 FROM guard_events e WHERE e.comment_id = c.id AND e.actor_user_id = m.user_id AND e.decision = 'flagged')`;
+  } else if (kind === 'guard_flagged') {
+    targets = `SELECT e.actor_user_id AS recipient, e.group_id, e.expense_id FROM guard_events e
+      JOIN group_members m ON m.group_id = e.group_id AND m.user_id = e.actor_user_id AND m.left_at IS NULL
+      WHERE e.comment_id = $1 AND e.decision = 'flagged'`;
   } else if (kind === 'guard_blocked') {
     targets = `SELECT actor_user_id AS recipient, NULL::uuid AS group_id, NULL::uuid AS expense_id
       FROM guard_events WHERE id = $1 AND decision = 'blocked'`;
