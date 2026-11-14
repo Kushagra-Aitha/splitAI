@@ -1,6 +1,6 @@
 // B1 acceptance: for every mapped demo user, compare what the app normalizes
 // against the raw Nessie response. Read-only.
-import { listMappedAccounts, readAccountActivity, readMerchantNames } from '../banking/provider.js';
+import { listMappedAccounts, readAccountActivity, readMerchants } from '../banking/provider.js';
 import { closePool, getPool } from '../db/pool.js';
 import { nessie } from '../lib/nessie.js';
 
@@ -10,10 +10,10 @@ let mismatches = 0;
 try {
   const accounts = await listMappedAccounts(getPool());
   if (!accounts.length) throw new Error('No mapped accounts. Set NESSIE_ACCOUNT_ID_* and run npm run db:seed.');
-  const merchantNames = await readMerchantNames();
+  const merchants = await readMerchants();
 
   for (const a of accounts) {
-    const { balance, transactions, skipped } = await readAccountActivity(a.providerAccountId, { merchantNames });
+    const { balance, transactions, skipped } = await readAccountActivity(a.providerAccountId, { merchants });
     const { data: raw } = await nessie(`/accounts/${a.providerAccountId}`);
     const { data: rawTx } = await nessie(`/accounts/${a.providerAccountId}/transactions?limit=1000`);
 

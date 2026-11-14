@@ -56,10 +56,15 @@ test('overview buckets are zero-filled days that add up to the totals', () => {
   assert.equal(response.buckets.length, 13);
   assert.equal(sum(response.buckets.map((b) => b.earnedCents)), response.totals.earnedCents);
   assert.equal(sum(response.buckets.map((b) => b.spentCents)), response.totals.spentCents);
+  const b = response.breakdown;
+  assert.equal(sum(b.categories.map((c) => c.cents)), response.totals.spentCents, 'categories = spending');
+  assert.equal(sum(b.paymentMethods.map((c) => c.cents)), response.totals.spentCents, 'methods = spending');
+  assert.equal(sum(b.merchants.map((c) => c.cents)), response.totals.spentCents, 'merchants = spending');
+  assert.ok(response.recent.filter((r) => r.kind === 'transfer').every((r) => r.countsAs === null));
 });
 
 test('spendable funds = balance − goal holds − settlement holds', () => {
   const r = load('funds.json').getSpendableFunds.result;
-  assert.equal(r.spendableCents, r.balanceCents - r.goalHoldsCents - r.settlementHoldsCents);
+  assert.equal(r.spendableCents, (r.availableCents ?? r.balanceCents) - r.goalHoldsCents - r.settlementHoldsCents);
   assert.equal(load('funds.json').reserveFundsInsufficient.httpResponse.status, 409);
 });

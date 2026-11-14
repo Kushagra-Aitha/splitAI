@@ -1,10 +1,11 @@
 {
   "getSpendableFunds": {
-    "note": "Internal B4 function, not an HTTP route. Computed under the bank_accounts row lock: balance − goal holds − unresolved settlement holds.",
+    "note": "Internal B4 function (server/banking/funds.js), not an HTTP route. spendable = provider available (balance if null) − goal holds (sum of goals.saved_cents) − settlement holds (sum of settlements.hold_cents where the account pays). null when the account was never synced.",
     "call": "getSpendableFunds(\"20000000-0000-4000-8000-000000000001\")",
     "result": {
       "accountId": "20000000-0000-4000-8000-000000000001",
       "balanceCents": 124800,
+      "availableCents": 124800,
       "balanceAsOf": "2026-11-14T11:58:00-05:00",
       "goalHoldsCents": 20000,
       "settlementHoldsCents": 0,

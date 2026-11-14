@@ -48,14 +48,14 @@ export async function readProviderBalance(providerAccountId) {
   };
 }
 
-/** id → merchant name for every merchant on this key (paged). */
-export async function readMerchantNames() {
+/** id → { name, category } for every merchant on this key (paged). */
+export async function readMerchants() {
   const names = new Map();
   let cursor = null;
   do {
     const q = new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) });
     const { data } = await nessie(`/merchants?${q}`);
-    for (const m of data.items ?? []) names.set(m.id, m.name);
+    for (const m of data.items ?? []) names.set(m.id, { name: m.name, category: m.category ?? null });
     cursor = data.next_cursor || null;
   } while (cursor && names.size < 2000);
   return names;
@@ -69,7 +69,7 @@ export async function readMerchantNames() {
  * Direction comes from the kind: Nessie records the path account as payer_id
  * even for deposits. Only transfers use payer/payee to decide.
  */
-export function normalizeTransaction(tx, providerAccountId, merchantNames = new Map()) {
+export function normalizeTransaction(tx, providerAccountId, merchants = new Map()) {
   if (!tx || typeof tx.id !== 'string' || !tx.id) return null;
   if (!Number.isSafeInteger(tx.amount_cents) || tx.amount_cents <= 0) return null;
   if (!STATUSES.has(tx.status)) return null;
@@ -92,7 +92,8 @@ export function normalizeTransaction(tx, providerAccountId, merchantNames = new 
 
   if (tx.kind !== 'transfer' && tx.payer_id && tx.payer_id !== providerAccountId) return null;
 
-  const merchantName = tx.merchant_id ? merchantNames.get(tx.merchant_id) ?? null : null;
+  const merchant = tx.merchant_id ? merchants.get(tx.merchant_id) ?? null : null;
+  const merchantName = merchant?.name ?? null;
   return {
     providerTransactionId: tx.id,
     occurredAt: occurredAt.toISOString(),
@@ -102,16 +103,17 @@ export function normalizeTransaction(tx, providerAccountId, merchantNames = new 
     status: tx.status,
     description: (tx.description || merchantName || tx.kind).slice(0, 200),
     merchantName,
+    category: merchant?.category ?? null,
     counterpartyAccountId,
   };
 }
 
 /**
  * Balance and normalized activity for one mapped account, newest first.
- * `merchantNames` can be shared across accounts in one sync.
+ * `merchants` (from readMerchants) can be shared across accounts in one sync.
  */
-export async function readAccountActivity(providerAccountId, { merchantNames, limit = 1000 } = {}) {
-  const names = merchantNames ?? (await readMerchantNames());
+export async function readAccountActivity(providerAccountId, { merchants, limit = 1000 } = {}) {
+  const names = merchants ?? (await readMerchants());
   const balance = await readProviderBalance(providerAccountId);
   const { data } = await nessie(
     `/accounts/${encodeURIComponent(providerAccountId)}/transactions?limit=${limit}`,

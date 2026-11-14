@@ -20,6 +20,9 @@ inside it, set by `DB_SCHEMA` in `server/.env`:
 | `npm run db:setup` | Migrate, then seed |
 | `npm run db:verify` | F2 acceptance check on a throwaway `<DB_SCHEMA>_verify` schema |
 | `npm run nessie:smoke` | Nessie sandbox health, key and mapped-account check (read-only) |
+| `npm run nessie:demo-activity` | Creates a few real sandbox purchases, a deposit and a transfer (safe to rerun) |
+| `npm run banking:read` | B1: compares normalized balance and activity with the raw Nessie response |
+| `npm run banking:sync` | B2: syncs every mapped account into `bank_transactions` (`-- --verify` syncs twice and checks nothing doubled) |
 
 To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setup`.
 
@@ -37,6 +40,40 @@ To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setu
 | `0100`–`0199` | Member A (groups, expenses, settlements, Guard) |
 | `0200`–`0299` | Member B (banking, funds, bills) |
 | `0300`–`0399` | Member C (Ask, goals) |
+
+## Bank activity
+
+- `bank_transactions` rows have `source = 'nessie'` (synced from the sandbox) or
+  `source = 'demo'` (labeled Jun 1 – Nov 13 history for Maya, seeded by
+  `db:seed` from `db/demo-history.js`, because Nessie cannot backdate).
+- Dedupe is by `bank_import_keys (account_id, provider_key)`, never by
+  timestamp. A resync only refreshes status (pending → completed).
+- Sync writes run under `SELECT … FOR UPDATE` on the `bank_accounts` row, the
+  same lock B4 uses for funds.
+
+## Funds (B4): how A7 and C5 reserve money
+
+`server/banking/funds.js` owns the lock and the arithmetic:
+`spendable = available − sum(goals.saved_cents) − sum(settlements.hold_cents)`.
+
+```js
+import { withTransaction } from '../db/pool.js';
+import { reserveFunds } from '../banking/funds.js';
+
+await withTransaction(async (tx) => {
+  await reserveFunds(tx, accountId, cents);  // takes the account lock; throws if it doesn't fit
+  // ...persist YOUR hold in the same transaction, before it commits:
+  // C5: UPDATE goals SET saved_cents = saved_cents + $cents ...
+  // A7: UPDATE settlements SET status = 'pending', hold_cents = $cents ...
+});
+```
+
+- Any other change to holds (goal withdrawal, settlement release on
+  posted/failed) also runs in a transaction that calls `lockAccount(tx, accountId)` first.
+- Errors carry `status` and `code`: `INSUFFICIENT_FUNDS` (409),
+  `BALANCE_UNKNOWN` (409, never synced), `INVALID_AMOUNT` (422). Map them to `HttpError`.
+- Releasing a settlement hold = setting `hold_cents = 0` (A8).
+- `npm run banking:funds-check` races a $40 goal against a $30 settlement on $50 (SEC4 reruns it with the real code).
 
 ## Stable demo IDs
 

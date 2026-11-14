@@ -1,0 +1,109 @@
+// B2 · Persist Nessie activity in the bank_transactions hypertable.
+//
+// Re-syncing never creates duplicate rows or chart dollars: every row is keyed
+// in bank_import_keys by (account_id, provider transaction ID), and the key
+// and the transaction are inserted together. A transaction seen again only
+// has its status (and display fields) refreshed. Provider reads happen before
+// the DB transaction; the DB writes run under the account row lock that B4
+// also uses for funds, so a balance refresh never interleaves with a reserve.
+import { withTransaction } from '../db/pool.js';
+import { lockAccount } from './funds.js';
+import {
+  getMappedAccountForUser,
+  listMappedAccounts,
+  readAccountActivity,
+  readMerchants,
+} from './provider.js';
+
+const PAYMENT_METHOD = {
+  purchase: 'Card',
+  bill_payment: 'Bank transfer',
+  transfer: 'Bank transfer',
+  withdrawal: 'Cash',
+};
+
+/**
+ * Writes one account's provider snapshot. `activity` is the result of
+ * readAccountActivity. Returns counts of inserted / updated / unchanged rows.
+ */
+export async function persistActivity(db, accountId, activity) {
+  await lockAccount(db, accountId);
+  let inserted = 0;
+  let updated = 0;
+  let unchanged = 0;
+
+  for (const t of activity.transactions) {
+    const key = await db.query(
+      `INSERT INTO bank_import_keys (account_id, provider_key, transaction_id, occurred_at, source)
+       VALUES ($1, $2, gen_random_uuid(), $3, 'nessie')
+       ON CONFLICT (account_id, provider_key) DO NOTHING
+       RETURNING transaction_id, occurred_at`,
+      [accountId, t.providerTransactionId, t.occurredAt],
+    );
+    if (key.rowCount) {
+      await db.query(
+        `INSERT INTO bank_transactions
+           (id, occurred_at, account_id, provider_transaction_id, kind, direction, amount_cents,
+            status, description, merchant_name, counterparty_account_id, source, category, payment_method)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'nessie', $12, $13)`,
+        [
+          key.rows[0].transaction_id, key.rows[0].occurred_at, accountId, t.providerTransactionId,
+          t.kind, t.direction, t.amountCents, t.status, t.description, t.merchantName,
+          t.counterpartyAccountId, t.category, PAYMENT_METHOD[t.kind] ?? null,
+        ],
+      );
+      inserted++;
+      continue;
+    }
+    // Seen before: amounts and times never change, but status settles
+    // (pending → completed) and a merchant may have been renamed.
+    const res = await db.query(
+      `UPDATE bank_transactions t
+          SET status = $3, description = $4, merchant_name = $5, category = COALESCE($6, t.category)
+         FROM bank_import_keys k
+        WHERE k.account_id = $1 AND k.provider_key = $2
+          AND t.id = k.transaction_id AND t.occurred_at = k.occurred_at
+          AND (t.status, t.description, t.merchant_name) IS DISTINCT FROM ($3, $4, $5)`,
+      [accountId, t.providerTransactionId, t.status, t.description, t.merchantName, t.category],
+    );
+    if (res.rowCount) updated++;
+    else unchanged++;
+  }
+
+  const b = activity.balance;
+  const acct = await db.query(
+    `UPDATE bank_accounts
+        SET balance_cents = $2, available_cents = $3, balance_as_of = $4,
+            account_type = COALESCE($5, account_type),
+            account_mask = COALESCE(account_mask, $6),
+            updated_at = now()
+      WHERE id = $1
+      RETURNING balance_cents AS "balanceCents", available_cents AS "availableCents",
+                balance_as_of AS "balanceAsOf"`,
+    [accountId, b.balanceCents, b.availableCents, b.balanceAsOf, b.accountType, b.accountMask],
+  );
+  return { accountId, inserted, updated, unchanged, skipped: activity.skipped, ...acct.rows[0] };
+}
+
+/** Reads one mapped account from Nessie and persists it. */
+export async function syncAccount(account, { merchants } = {}) {
+  const activity = await readAccountActivity(account.providerAccountId, { merchants });
+  return withTransaction((db) => persistActivity(db, account.id, activity));
+}
+
+/** Syncs the account mapped to one user; null when the user has none. */
+export async function syncForUser(db, userId) {
+  const account = await getMappedAccountForUser(db, userId);
+  return account ? syncAccount(account) : null;
+}
+
+/** Syncs every mapped demo account (deploy, scripts). */
+export async function syncAll(db) {
+  const accounts = await listMappedAccounts(db);
+  const merchants = await readMerchants();
+  const results = [];
+  for (const account of accounts) {
+    results.push({ ...(await syncAccount(account, { merchants })), displayName: account.displayName });
+  }
+  return results;
+}
