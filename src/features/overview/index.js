@@ -1,4 +1,5 @@
 import { apiRequest, getSession } from '../../api/session.js';
+import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 
 // B5 · Overview and Profile, driven by GET /api/overview and
 // POST /api/banking/sync. Every number on these two pages comes from the API;
@@ -67,13 +68,15 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
   };
 
   async function load(period) {
+    const revision = financialRevision();
     const r = rangeFor(period);
     store.inflight[period] = true;
     store.errors[period] = null;
     try {
-      store.data[period] = await apiRequest(
+      const data = await apiRequest(
         `/api/overview?from=${r.from}&to=${r.to}&bucket=${r.bucket}`,
       );
+      if (revision === financialRevision()) store.data[period] = data;
     } catch (err) {
       store.errors[period] = err;
     } finally {
@@ -81,6 +84,8 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
       refresh();
     }
   }
+
+  subscribeFinancialChanges(() => { store.data = {}; store.errors = {}; refresh(); });
 
   /** Cached overview for a period; starts a fetch (once) when missing. */
   function need(period) {

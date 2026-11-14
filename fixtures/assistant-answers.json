@@ -1,0 +1,18 @@
+{
+  "note": "C4 computes whole-debt recommendations and all displayed figures in code. No read answer submits a payment.",
+  "affordability": {
+    "request": { "message": "Which debts can I afford?", "requestKey": "90000000-0000-4000-8000-000000000004" },
+    "cases": [
+      { "spendableCents": 1400, "orderedDebtCents": [600, 500, 300], "coverage": "all", "allocatedCents": 1400, "remainingCents": 0 },
+      { "spendableCents": 1000, "orderedDebtCents": [600, 500, 300], "coverage": "some", "allocatedCents": 900, "remainingCents": 100 },
+      { "spendableCents": 200, "orderedDebtCents": [600, 500, 300], "coverage": "none", "allocatedCents": 0, "remainingCents": 200 }
+    ],
+    "policy": "Groups by created_at then ID; counterparties by ID. Skip a whole debt that does not fit. Hold-backed payments exclude that debt until resolution. Never deduct those holds twice."
+  },
+  "insight": {
+    "method": "GET", "path": "/api/insight?from=2026-11-01&to=2026-11-14",
+    "facts": { "range": { "from": "2026-11-01", "to": "2026-11-14", "bucket": "day", "timeZone": "America/New_York" }, "totals": { "spentCents": 4200, "earnedCents": 10000 } },
+    "expectedSentences": ["Purchases total $42.00; deposits total $100.00.", "Deposits minus purchases are $58.00 for this window."],
+    "note": "Response has type answer, intent spending_insight, answer, asOf, balanceAsOf, and spending. The explanation always begins with its data window."
+  }
+}

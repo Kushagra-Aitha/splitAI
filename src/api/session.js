@@ -1,3 +1,5 @@
+import { financialChanged } from './financial-state.js';
+
 let session = null;
 
 export class ApiError extends Error {
@@ -30,6 +32,7 @@ export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_00
   if (!response.ok) {
     throw new ApiError(response.status, data.error?.code || 'REQUEST_FAILED', data.error?.message || 'The request failed.');
   }
+  if (method === 'POST' && /^\/api\/(?:goals(?:\/|$)|banking\/sync$|expense-drafts\/[^/]+\/confirm$|settlement-reviews\/[^/]+\/confirm$)/.test(path)) financialChanged();
   return data;
 }
 

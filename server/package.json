@@ -12,6 +12,7 @@
     "test": "node --test",
     "smoke:gemini": "node --env-file-if-exists=.env scripts/smoke-gemini.js",
     "smoke:ask": "node --env-file-if-exists=.env scripts/smoke-ask.js",
+    "smoke:insight": "node --env-file-if-exists=.env scripts/smoke-insight.js",
     "db:check": "node scripts/db-check.js",
     "db:migrate": "node db/migrate.js",
     "db:seed": "node db/seed.js",

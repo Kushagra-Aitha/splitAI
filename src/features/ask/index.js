@@ -1,5 +1,6 @@
 import { apiRequest } from '../../api/session.js';
 import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
+import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 
 export function createAsk({ root, state, icon, esc, heading, render, announce,
   draftTicket, registerReview, openGroupCreation }) {
@@ -32,7 +33,16 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
     if (entry.response?.type === 'selection_needed') content = selectionCard(entry);
     else if (entry.response?.type === 'draft') content = `<p>${esc(entry.response.group.name)}</p>${draftTicket(entry.response.draft)}`;
     else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
-    else if (entry.response?.type === 'answer') content = `<p>${esc(entry.response.answer)}</p>`;
+    else if (entry.response?.type === 'answer') {
+      content = `<p>${esc(entry.response.answer)}</p>`;
+      if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
+      if (entry.response.plan) content += `<div class="ask-plan">${entry.response.plan.groups.filter((g) => g.debts.length).map((g) => `<section><h3>${esc(g.name)}</h3>${g.debts.map((d) => `<p>${esc(d.displayName)} · ${formatUsdCents(d.cents)} · ${({ fits: 'Fits this plan', does_not_fit: 'Does not fit', pending: 'Payment pending' })[d.recommendation]}</p>`).join('')}</section>`).join('')}</div>`;
+      if (entry.response.debts) content += `<div class="ask-plan">${entry.response.groups.map((g) => {
+        const debts = entry.response.debts.filter((d) => d.groupId === g.id);
+        return debts.length ? `<section><h3>${esc(g.name)}</h3>${debts.map((d) => `<p>${d.cents > 0 ? 'You owe' : 'You are owed'} ${formatUsdCents(Math.abs(d.cents))} ${d.cents > 0 ? 'to' : 'by'} ${esc(d.displayName)}.</p>`).join('')}</section>` : '';
+      }).join('')}</div>`;
+      if (entry.response.asOf) content += `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Refresh facts</button>`;
+    }
     return `<div class="user-message">${esc(entry.message)}</div><div class="agent-message" data-ask-entry="${entry.id}">${label}${content}
       ${entry.pending ? '<p role="status">Working on your request…</p>' : ''}
       ${entry.error ? `<p role="alert">${esc(entry.error)}</p>${entry.retryBody ? `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}` : ''}</div>`;
@@ -72,13 +82,27 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
     entry.pending = true;
     entry.error = '';
     entry.retryBody = body;
+    const revision = financialRevision();
     refresh();
-    try { receive(entry, await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 35_000 })); } catch (error) {
-      entry.error = error.name === 'TimeoutError' ? 'The request took too long. Retry to recover the same expense review.'
+    try {
+      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000 });
+      if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
+      receive(entry, response);
+    } catch (error) {
+      entry.error = error.name === 'TimeoutError' ? 'The request took too long. Try again when you are ready.'
         : error.message || 'The request could not finish. Try again.';
       announce(entry.error);
     } finally { entry.pending = false; refresh(); }
   }
+
+  subscribeFinancialChanges(() => {
+    for (const entry of entries) {
+      if (!entry.response?.asOf) continue;
+      entry.response = null;
+      entry.error = 'Your financial facts changed. Refresh to get the current figures.';
+    }
+    refresh();
+  });
 
   function rememberValues(entry, form) {
     const fd = new FormData(form);

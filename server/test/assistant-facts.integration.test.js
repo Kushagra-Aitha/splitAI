@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { readFinancialFacts } from '../assistant/facts.js';
+import { createFactExplainer, createFinancialAnswers } from '../assistant/answers.js';
+import { createAskWorkflow } from '../assistant/workflow.js';
 
 test('live database: assistant facts use actor scope and one read-only snapshot', {
   skip: process.env.RUN_FACTS_DB_TESTS !== '1',
@@ -60,4 +62,21 @@ test('live database: assistant facts use actor scope and one read-only snapshot'
   assert.equal(alex.groups.length, 1);
   assert.equal(alex.spending.totals.spentCents, 0);
   assert.equal(alex.debts.length, 0);
+  const answerFinancial = createFinancialAnswers({ withTransaction, now: () => now,
+    explain: createFactExplainer({ generate: async ({ input }) => ({ statementIds: Object.keys(input.statements) }) }),
+  });
+  const ask = createAskWorkflow({ query: (...args) => db.query(...args), withTransaction, answerFinancial,
+    parseIntent: async () => ({ intent: 'affordability', expense: null }),
+  });
+  const none = await ask({ actor: { userId: USERS.maya }, body: { message: 'Which debts fit?', requestKey: randomUUID() } });
+  assert.equal(none.plan.coverage, 'none');
+  assert.equal(none.plan.spendableCents, 100);
+  await db.query('UPDATE bank_accounts SET balance_cents = 3000, available_cents = 3000 WHERE id = $1', [ACCOUNTS.maya]);
+  const all = await answerFinancial({ actor: { userId: USERS.maya }, intent: 'affordability' });
+  assert.equal(all.plan.coverage, 'all');
+  assert.equal(all.plan.remainingCents, 1000);
+  const insight = await answerFinancial({ actor: { userId: USERS.maya }, intent: 'spending_insight', query });
+  assert.ok(insight.answer.includes('2026-11-14 through 2026-11-14'));
+  assert.ok(insight.answer.includes('$12.34'));
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM expenses WHERE status = 'confirmed'")).rows[0].n, 1);
 });

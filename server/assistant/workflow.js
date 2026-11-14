@@ -147,7 +147,7 @@ async function advance(db, proposal, actor, selection) {
   return { type: 'draft', proposalId: proposal.id, draft, group: groupOptions.find((group) => group.id === groupId) };
 }
 
-export function createAskWorkflow({ parseIntent, query, withTransaction }) {
+export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial }) {
   return async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
       if (Object.hasOwn(body, 'message')) throw invalid('Send a message or a proposal selection, not both.');
@@ -172,6 +172,7 @@ export function createAskWorkflow({ parseIntent, query, withTransaction }) {
     // No DB connection or transaction is held across the model request.
     const parsed = existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message);
     if (parsed.intent !== 'expense') {
+      if (parsed.intent !== 'unsupported' && answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });
     }
     return withTransaction(async (db) => {
