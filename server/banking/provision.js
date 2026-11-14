@@ -31,7 +31,7 @@ export async function provisionBankAccount({ withTransaction, nessie = defaultNe
       `SELECT a.id, a.provider_customer_id AS "customerId", a.provider_account_id AS "providerAccountId",
               COALESCE(u.full_name, u.display_name) AS name
          FROM bank_accounts a JOIN users u ON u.id = a.user_id
-        WHERE a.user_id = $1 FOR UPDATE OF a`,
+        WHERE a.user_id = $1 AND a.account_type = 'Checking' FOR UPDATE OF a`,
       [userId],
     );
     return row;
@@ -39,7 +39,7 @@ export async function provisionBankAccount({ withTransaction, nessie = defaultNe
 
   await withTransaction((db) => db.query(
     `INSERT INTO bank_accounts (user_id, provider, nickname, account_type)
-     VALUES ($1, 'nessie', $2, 'Checking') ON CONFLICT (user_id) DO NOTHING`,
+     VALUES ($1, 'nessie', $2, 'Checking') ON CONFLICT (user_id, account_type) DO NOTHING`,
     [userId, accountNickname(userId)],
   ));
 

@@ -158,6 +158,6 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
 
 /** The account owned by a user (mapped or not), or null. */
 export async function accountIdForUser(db, userId) {
-  const { rows } = await db.query('SELECT id FROM bank_accounts WHERE user_id = $1', [userId]);
+  const { rows } = await db.query("SELECT id FROM bank_accounts WHERE user_id = $1 AND account_type = 'Checking'", [userId]);
   return rows[0]?.id ?? null;
 }

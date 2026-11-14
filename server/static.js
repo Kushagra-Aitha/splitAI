@@ -29,7 +29,7 @@ export async function createStaticFiles(directory) {
     if (decoded.includes('\0') || decoded.includes('\\') || decoded.split('/').some((part) => part.startsWith('.'))) {
       throw new HttpError(404, 'NOT_FOUND', 'The requested file was not found.');
     }
-    const requested = decoded === '/' ? 'index.html' : decoded.slice(1);
+    const requested = ['/', '/bank', '/bank/'].includes(decoded) ? 'index.html' : decoded.slice(1);
     let file;
     try {
       file = await realpath(path.resolve(root, requested));

@@ -27,7 +27,7 @@ export async function getMappedAccountForUser(db, userId) {
   const { rows } = await db.query(
     `SELECT id, user_id AS "userId", provider_account_id AS "providerAccountId"
        FROM bank_accounts
-      WHERE user_id = $1 AND provider = 'nessie' AND provider_account_id IS NOT NULL`,
+      WHERE user_id = $1 AND account_type = 'Checking' AND provider = 'nessie' AND provider_account_id IS NOT NULL`,
     [userId],
   );
   return rows[0] ?? null;
