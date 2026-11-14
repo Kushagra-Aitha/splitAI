@@ -72,6 +72,38 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     seenTx: null, // transaction ids already shown (B12 "New" badges)
     newTx: new Map(), // id → first seen (ms)
   };
+  const transactionFeed = { account: '', category: '', unsplit: false, categories: [], rows: null, nextOffset: null, error: null, request: null };
+  const selectedTransactions = new Map();
+
+  function resetTransactionFeed() {
+    Object.assign(transactionFeed, { rows: null, nextOffset: null, error: null, request: null });
+  }
+
+  async function loadTransactions(offset = 0) {
+    const feed = transactionFeed;
+    const query = new URLSearchParams({ account: feed.account, category: feed.category, unsplit: feed.unsplit, offset });
+    const request = apiRequest(`/api/banking/transactions?${query}`);
+    feed.request = request;
+    feed.error = null;
+    try {
+      const { transactions, nextOffset, categories } = await request;
+      if (feed.request !== request) return;
+      feed.rows = offset ? [...new Map([...feed.rows, ...transactions].map((row) => [row.id, row])).values()] : transactions;
+      feed.nextOffset = nextOffset;
+      feed.categories = categories;
+      for (const row of transactions) {
+        if (row.splitGroupName || !splittable(row)) selectedTransactions.delete(row.id);
+      }
+    } catch (error) {
+      if (feed.request === request) feed.error = error;
+    } finally {
+      if (feed.request === request) {
+        feed.request = null;
+        refresh();
+      }
+    }
+  }
+
   const NEW_BADGE_MS = 90_000;
   const AUTO_SYNC_MS = 20_000;
   const visible = () => ['home', 'profile', 'transactions'].includes(state.page);
@@ -156,6 +188,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   subscribeFinancialChanges(() => {
     store.data = {};
     store.errors = {};
+    resetTransactionFeed();
     groupStore.list = null;
     groupStore.error = null;
     insight.data = null;
@@ -190,6 +223,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       store.lastSync = result;
       store.lastSyncAt = Date.now();
       if (result.changed || !auto) {
+        resetTransactionFeed();
         store.data = {};
         store.errors = {};
         rerender = true;
@@ -480,7 +514,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   const splittable = (t) => t.kind === 'purchase' && t.direction === 'debit' && t.providerKey &&
     ['pending', 'completed'].includes(t.status);
   function txActions(t) {
-    if (t.splitGroupName) return `<span class="tx-split-tag">${icon('users')}${esc(t.splitGroupName)}</span>`;
+    if (t.splitGroupName) {
+      const owed = t.splitOwedCents > 0 ? ` · you’re owed ${money(t.splitOwedCents)}` : '';
+      return `<span class="tx-split-tag">${icon('users')}Split with ${esc(t.splitGroupName)}${owed}</span>`;
+    }
     if (!splittable(t)) return '<span class="tx-split-tag is-empty" aria-hidden="true"></span>';
     return `<button type="button" class="tx-split cursor-interaction" data-action="split-tx" data-tx-id="${esc(t.id)}" aria-label="Split ${esc(t.merchantName || t.description)}, ${money(t.amountCents)}">Split</button>`;
   }
@@ -491,7 +528,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     return fmtDay(day, { month: 'short', day: 'numeric' });
   }
 
-  function txRow(t, today) {
+  function txRow(t, today, selectable = false) {
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt));
     const label = t.kind === 'transfer' ? 'Transfer' : t.kind === 'deposit' ? 'Deposit' : t.category || 'Purchase';
     const flags = [
@@ -501,37 +538,62 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     ].filter(Boolean);
     const sign = t.direction === 'credit' ? '+ ' : '− ';
     const symbol = t.kind === 'transfer' ? 'repeat-2' : CATEGORY_ICONS[t.category] || (t.kind === 'deposit' ? 'arrow-down-left' : 'receipt');
-    return tx(
-      `${esc(t.merchantName || t.description)}${isNew(t) ? ' <span class="tx-new">New</span>' : ''}`,
+    const row = tx(
+      `${esc(t.merchantName || t.description)}${(t.recentlyImported ?? isNew(t)) ? ' <span class="tx-new">New</span>' : ''}`,
       `${dayWord(day, today)} · ${esc(label)}${flags.length ? ` · ${flags.join(' · ')}` : ''}`,
       sign + money(t.amountCents),
       symbol,
       txActions(t),
     );
+    if (!selectable) return row;
+    const selector = splittable(t) && !t.splitGroupName
+      ? `<input type="checkbox" data-select-transaction="${esc(t.id)}" aria-label="Select ${esc(t.merchantName || t.description)}, ${money(t.amountCents)}" ${selectedTransactions.has(t.id) ? 'checked' : ''}>`
+      : '';
+    const suggestion = t.suggestion ? `<span class="tx-suggestion">Suggested · ${esc(t.suggestion)}</span>` : '';
+    return `<div class="tx-select-row"><span>${selector}</span><div>${row}${suggestion}</div></div>`;
   }
 
-  // ── Transactions (B10 interim; A11 replaces this page) ───────────────
-  // This month's latest activity from the overview response, by day.
+  function transactionBatchButton() {
+    const count = selectedTransactions.size;
+    return `<button type="button" class="primary" data-action="split-selected" ${count ? '' : 'disabled'}>Split selected${count ? ` (${count})` : ''}</button>`;
+  }
+
   function transactions() {
     maybeAskConsent();
     const today = todayLocal();
     const d = need('month');
-    const head = heading('Transactions', 'Your transactions', 'This month’s latest activity from Capital Two.');
-    if (!d) return head + syncBar(null) + (store.errors.month ? errorCard('month') : `<div class="sp-card" role="status" aria-label="Loading transactions">${'<div class="sp-skeleton-row"><span class="sp-skeleton sp-skeleton-dot"></span><span class="sp-skeleton sp-skeleton-line"></span><span class="sp-skeleton sp-skeleton-amount"></span></div>'.repeat(5)}</div>`);
-    if (!d.recent.length) {
-      return head + syncBar(d) + `<div class="sp-empty">${icon('receipt')}<h2>No transactions yet this month</h2><p>Purchases and payments from Capital Two show up here once they sync.</p></div>`;
+    const feed = transactionFeed;
+    if (store.synced && !feed.rows && !feed.request && !feed.error) void loadTransactions();
+    const head = heading('Transactions', 'Your transactions', 'Checking and card activity from Capital Two.');
+    const filters = `<div class="sp-card tx-filters">
+      <label class="field">Account<select data-tx-filter="account"><option value="">All accounts</option><option value="checking" ${feed.account === 'checking' ? 'selected' : ''}>Checking</option><option value="credit_card" ${feed.account === 'credit_card' ? 'selected' : ''}>Credit card</option></select></label>
+      <label class="field">Category<select data-tx-filter="category"><option value="">All categories</option>${[...new Set([...feed.categories, feed.category].filter(Boolean))].map((category) => `<option ${feed.category === category ? 'selected' : ''}>${esc(category)}</option>`).join('')}</select></label>
+      <label class="check-label"><input type="checkbox" data-tx-filter="unsplit" ${feed.unsplit ? 'checked' : ''}>Not yet split</label>
+      <button type="button" class="secondary" data-action="overview-add-expense">Cash expense</button>
+      <span data-tx-selection>${transactionBatchButton()}</span>
+    </div>`;
+    const status = feed.error
+      ? `<p role="alert">${esc(feed.error.message)} <button type="button" class="secondary" data-action="tx-more">Try again</button></p>`
+      : feed.request || !feed.rows
+        ? '<p role="status">Loading transactions…</p>'
+        : feed.nextOffset !== null
+          ? '<button type="button" class="secondary" data-action="tx-more">Load more</button>'
+          : '';
+    const header = head + syncBar(d) + filters;
+    if (!feed.rows?.length) {
+      return header + (status || '<div class="sp-empty"><h2>No matching transactions</h2><p>Adjust the filters or refresh Capital Two.</p></div>');
     }
     const days = new Map();
-    for (const t of d.recent) {
+    for (const t of feed.rows) {
       const day = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt));
       if (!days.has(day)) days.set(day, []);
       days.get(day).push(t);
     }
-    return head + syncBar(d) + [...days].map(([day, list]) => {
+    return header + [...days].map(([day, list]) => {
       const net = list.reduce((sum, t) => sum + (t.direction === 'credit' ? t.amountCents : -t.amountCents), 0);
       const label = day === today ? 'Today' : day === addDays(today, -1) ? 'Yesterday' : fmtDay(day, { weekday: 'short', month: 'short', day: 'numeric' });
-      return `<section class="sp-card tx-day" aria-label="${esc(label)}"><div class="tx-day-head"><h2>${esc(label)}</h2><span class="money muted">${net >= 0 ? '+ ' : '− '}${money(Math.abs(net))}</span></div>${list.map((t) => txRow(t, today)).join('')}</section>`;
-    }).join('');
+      return `<section class="sp-card tx-day" aria-label="${esc(label)}"><div class="tx-day-head"><h2>${esc(label)}</h2><span class="money muted">${net >= 0 ? '+ ' : '− '}${money(Math.abs(net))}</span></div>${list.map((t) => txRow(t, today, true)).join('')}</section>`;
+    }).join('') + status;
   }
 
   /** "••1234 · card ••9876" for the account menu, once Overview has loaded. */
@@ -837,10 +899,13 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   let expenseOpening = false;
   let lastGroupId = null;
   const EXPENSE_FORM = 'sp-overview-expense-form';
+  const expensePurchases = new WeakMap();
   const focusAddButton = () => root.querySelector('[data-action="overview-add-expense"]')?.focus({ preventScroll: true });
 
   /** The recent transaction a Split button refers to (from any loaded period). */
   function findTransaction(id) {
+    const row = transactionFeed.rows?.find((item) => item.id === id);
+    if (row) return row;
     for (const d of Object.values(store.data)) {
       const t = d?.recent?.find((row) => row.id === id);
       if (t) return t;
@@ -848,7 +913,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     return null;
   }
 
-  async function openAddExpense(button, fromTransaction = null) {
+  async function openAddExpense(button, purchases = []) {
     if (expenseOpening) return;
     expenseOpening = true;
     button.disabled = true;
@@ -860,27 +925,17 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       }
       const details = await Promise.all(groups.map((g) => apiRequest(`/api/groups/${encodeURIComponent(g.id)}`)));
       if (!['home', 'transactions'].includes(state.page)) return;
-      const selected = groups.some((g) => g.id === lastGroupId) ? lastGroupId : groups[0].id;
-      const people = details
-        .map(({ group, members }) => `<fieldset class="expense-people" data-group-members="${esc(group.id)}" ${group.id === selected ? '' : 'hidden disabled'}><legend>Split equally with</legend>${members
-          .map((m) => `<label class="check-label"><input type="checkbox" name="participant" value="${esc(m.userId)}" checked>${m.isYou ? 'You · paid the full amount' : esc(m.displayName)}</label>`)
-          .join('')}</fieldset>`)
-        .join('');
-      const t = fromTransaction;
-      const merchant = t ? esc(t.merchantName || t.description || '') : '';
-      const category = t?.category && CATEGORIES.includes(t.category) ? t.category : null;
-      // A bank purchase keeps its exact amount: A3 checks it against the bank.
-      const source = t
-        ? `<div class="split-source">${icon(t.accountKind === 'credit_card' ? 'credit-card' : 'landmark')}<span><strong>${merchant}</strong><span class="small muted">${fmtDay(new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt)), { month: 'short', day: 'numeric' })} · Capital Two ${t.accountKind === 'credit_card' ? 'card' : 'checking'}${t.accountMask ? ` ••${esc(t.accountMask)}` : ''}</span></span><strong class="money">${money(t.amountCents)}</strong></div>`
-        : '';
-      openModal(
-        t ? 'Split a transaction' : 'Add a cash expense',
-        `<div class="modal-header"><div><div class="eyebrow">${t ? 'From Capital Two' : 'Cash expense'}</div><h2>${t ? 'Split this purchase' : 'Add a cash expense'}</h2></div>${closeButton}</div><form id="${EXPENSE_FORM}"${t ? ` data-bank-account="${esc(t.accountId)}" data-bank-key="${esc(t.providerKey)}"` : ''}>${source}<label class="field">Group<select name="groupId">${groups
-          .map((g) => `<option value="${esc(g.id)}" ${g.id === selected ? 'selected' : ''}>${esc(g.name)}</option>`)
-          .join('')}</select></label><label class="field">${t ? 'Name it' : 'Merchant'}<input name="merchant" required maxlength="60" autocomplete="off" value="${merchant}"></label><div class="field-grid"><label class="field">Total, USD<input name="amount" required inputmode="decimal" autocomplete="off" placeholder="42.00"${t ? ` value="${(t.amountCents / 100).toFixed(2)}" readonly aria-readonly="true"` : ''}></label><label class="field">Category<select name="category">${CATEGORIES
-          .map((c) => `<option ${c === category ? 'selected' : ''}>${esc(c)}</option>`)
-          .join('')}</select></label></div>${people}<p class="error" role="alert"></p><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Cancel</button><button type="submit" class="primary cursor-interaction">Review split</button></div><div class="modal-fine">Nothing is saved until you confirm the expense. No money moves.</div></form>`,
-      );
+      const preferred = purchases[0]?.suggestedGroupId || lastGroupId;
+      const selected = groups.some((g) => g.id === preferred) ? preferred : groups[0].id;
+      const people = details.map(({ group, members }) => `<fieldset class="expense-people" data-group-members="${esc(group.id)}" ${group.id === selected ? '' : 'hidden disabled'}><legend>People</legend>${members.map((m) => `
+        <div><label class="check-label"><input type="checkbox" name="participant" value="${esc(m.userId)}" checked>${m.isYou ? 'You · paid the full amount' : esc(m.displayName)}</label>
+        ${purchases.map((t) => `<label class="field" data-allocation hidden>${esc(m.displayName)} · ${esc(t.merchantName || t.description)}<input disabled inputmode="decimal" name="share-${esc(t.id)}-${esc(m.userId)}"></label>`).join('')}</div>`).join('')}</fieldset>`).join('');
+      const sources = purchases.map((t) => `<div class="split-source">${icon(t.accountKind === 'credit_card' ? 'credit-card' : 'landmark')}<span><strong>${esc(t.merchantName || t.description)}</strong><span class="small muted">Capital Two ${t.accountKind === 'credit_card' ? 'card' : 'checking'}${t.accountMask ? ` ••${esc(t.accountMask)}` : ''}</span></span><strong class="money">${money(t.amountCents)}</strong></div>`).join('');
+      const title = purchases.length ? 'Split purchases' : 'Add a cash expense';
+      const fields = purchases.length ? `<label class="field">Split method<select name="splitMode"><option value="equal">Equal</option><option value="exact">Exact amounts (USD)</option><option value="percentage">Percentage</option></select></label>` : `
+        <label class="field">Merchant<input name="merchant" required maxlength="60" autocomplete="off"></label><div class="field-grid"><label class="field">Total, USD<input name="amount" required inputmode="decimal" autocomplete="off" placeholder="42.00"></label><label class="field">Category<select name="category">${CATEGORIES.map((c) => `<option>${esc(c)}</option>`).join('')}</select></label></div>`;
+      openModal(title, `<div class="modal-header"><h2>${title}</h2>${closeButton}</div><form id="${EXPENSE_FORM}">${sources}<label class="field">Group<select name="groupId">${groups.map((g) => `<option value="${esc(g.id)}" ${g.id === selected ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>${fields}${people}<p class="error" role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">Review split</button></div><div class="modal-fine">Nothing is saved until you confirm the expense. No money moves.</div></form>`);
+      expensePurchases.set(root.querySelector('#' + EXPENSE_FORM), purchases);
     } catch (err) {
       toast(err.message);
     } finally {
@@ -895,13 +950,6 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     if (button.disabled) return;
     const groupId = String(fd.get('groupId'));
     const participantIds = fd.getAll('participant');
-    let cents;
-    try {
-      cents = usdToCents(String(fd.get('amount') ?? '').trim());
-    } catch (err) {
-      error.textContent = err.message;
-      return;
-    }
     if (!participantIds.length) {
       error.textContent = 'Choose at least one person to split with.';
       return;
@@ -910,19 +958,30 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     form.setAttribute('aria-busy', 'true');
     error.textContent = '';
     try {
-      const bankRef = form.dataset.bankAccount
-        ? { accountId: form.dataset.bankAccount, providerKey: form.dataset.bankKey }
-        : null;
-      const { draft } = await apiRequest('/api/expense-drafts', {
-        method: 'POST',
-        body: { groupId, merchant: String(fd.get('merchant')).trim(), cents, category: String(fd.get('category')), participantIds,
-          ...(bankRef ? { bankRef } : {}) },
-      });
+      const purchases = expensePurchases.get(form) ?? [];
+      const mode = fd.get('splitMode');
+      const request = { groupId, participantIds };
+      if (purchases.length) {
+        request.purchases = purchases.map((t) => ({
+          bankRef: { accountId: t.accountId, providerKey: t.providerKey },
+          merchant: t.merchantName || t.description || 'Bank purchase', category: t.category, cents: t.amountCents,
+          allocation: { mode, values: mode === 'equal' ? undefined : Object.fromEntries(participantIds.map((id) => [
+            id, usdToCents(String(fd.get(`share-${t.id}-${id}`) ?? '').trim(), { allowZero: true }),
+          ])) },
+        }));
+      } else {
+        Object.assign(request, { merchant: String(fd.get('merchant')).trim(), category: fd.get('category'),
+          cents: usdToCents(String(fd.get('amount') ?? '').trim()) });
+      }
+      const response = await apiRequest('/api/expense-drafts', { method: 'POST', body: request });
+      const [draft, ...additionalDrafts] = response.drafts ?? [response.draft];
       if (!form.isConnected) return;
       lastGroupId = groupId;
       const groupName = form.querySelector(`option[value="${CSS.escape(groupId)}"]`)?.textContent ?? '';
       registerReview(draft, {
+        additionalDrafts,
         onConfirmed: () => {
+          for (const t of purchases) selectedTransactions.delete(t.id);
           if (!['home', 'transactions'].includes(state.page)) return;
           render();
           focusAddButton();
@@ -934,7 +993,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       });
       // Close first so focus returns to "Add an expense" when the review closes.
       closeModal();
-      openModal('Review split', `<div class="modal-header"><div><div class="eyebrow">${esc(groupName)} · not saved yet</div><h2>Review the split</h2></div>${closeButton}</div>${draftTicket(draft)}`);
+      openModal('Review split', `<div class="modal-header"><div><div class="eyebrow">${esc(groupName)} · not saved yet</div><h2>Review the split</h2></div>${closeButton}</div>${draftTicket(draft, additionalDrafts)}`);
     } catch (err) {
       if (form.isConnected) error.textContent = err.message;
       announce(err.message);
@@ -945,13 +1004,43 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   }
 
   root.addEventListener('change', (e) => {
-    const select = e.target;
-    if (select.name !== 'groupId' || select.form?.id !== EXPENSE_FORM) return;
-    select.form.querySelectorAll('[data-group-members]').forEach((fs) => {
-      const on = fs.dataset.groupMembers === select.value;
+    const input = e.target;
+    if (input.dataset.txFilter) {
+      selectedTransactions.clear();
+      transactionFeed[input.dataset.txFilter] = input.type === 'checkbox' ? input.checked : input.value;
+      resetTransactionFeed();
+      render();
+      root.querySelector(`[data-tx-filter="${input.dataset.txFilter}"]`)?.focus();
+      return;
+    }
+    if (input.dataset.selectTransaction) {
+      const id = input.dataset.selectTransaction;
+      if (input.checked && selectedTransactions.size >= 25) {
+        input.checked = false;
+        toast('Select up to 25 purchases at a time.');
+      } else if (input.checked) selectedTransactions.set(id, findTransaction(id));
+      else selectedTransactions.delete(id);
+      root.querySelector('[data-tx-selection]').innerHTML = transactionBatchButton();
+      return;
+    }
+    const form = input.form;
+    if (form?.id !== EXPENSE_FORM) return;
+    const groupId = form.elements.groupId.value;
+    const mode = form.elements.splitMode?.value;
+    form.querySelectorAll('[data-group-members]').forEach((fs) => {
+      const on = fs.dataset.groupMembers === groupId;
       fs.hidden = !on;
       fs.disabled = !on;
+      fs.querySelectorAll('[data-allocation]').forEach((label) => {
+        const enabled = on && mode && mode !== 'equal' && label.parentElement.querySelector('[name="participant"]').checked;
+        label.hidden = !enabled;
+        const share = label.querySelector('input');
+        share.disabled = !enabled;
+        share.required = Boolean(enabled);
+        share.placeholder = mode === 'percentage' ? '50.00' : '12.00';
+      });
     });
+
   });
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -959,7 +1048,12 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     if (b.dataset.action === 'overview-add-expense') void openAddExpense(b);
     if (b.dataset.action === 'split-tx') {
       const t = findTransaction(b.dataset.txId);
-      if (t) void openAddExpense(b, t);
+      if (t) void openAddExpense(b, [t]);
+    }
+    if (b.dataset.action === 'split-selected') void openAddExpense(b, [...selectedTransactions.values()]);
+    if (b.dataset.action === 'tx-more' && !transactionFeed.request) {
+      void loadTransactions(transactionFeed.nextOffset ?? 0);
+      render();
     }
     if (b.dataset.action === 'bank-manage') void openBankConnect();
     if (b.dataset.action === 'bank-allow') void connectBank(b);

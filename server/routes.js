@@ -20,6 +20,7 @@ export const routes = Object.freeze([
   ['banking.sync', 'POST', '/api/banking/sync'],
   ['banking.connect', 'POST', '/api/banking/connect'],
   ['banking.accounts', 'GET', '/api/banking/accounts'],
+  ['banking.transactions', 'GET', '/api/banking/transactions'],
   ['overview.get', 'GET', '/api/overview'],
   ['ask.create', 'POST', '/api/ask'],
   ['insight.get', 'GET', '/api/insight'],

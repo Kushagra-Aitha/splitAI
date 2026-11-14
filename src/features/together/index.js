@@ -27,9 +27,9 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
   let navigationTarget;
 
-  function registerReview(draft, { onConfirmed, onDiscard } = {}) {
+  function registerReview(draft, { onConfirmed, onDiscard, additionalDrafts = [] } = {}) {
     const existing = reviews.get(draft.id);
-    if (!existing?.pending) reviews.set(draft.id, { draft, onConfirmed, onDiscard, pending: false });
+    if (!existing?.pending) reviews.set(draft.id, { draft, onConfirmed, onDiscard, additionalDrafts, pending: false });
   }
 
   async function loadGroup(id) {
@@ -162,11 +162,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       <button class="primary" type="submit">Review split</button><p role="alert"></p></form>`);
   }
 
-  function draftTicket(draft) {
+  function draftTicket(draft, additionalDrafts = []) {
     const pending = reviews.get(draft.id)?.pending ?? false;
-    return `<div class="expense-ticket"><h3>${esc(draft.merchant)} · ${formatUsdCents(draft.totalCents)}</h3>
-      ${draft.shares.map((s) => `<div class="math-line"><span>${esc(s.displayName)}</span><strong>${formatUsdCents(s.cents)}</strong></div>`).join('')}
-      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}" aria-label="Confirm shared expense" aria-describedby="sp-expense-error-${esc(draft.id)}" aria-busy="${pending}"><button id="sp-expense-confirm-${esc(draft.id)}" class="primary" type="submit" ${pending ? 'disabled' : ''}>Confirm expense</button><button id="sp-expense-discard-${esc(draft.id)}" class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}" ${pending ? 'disabled' : ''}>Discard</button><p role="status">${pending ? 'Saving expense…' : ''}</p><p id="sp-expense-error-${esc(draft.id)}" role="alert" aria-atomic="true"></p></form>`}
+    const items = [draft, ...additionalDrafts].map((item) => `<section><h3>${esc(item.merchant)} · ${formatUsdCents(item.totalCents)}</h3>
+      ${item.shares.map((share) => `<div class="math-line"><span>${esc(share.displayName)}</span><strong>${formatUsdCents(share.cents)}</strong></div>`).join('')}</section>`).join('');
+    return `<div class="expense-ticket">${items}
+      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}" aria-label="Confirm shared expense" aria-describedby="sp-expense-error-${esc(draft.id)}" aria-busy="${pending}"><button id="sp-expense-confirm-${esc(draft.id)}" class="primary" type="submit" ${pending ? 'disabled' : ''}>Confirm ${additionalDrafts.length ? 'expenses' : 'expense'}</button><button id="sp-expense-discard-${esc(draft.id)}" class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}" ${pending ? 'disabled' : ''}>Discard</button><p role="status">${pending ? 'Saving expense…' : ''}</p><p id="sp-expense-error-${esc(draft.id)}" role="alert" aria-atomic="true"></p></form>`}
       <p class="small muted">Adds a shared expense. No money will be transferred.</p></div>`;
   }
 
@@ -205,7 +206,11 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         review.pending = true;
         let expense;
         try {
-          ({ expense } = await apiRequest(`/api/expense-drafts/${encodeURIComponent(review.draft.id)}/confirm`, { method: 'POST', body: {} }));
+          const draftIds = [review.draft.id, ...review.additionalDrafts.map(({ id }) => id)];
+          const result = await apiRequest(`/api/expense-drafts/${encodeURIComponent(review.draft.id)}/confirm`, {
+            method: 'POST', body: draftIds.length > 1 ? { draftIds } : {},
+          });
+          expense = result.expense ?? result.expenses[0];
         } finally {
           review.pending = false;
         }
@@ -214,7 +219,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         reviews.delete(review.draft.id);
         if (review.onConfirmed) await review.onConfirmed(expense);
         else showGroup(review.draft.groupId);
-        toast('Expense saved.');
+        toast(review.additionalDrafts.length ? 'Expenses saved.' : 'Expense saved.');
       }
     } catch (error) {
       const alert = form.querySelector('[role="alert"]');
