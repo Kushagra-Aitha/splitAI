@@ -1,0 +1,28 @@
+{
+  "note": "C5: all writes require the session actor, exact Origin, JSON and CSRF. IDs in responses are server-generated. Dates are optional and savings may exceed the target if spendable funds allow.",
+  "create": {
+    "method": "POST", "path": "/api/goals",
+    "body": { "name": "Emergency savings", "type": "savings", "targetCents": 50000, "initialCents": 10000, "targetDate": null, "requestKey": "90000000-0000-4000-8000-000000000010" },
+    "responseShape": ["goal", "movement", "funds"],
+    "note": "Goal and initial movement commit together. Reusing the same key/payload returns the original receipt; a changed payload returns 409 REQUEST_KEY_REUSED."
+  },
+  "contribution": {
+    "method": "POST", "path": "/api/goals/90000000-0000-4000-8000-000000000011/movements",
+    "body": { "kind": "contribution", "cents": 4000, "requestKey": "90000000-0000-4000-8000-000000000012" },
+    "note": "Reserves under B4's account lock. Failed reservation writes neither a movement nor a new saved amount."
+  },
+  "withdrawal": {
+    "method": "POST", "path": "/api/goals/90000000-0000-4000-8000-000000000011/movements",
+    "body": { "kind": "withdrawal", "cents": 2000, "requestKey": "90000000-0000-4000-8000-000000000013" },
+    "note": "Releases exactly 2000 reserved cents without a provider transfer. Cannot exceed durable savings."
+  },
+  "errors": {
+    "foreignGoal": { "status": 403, "code": "GOAL_SCOPE_FORBIDDEN" },
+    "invalidInput": { "status": 422, "code": "INVALID_GOAL_INPUT" },
+    "overBudget": { "status": 409, "code": "INSUFFICIENT_FUNDS" },
+    "overWithdrawal": { "status": 409, "code": "INSUFFICIENT_SAVINGS" },
+    "unknownBalance": { "status": 409, "code": "BALANCE_UNKNOWN" },
+    "conflictingRetry": { "status": 409, "code": "REQUEST_KEY_REUSED" },
+    "inconsistentReservation": { "status": 409, "code": "GOAL_STATE_INVALID" }
+  }
+}
