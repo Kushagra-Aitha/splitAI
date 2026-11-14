@@ -28,7 +28,8 @@ export async function notify(db, { kind, sourceId }) {
   } else if (kind === 'guard_flagged') {
     targets = `SELECT e.actor_user_id AS recipient, e.group_id, e.expense_id FROM guard_events e
       JOIN group_members m ON m.group_id = e.group_id AND m.user_id = e.actor_user_id AND m.left_at IS NULL
-      WHERE e.comment_id = $1 AND e.decision = 'flagged'`;
+      JOIN group_comments c ON c.id = e.comment_id
+      WHERE e.comment_id = $1 AND e.decision = 'flagged' AND e.actor_user_id <> c.author_user_id`;
   } else if (kind === 'guard_blocked') {
     targets = `SELECT actor_user_id AS recipient, NULL::uuid AS group_id, NULL::uuid AS expense_id
       FROM guard_events WHERE id = $1 AND decision = 'blocked'`;

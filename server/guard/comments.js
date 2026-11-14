@@ -17,6 +17,9 @@ export function classifyComment(text) {
   return score(text, model);
 }
 
+// B16: every member of the chat gets a Guard entry for a flagged message,
+// including its author ("your message was flagged"); only the others are
+// notified.
 export async function recordCommentFlags(db, comment, classification) {
   if (!classification.flagged) return;
   const reason = classification.reasons.map((code) => REASONS[code]).join(' ');
@@ -25,7 +28,7 @@ export async function recordCommentFlags(db, comment, classification) {
     SELECT m.user_id, c.group_id, c.expense_id, c.id, 'flagged', 'SUSPICIOUS_COMMENT', $2, 'comment'
     FROM group_comments c JOIN group_members m ON m.group_id = c.group_id AND m.left_at IS NULL
     LEFT JOIN guard_settings prefs ON prefs.user_id = m.user_id
-    WHERE c.id = $1 AND m.user_id <> c.author_user_id AND coalesce(prefs.comment_alerts_enabled, true)
+    WHERE c.id = $1 AND coalesce(prefs.comment_alerts_enabled, true)
     ON CONFLICT (comment_id, actor_user_id) WHERE comment_id IS NOT NULL DO NOTHING`, [comment.id, reason]);
   await notify(db, { kind: 'guard_flagged', sourceId: comment.id });
 }
