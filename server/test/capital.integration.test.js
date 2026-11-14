@@ -32,7 +32,7 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
   const dependencies = { query, withTransaction, nessie: provider.request, now: () => clock };
   const service = createCapitalService(dependencies);
   let checking, card;
-  const payment = (extra = {}) => ({ accountId: card.id, kind: 'purchase', payee: "Domino's", amountCents: 2400, requestKey: randomUUID(), ...extra });
+  const payment = (extra = {}) => ({ accountId: card.id, kind: 'purchase', payee: "Domino's", category: 'Food & drink', amountCents: 2400, requestKey: randomUUID(), ...extra });
 
   await t.test('checking/card provision once across concurrent connections and checking remains the funds account', async () => {
     await Promise.all([service.connect(users[0]), service.connect(users[0])]);
@@ -61,6 +61,8 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
     assert.equal(summary.accounts.find((account) => account.id === card.id).balanceCents, 2400);
     assert.equal(summary.accounts.find((account) => account.id === checking.id).balanceCents, 150000);
     assert.equal(summary.transactions.filter((transaction) => transaction.kind === 'purchase').length, 1);
+    assert.equal(summary.transactions.find((transaction) => transaction.kind === 'purchase').category, 'Food & drink');
+    assert.ok(summary.presets.every((preset) => !Object.hasOwn(preset, 'amountCents')));
     assert.ok(!summary.transactions[0].description.includes(results[0].id));
     await assert.rejects(service.operations.create(users[0], { ...body, amountCents: 2500 }), (error) => error.code === 'BANK_KEY_REUSED');
   });
@@ -172,6 +174,49 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
     const monthly = await service.schedules.create(users[0], { accountId: card.id, payee: 'Subscription', amountCents: 500,
       dayOfMonth: 31, requestKey: randomUUID() });
     assert.equal(monthly.nextDueOn, '2027-02-28');
+  });
+
+  await t.test('salary Run now, scheduler races and lost acknowledgements create one credit per anchored period', async () => {
+    const body = { accountId: checking.id, kind: 'salary', payee: 'Demo employer', amountCents: 50000,
+      frequency: 'biweekly', dueOn: '2027-02-05', requestKey: randomUUID() };
+    const schedule = await service.schedules.create(users[0], body);
+    const before = provider.createCalls;
+    provider.loseCreateResponse();
+    const first = await service.schedules.run(users[0], schedule.id, {});
+    assert.equal(first.status, 'unknown');
+    const results = await Promise.all([service.schedules.run(users[0], schedule.id, {}), service.schedules.run(users[0], schedule.id, {})]);
+    assert.ok(results.every((op) => op.id === first.id));
+    assert.equal(provider.createCalls, before + 1);
+    const recovered = await service.schedules.run(users[0], schedule.id, {});
+    assert.equal(recovered.status, 'completed'); assert.equal(recovered.kind, 'deposit');
+    const summary = await service.sync(users[0]);
+    const salary = summary.transactions.find((tx) => tx.id === recovered.transactionId);
+    assert.equal(salary.direction, 'credit'); assert.equal(salary.category, 'Salary'); assert.equal(salary.isSalary, true);
+    assert.equal(summary.schedules.find((s) => s.id === schedule.id).nextDueOn, '2027-02-19');
+    assert.equal((await service.schedules.create(users[0], body)).id, schedule.id);
+    await assert.rejects(service.schedules.create(users[0], { ...body, frequency: 'monthly' }), (e) => e.code === 'BANK_KEY_REUSED');
+    await assert.rejects(service.schedules.create(users[0], { ...body, accountId: card.id, requestKey: randomUUID() }), (e) => e.status === 422);
+    await assert.rejects(service.schedules.run(users[1], schedule.id, {}), (e) => e.status === 404);
+    clock = new Date('2027-02-19T17:00:00Z');
+    await Promise.all([service.tick(), service.schedules.run(users[0], schedule.id, {})]);
+    await service.tick(); assert.equal(provider.createCalls, before + 2);
+    await service.schedules.update(users[0], schedule.id, { action: 'pause' });
+    await assert.rejects(service.schedules.run(users[0], schedule.id, {}), (e) => e.code === 'BANK_SCHEDULE_INACTIVE');
+    assert.equal(provider.createCalls, before + 2);
+  });
+
+  await t.test('monthly salary keeps day 31 through short months and retries bind original terms', async () => {
+    const body = { accountId: checking.id, kind: 'salary', payee: 'Monthly employer', amountCents: 10000,
+      frequency: 'monthly', dueOn: '2027-03-31', requestKey: randomUUID() };
+    const schedule = await service.schedules.create(users[0], body), before = provider.createCalls;
+    const runs = await Promise.all([service.schedules.run(users[0], schedule.id, {}), service.schedules.run(users[0], schedule.id, {})]);
+    assert.equal(runs[0].id, runs[1].id); assert.equal(provider.createCalls, before + 1);
+    assert.equal((await service.summary(users[0])).schedules.find((s) => s.id === schedule.id).nextDueOn, '2027-04-30');
+    assert.equal((await service.schedules.create(users[0], body)).id, schedule.id);
+    clock = new Date('2027-04-30T17:00:00Z');
+    await service.schedules.run(users[0], schedule.id, {});
+    assert.equal(provider.createCalls, before + 2);
+    assert.equal((await service.summary(users[0])).schedules.find((s) => s.id === schedule.id).nextDueOn, '2027-05-31');
   });
 
   await t.test('real sessions/CSRF and ownership checks prevent cross-user bank access and writes', async () => {
