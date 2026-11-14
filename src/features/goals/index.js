@@ -1,20 +1,41 @@
-import { apiRequest } from '../../api/session.js';
-import { subscribeFinancialChanges } from '../../api/financial-state.js';
-import { usdToCents, formatUsdCents } from '../../lib/money.js';
-import { createGoalStore, goalPercent } from './store.js';
-
 export function createGoals({ root, state, icon, icons, heading, money, dollarLabel, esc, render, persist, openModal, closeModal, closeButton, toast, announce }) {
   const prefs = { motion: true };
-  state.goals = [];
-  state.activeGoal = null;
-  let sceneHost = null;
-  let sceneGoalId = null;
-  const store = createGoalStore({ request: apiRequest, onChange: () => {
-    state.goals = store.state.goals;
-    if (!state.goals.some((g) => g.id === state.activeGoal)) state.activeGoal = state.goals[0]?.id ?? null;
-    if (state.page === 'goals' && !root.querySelector('#sp-modal-root').children.length) render();
-  } });
-  subscribeFinancialChanges(() => store.invalidate());
+  const defaultGoals = [
+    {
+      id: 'house',
+      type: 'house',
+      name: 'A place of my own',
+      target: 2000000,
+      saved: 840000,
+      date: '2028-06-01',
+    },
+    {
+      id: 'car',
+      type: 'car',
+      name: 'My next set of wheels',
+      target: 800000,
+      saved: 160000,
+      date: '2027-09-01',
+    },
+    {
+      id: 'trip',
+      type: 'trip',
+      name: 'A week in Portugal',
+      target: 120000,
+      saved: 78000,
+      date: '2027-05-01',
+    },
+    {
+      id: 'savings',
+      type: 'savings',
+      name: 'For whatever comes next',
+      target: 300000,
+      saved: 120000,
+      date: '2027-12-01',
+    },
+  ];
+  state.goals = defaultGoals.map((g) => ({ ...g }));
+  state.activeGoal = 'savings';
   const seenGoalScenes = new Set();
   let goalPreview = null,
     goalPlaying = false,
@@ -129,7 +150,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     return state.goals.find((g) => g.id === state.activeGoal) || state.goals[0];
   }
   function realPercent(g = activeGoal()) {
-    return goalPercent(g);
+    return Math.min(100, Math.floor((g.saved / g.target) * 100));
   }
   function scenePercent() {
     return goalPreview === null ? realPercent() : goalPreview;
@@ -138,21 +159,19 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     return p === 100 ? 4 : p < 20 ? 0 : p < 40 ? 1 : p < 70 ? 2 : 3;
   }
   function goals() {
-    if (store.state.status === 'idle' && !store.state.busy) void store.load();
-    const header = heading('Your goals', 'Give the future a little shape.',
-      'Big plans grow from the little bits you set aside.',
-      `<div class="goal-header-actions"><button type="button" class="secondary" data-action="refresh-goals">Refresh goals</button><button type="button" class="primary cursor-interaction" data-action="new-goal">${icon('plus')}New goal</button></div>`);
-    const status = store.state.status === 'loading' ? '<p role="status">Loading your saved goals…</p>'
-      : store.state.error ? `<p role="alert">${esc(store.state.error)} ${state.goals.length ? 'Showing the last confirmed progress.' : ''} <button type="button" class="text-button" data-action="refresh-goals">Try again</button></p>` : '';
-    if (!state.goals.length) return header + status + (store.state.status === 'ready' ? '<section class="data-state"><p>No goals yet. Create one to start setting money aside.</p></section>' : '');
     const g = activeGoal(),
       t = goalTypes[g.type],
       pct = scenePercent(),
       stage = phase(pct),
       real = realPercent(g);
     return (
-      header + status +
-      `<div class="goals-tabs" aria-label="Choose a savings goal">${state.goals.map((item) => `<button type="button" class="goal-tab cursor-interaction" data-goal="${esc(item.id)}" aria-pressed="${item.id === g.id}">${icon(goalTypes[item.type].icon)}<span>${esc(item.name)}</span><span class="goal-tab-percent money">${realPercent(item)}%</span></button>`).join('')}</div><section class="goal-workshop" data-goal-type="${g.type}" aria-label="${esc(g.name)} progress scene"><div class="workshop-top"><button type="button" class="material-tag cursor-interaction" data-action="rotate-goal" aria-label="Turn the 3D scene 45 degrees">${icon('rotate-3d')}Turn the view</button><span id="sp-scene-badge" class="material-tag">${goalPreview === null ? 'Saved progress' : 'Preview only'} · <span id="sp-scene-percent">${pct}%</span></span></div><div class="goal-stage"><div class="diorama" id="sp-diorama" role="img" aria-label="3D ${esc(t.label.toLowerCase())} savings scene, ${pct} percent, ${esc(t.steps[stage])}"><div class="scene-loading">Setting the scene…</div><span class="scene-hint">${icon('move-horizontal')}Drag to turn</span></div><div class="scene-copy"><div class="eyebrow">${esc(g.name)}</div><h2 id="sp-stage-title">${t.titles[stage]}</h2><p id="sp-stage-description">${goalPreview !== null && pct === 100 ? `This is what reaching your target looks like. Your saved amount is still ${dollarLabel(g.saved)}.` : t.descriptions[stage]}</p><span class="stage-counter" id="sp-stage-counter">${icon('hammer')}Milestone ${stage + 1} of 5 · ${t.steps[stage]}</span></div></div><div class="milestones" aria-label="Preview goal milestones">${t.steps.map((name, i) => `<button type="button" data-milestone="${[0, 20, 40, 70, 100][i]}" class="milestone cursor-interaction ${i <= stage ? 'done' : ''} ${i === stage ? 'current' : ''}" aria-label="Preview ${name} milestone at ${[0, 20, 40, 70, 100][i]} percent"><span class="milestone-dot">${i < stage ? '✓' : i + 1}</span><span>${name}</span><small>${[0, 20, 40, 70, 100][i]}%</small></button>`).join('')}</div></section><div class="goal-lower"><section aria-label="Saved toward goal"><h2>${esc(g.name)}</h2><div class="goal-amount display money">${formatUsdCents(g.saved)} <small>of ${formatUsdCents(g.target)}</small></div><p class="small muted">${formatUsdCents(Math.max(0, g.target - g.saved))} to go${g.date ? ' · target ' + new Date(g.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ' · No target date'}</p><div class="goal-progress" role="progressbar" aria-label="Actual savings progress" aria-valuenow="${real}" aria-valuemin="0" aria-valuemax="100"><span style="width:${real}%"></span></div><div class="math-line small"><span>${real}% funded</span><span class="muted">${g.saved >= g.target ? 'You made it.' : 'One contribution at a time.'}</span></div><div class="goal-actions"><button type="button" class="primary cursor-interaction" data-action="add-savings">${icon('plus')}Add savings</button><button type="button" class="secondary cursor-interaction" data-action="withdraw-savings">Withdraw savings</button></div></section><section class="preview-panel" aria-label="Preview the goal animation"><div class="preview-title"><span>Watch your plan come to life</span><span class="preview-badge" id="sp-preview-label">${goalPreview === null ? 'Try a preview' : pct + '% preview'}</span></div><label for="sp-goal-preview" class="sr-only">Preview progress percentage without changing savings</label><input id="sp-goal-preview" type="range" min="0" max="100" value="${pct}" step="1" aria-valuetext="${pct} percent preview"><p>Slide through the milestones. This only changes the scene, never your saved amount.</p><div class="preview-buttons"><button type="button" class="text-button cursor-interaction" data-action="play-goal">${icon(g.type === 'savings' ? 'hand-coins' : 'play')}${g.type === 'savings' ? 'Watch a coin go in' : 'Play the whole story'}</button><button type="button" class="text-button cursor-interaction" data-action="reset-goal">${icon('rotate-ccw')}Back to my ${real}%</button></div></section></div><div class="goal-note">${icon('shield-check')}<span>Goal savings reserve part of your spendable funds. Withdrawing releases that reservation. No money is transferred.</span></div>`
+      heading(
+        'Your goals',
+        'Give the future a little shape.',
+        'Big plans grow from the little bits you set aside.',
+        `<button type="button" class="primary cursor-interaction" data-action="new-goal">${icon('plus')}New goal</button>`,
+      ) +
+      `<div class="goals-tabs" aria-label="Choose a savings goal">${state.goals.map((item) => `<button type="button" class="goal-tab cursor-interaction" data-goal="${esc(item.id)}" aria-pressed="${item.id === g.id}">${icon(goalTypes[item.type].icon)}<span>${esc(item.id.startsWith('goal-') ? item.name : goalTypes[item.type].label)}</span><span class="goal-tab-percent money">${realPercent(item)}%</span></button>`).join('')}</div><section class="goal-workshop" data-goal-type="${g.type}" aria-label="${esc(g.name)} progress scene"><div class="workshop-top"><button type="button" class="material-tag cursor-interaction" data-action="rotate-goal" aria-label="Turn the 3D scene 45 degrees">${icon('rotate-3d')}Turn the view</button><span id="sp-scene-badge" class="material-tag">${goalPreview === null ? 'Saved progress' : 'Preview only'} · <span id="sp-scene-percent">${pct}%</span></span></div><div class="goal-stage"><div class="diorama" id="sp-diorama" role="img" aria-label="3D ${esc(t.label.toLowerCase())} savings scene, ${pct} percent, ${esc(t.steps[stage])}"><div class="scene-loading">Setting the scene…</div><span class="scene-hint">${icon('move-horizontal')}Drag to turn</span></div><div class="scene-copy"><div class="eyebrow">${esc(g.name)}</div><h2 id="sp-stage-title">${t.titles[stage]}</h2><p id="sp-stage-description">${goalPreview !== null && pct === 100 ? `This is what reaching your target looks like. Your saved amount is still ${dollarLabel(g.saved)}.` : t.descriptions[stage]}</p><span class="stage-counter" id="sp-stage-counter">${icon('hammer')}Milestone ${stage + 1} of 5 · ${t.steps[stage]}</span></div></div><div class="milestones" aria-label="Preview goal milestones">${t.steps.map((name, i) => `<button type="button" data-milestone="${[0, 20, 40, 70, 100][i]}" class="milestone cursor-interaction ${i <= stage ? 'done' : ''} ${i === stage ? 'current' : ''}" aria-label="Preview ${name} milestone at ${[0, 20, 40, 70, 100][i]} percent"><span class="milestone-dot">${i < stage ? '✓' : i + 1}</span><span>${name}</span><small>${[0, 20, 40, 70, 100][i]}%</small></button>`).join('')}</div></section><div class="goal-lower"><section aria-label="Saved toward goal"><h2>${esc(g.name)}</h2><div class="goal-amount display money">${dollarLabel(g.saved)} <small>of ${dollarLabel(g.target)}</small></div><p class="small muted">${dollarLabel(Math.max(0, g.target - g.saved))} to go · target ${new Date(g.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</p><div class="goal-progress" role="progressbar" aria-label="Actual savings progress" aria-valuenow="${real}" aria-valuemin="0" aria-valuemax="100"><span style="width:${real}%"></span></div><div class="math-line small"><span>${real}% funded</span><span class="muted">${g.saved >= g.target ? 'You made it.' : 'One contribution at a time.'}</span></div><div class="goal-actions"><button type="button" class="primary cursor-interaction" data-action="add-savings">${icon('plus')}Add savings</button><button type="button" class="secondary cursor-interaction" data-action="edit-goal">Edit goal</button></div></section><section class="preview-panel" aria-label="Preview the goal animation"><div class="preview-title"><span>Watch your plan come to life</span><span class="preview-badge" id="sp-preview-label">${goalPreview === null ? 'Try a preview' : pct + '% preview'}</span></div><label for="sp-goal-preview" class="sr-only">Preview progress percentage without changing savings</label><input id="sp-goal-preview" type="range" min="0" max="100" value="${pct}" step="1" aria-valuetext="${pct} percent preview"><p>Slide through the milestones. This only changes the scene, never your saved amount.</p><div class="preview-buttons"><button type="button" class="text-button cursor-interaction" data-action="play-goal">${icon(g.type === 'savings' ? 'hand-coins' : 'play')}${g.type === 'savings' ? 'Watch a coin go in' : 'Play the whole story'}</button><button type="button" class="text-button cursor-interaction" data-action="reset-goal">${icon('rotate-ccw')}Back to my ${real}%</button></div></section></div><div class="goal-note">${icon('shield-check')}<span>Goals track money you’ve set aside separately. Adding savings here records progress; it does not transfer money or change your spending balance.</span></div>`
     );
   }
   function updateGoalScene(p) {
@@ -233,25 +252,28 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     }
     goalPlayFrame = requestAnimationFrame(tick);
   }
-  function goalForm() {
-    openModal('New savings goal', `<div class="modal-header"><div><div class="eyebrow">Something worth saving for</div><h2>What’s on your horizon?</h2></div>${closeButton}</div>
-      <form id="sp-goal-form"><fieldset class="goal-form-fields"><label class="field">Goal type<select name="type">${Object.entries(goalTypes).map(([key, value]) => `<option value="${key}">${value.label}</option>`).join('')}</select></label>
-      <label class="field">Give it a name<input name="name" required maxlength="45" placeholder="Emergency savings"></label>
-      <div class="field-grid"><label class="field">Target, USD<input name="target" inputmode="decimal" required placeholder="500.00"></label>
-      <label class="field">Initial savings, USD<input name="saved" inputmode="decimal" value="0.00" required></label></div>
-      <label class="field">Target date (optional)<input name="date" type="date"></label>
-      <p>Initial savings reserve money from your spendable funds. Savings may exceed the target.</p>
-      <p role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">Create goal</button></div></fieldset></form>`);
-  }
-  function savingsForm(kind) {
+  function goalForm(edit = false) {
     const g = activeGoal();
-    if (!g) return;
-    const withdrawal = kind === 'withdrawal';
-    openModal(withdrawal ? 'Withdraw savings' : 'Add savings', `<div class="modal-header"><div><div class="eyebrow">${esc(g.name)}</div><h2>${withdrawal ? 'Make room for today.' : 'Another little step.'}</h2></div>${closeButton}</div>
-      <p>${withdrawal ? 'Release money reserved by this goal back to your spendable funds.' : 'Reserve part of your spendable funds for this goal.'} No money is transferred.</p>
-      <form id="sp-savings-form" data-goal-id="${esc(g.id)}" data-kind="${kind}"><fieldset class="goal-form-fields"><label class="field">Amount, USD<input name="amount" inputmode="decimal" required placeholder="50.00"></label>
-      <div class="detail-row"><span>Currently saved</span><strong>${formatUsdCents(g.saved)}</strong></div><p role="alert"></p>
-      <div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">${withdrawal ? 'Withdraw savings' : 'Add savings'}</button></div></fieldset></form>`);
+    openModal(
+      edit ? 'Edit savings goal' : 'New savings goal',
+      `<div class="modal-header"><div><div class="eyebrow">${edit ? 'Your plan, your pace' : 'Something worth saving for'}</div><h2>${edit ? 'Make room for your plan.' : 'What’s on your horizon?'}</h2></div>${closeButton}</div><form id="sp-goal-form" data-edit="${edit}"><label class="field">Goal type<select name="type">${Object.entries(
+        goalTypes,
+      )
+        .map(
+          ([k, v]) =>
+            `<option value="${k}" ${edit && g.type === k ? 'selected' : ''}>${v.label}</option>`,
+        )
+        .join(
+          '',
+        )}</select></label><label class="field">Give it a name<input name="name" required maxlength="45" value="${edit ? esc(g.name) : ''}" placeholder="A place of my own"></label><div class="field-grid"><label class="field">Target, USD<input name="target" type="number" min="1" max="10000000" step="0.01" required value="${edit ? (g.target / 100).toFixed(2) : ''}" placeholder="20000"></label><label class="field">Already saved, USD<input name="saved" type="number" min="0" max="10000000" step="0.01" required value="${edit ? (g.saved / 100).toFixed(2) : '0'}"></label></div><label class="field">Target date<input name="date" type="date" required min="2026-11-13" value="${edit ? g.date : '2027-12-01'}"></label><p>Savings are tracked separately from your spending account. You can change this plan anytime.</p><div id="sp-goal-error" class="error" role="alert"></div><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Not now</button><button type="submit" class="primary cursor-interaction">${edit ? 'Save changes' : 'Create my goal'}</button></div></form>`,
+    );
+  }
+  function addSavings() {
+    const g = activeGoal();
+    openModal(
+      'Record goal savings',
+      `<div class="modal-header"><div><div class="eyebrow">${esc(g.name)}</div><h2>Another little step.</h2></div>${closeButton}</div><p>Record money you’ve already set aside for this goal.</p><form id="sp-savings-form"><label class="field">Amount to add, USD<input name="amount" type="number" min="0.01" max="1000000" step="0.01" required placeholder="50.00"></label><div class="detail-row"><span class="muted">Currently saved</span><strong>${money(g.saved)}</strong></div><div class="checks"><div class="check-row">${icon('check')}Updates this goal’s saved amount</div><div class="check-row">${icon('shield-check')}Does not send or transfer money</div></div><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Cancel</button><button type="submit" class="primary cursor-interaction">Record savings</button></div></form>`,
+    );
   }
   root.addEventListener('input', (e) => {
     if (e.target.id === 'sp-goal-preview') {
@@ -280,14 +302,11 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       case 'new-goal':
         goalForm();
         break;
-      case 'refresh-goals':
-        store.invalidate();
-        break;
-      case 'withdraw-savings':
-        savingsForm('withdrawal');
+      case 'edit-goal':
+        goalForm(true);
         break;
       case 'add-savings':
-        savingsForm('contribution');
+        addSavings();
         break;
       case 'play-goal':
         playGoal();
@@ -299,59 +318,56 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
         break;
     }
   });
-  async function submitGoalForm(form, fd) {
-    if (store.state.busy) return;
-    const button = form.querySelector('button[type="submit"]');
-    const fieldset = form.querySelector('fieldset');
-    const error = form.querySelector('[role="alert"]');
-    error.textContent = '';
-    let payload;
-    let path;
-    try {
-      if (form.id === 'sp-goal-form') {
-        payload = { name: String(fd.get('name')).trim(), type: String(fd.get('type')),
-          targetCents: usdToCents(String(fd.get('target')).trim()),
-          initialCents: usdToCents(String(fd.get('saved')).trim(), { allowZero: true }), targetDate: fd.get('date') || null };
-        path = '/api/goals';
-      } else {
-        payload = { kind: form.dataset.kind, cents: usdToCents(String(fd.get('amount')).trim()) };
-        path = `/api/goals/${encodeURIComponent(form.dataset.goalId)}/movements`;
-      }
-      const fingerprint = JSON.stringify(payload);
-      if (form.dataset.fingerprint !== fingerprint) {
-        form.dataset.requestKey = crypto.randomUUID();
-        form.dataset.fingerprint = fingerprint;
-      }
-      const previous = state.goals.find((g) => g.id === form.dataset.goalId);
-      const from = previous ? realPercent(previous) : 0;
-      button.disabled = true; fieldset.disabled = true; form.setAttribute('aria-busy', 'true');
-      const result = await store.save(path, { ...payload, requestKey: form.dataset.requestKey });
-      if (!result) return;
-      const { receipt, firstReceipt } = result;
-      const current = state.goals.find((g) => g.id === receipt.goal.id);
-      if (state.page === 'goals' && (form.isConnected || state.activeGoal === receipt.goal.id)) {
-        if (form.isConnected) state.activeGoal = receipt.goal.id;
-        goalPreview = null;
-        if (current && previous && firstReceipt && from !== realPercent(current)) contributionTransition = { from, to: realPercent(current) };
-      }
-      const returnFocus = form.isConnected;
-      if (returnFocus) closeModal();
-      if (state.page === 'goals') {
-        render();
-        if (returnFocus) root.querySelector(`[data-action="${form.id === 'sp-goal-form' ? 'new-goal' : payload.kind === 'withdrawal' ? 'withdraw-savings' : 'add-savings'}"]`)?.focus({ preventScroll: true });
-      }
-      toast(receipt.movement?.kind === 'withdrawal' ? 'Savings withdrawn. Spendable funds updated.' : 'Goal saved. Spendable funds updated.');
-    } catch (failure) {
-      error.textContent = failure.message || 'Your goal could not be saved. Try again.';
-      announce(error.textContent);
-    } finally {
-      button.disabled = false; fieldset.disabled = false; form.removeAttribute('aria-busy');
-    }
-  }
   function handleGoalForm(form, fd) {
-    if (!['sp-goal-form', 'sp-savings-form'].includes(form.id)) return false;
-    void submitGoalForm(form, fd);
-    return true;
+    if (form.id === 'sp-goal-form') {
+      const target = Math.round(Number(fd.get('target')) * 100),
+        saved = Math.round(Number(fd.get('saved')) * 100);
+      if (saved > target) {
+        root.querySelector('#sp-goal-error').textContent =
+          'Set a target at least as large as the amount already saved.';
+        return true;
+      }
+      const goal = {
+        id: form.dataset.edit === 'true' ? activeGoal().id : 'goal-' + Date.now(),
+        type: String(fd.get('type')),
+        name: String(fd.get('name')).trim(),
+        target,
+        saved,
+        date: String(fd.get('date')),
+      };
+      if (!goal.name) {
+        root.querySelector('#sp-goal-error').textContent = 'Give your goal a name.';
+        return true;
+      }
+      if (form.dataset.edit === 'true')
+        state.goals = state.goals.map((g) => (g.id === goal.id ? goal : g));
+      else state.goals.push(goal);
+      state.activeGoal = goal.id;
+      goalPreview = null;
+      closeModal();
+      render();
+      persist();
+      toast(
+        form.dataset.edit === 'true'
+          ? 'Your goal has a new plan.'
+          : 'Your goal has a place to grow.',
+      );
+      return true;
+    }
+    if (form.id === 'sp-savings-form') {
+      const g = activeGoal(),
+        amount = Math.round(Number(fd.get('amount')) * 100),
+        from = realPercent(g);
+      g.saved += amount;
+      contributionTransition = { from, to: realPercent(g) };
+      goalPreview = null;
+      closeModal();
+      render();
+      persist();
+      toast(`${money(amount)} recorded. Another little step.`);
+      return true;
+    }
+    return false;
   }
 
   let threeLib = null,
@@ -369,24 +385,11 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     const host = root.querySelector('#sp-diorama');
     if (!host) return;
     const goal = activeGoal();
-    const transition = contributionTransition;
-    contributionTransition = null;
-    function applyTransition(controller) {
-      if (!transition) return;
-      if (goal.type === 'savings' && transition.to > transition.from && motionAllowed()) {
-        if (!controller.deposit(() => controller.update(transition.to))) controller.update(transition.to);
-      } else animateContribution(controller, transition.from, transition.to);
-    }
-    if (sceneController && sceneHost && sceneGoalId === goal.id) {
-      sceneHost.setAttribute('aria-label', host.getAttribute('aria-label'));
-      host.replaceWith(sceneHost);
-      sceneController.settleTo(transition ? transition.from : scenePercent());
-      applyTransition(sceneController);
-      return;
-    }
     try {
       const T = await loadThree();
       if (!host.isConnected || state.page !== 'goals') return;
+      const transition = contributionTransition;
+      contributionTransition = null;
       const firstOpen = !seenGoalScenes.has(goal.id);
       seenGoalScenes.add(goal.id);
       sceneController = createDiorama(
@@ -396,13 +399,17 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
         transition && motionAllowed() ? transition.from : scenePercent(),
         firstOpen,
       );
-      sceneHost = host;
-      sceneGoalId = goal.id;
-      applyTransition(sceneController);
+      if (transition) {
+        if (goal.type === 'savings') {
+          const controller = sceneController;
+          controller.deposit(() => controller.update(transition.to));
+        } else animateContribution(sceneController, transition.from, transition.to);
+      }
     } catch (e) {
       if (host.isConnected) {
-        const loading = host.querySelector('.scene-loading');
-        if (loading) loading.textContent = 'The 3D scene couldn’t load. Your progress is still shown below.';
+        host.querySelector('.scene-loading').textContent =
+          'The 3D scene couldn’t load. Your progress is still shown below.';
+        host.dataset.sceneError = e.message;
       }
     }
   }
@@ -1459,23 +1466,6 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       deposit(callback) {
         return startDeposit(callback);
       },
-      settleTo(p) {
-        cancelAnimationFrame(frameId);
-        frameId = 0;
-        pendingDepositAt = Infinity;
-        pendingDepositCallback = null;
-        depositCallback = null;
-        depositStarted = null;
-        if (handRig) handRig.visible = false;
-        if (fallingCoin) fallingCoin.visible = false;
-        host.dataset.depositActive = 'false';
-        host.dataset.coinPhase = 'rest';
-        build(p);
-        settle();
-        workerUntil = 0;
-        host.dataset.sceneMoving = 'false';
-        draw();
-      },
       stats() {
         return {
           meshes: liveMeshes.size,
@@ -1514,13 +1504,8 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
 
   function beforeRender() {
     stopGoalPlay();
-    cancelAnimationFrame(contributionFrame);
-    if (state.page === 'goals' && sceneController && sceneGoalId === state.activeGoal) return;
     sceneController?.dispose();
     sceneController = null;
-    sceneHost = null;
-    sceneGoalId = null;
-    contributionTransition = null;
   }
 
   return { goals, beforeRender, mountGoalScene, handleGoalForm, motionAllowed };
