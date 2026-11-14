@@ -384,3 +384,6 @@
     font-size: 36px;
   }
 }
+#split-common-ground .goal-form-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+#split-common-ground .goal-form-fields [role='alert'] { color: var(--sp-red); }
+#split-common-ground .goal-header-actions { display: flex; flex-wrap: wrap; gap: 10px; }
