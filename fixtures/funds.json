@@ -1,0 +1,29 @@
+{
+  "getSpendableFunds": {
+    "note": "Internal B4 function, not an HTTP route. Computed under the bank_accounts row lock: balance − goal holds − unresolved settlement holds.",
+    "call": "getSpendableFunds(\"20000000-0000-4000-8000-000000000001\")",
+    "result": {
+      "accountId": "20000000-0000-4000-8000-000000000001",
+      "balanceCents": 124800,
+      "balanceAsOf": "2026-11-14T11:58:00-05:00",
+      "goalHoldsCents": 20000,
+      "settlementHoldsCents": 0,
+      "spendableCents": 104800
+    }
+  },
+  "reserveFundsInsufficient": {
+    "note": "B4 acceptance: with $50 spendable, a $40 goal contribution and a $30 settlement cannot both reserve. The loser surfaces as HTTP 409.",
+    "call": "reserveFunds(dbTx, \"20000000-0000-4000-8000-000000000001\", 3000)",
+    "before": { "spendableCents": 1000 },
+    "httpResponse": {
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "INSUFFICIENT_FUNDS",
+          "message": "There isn’t enough available to cover this. Nothing was moved.",
+          "requestId": "00000000-0000-4000-8000-0000000000a1"
+        }
+      }
+    }
+  }
+}

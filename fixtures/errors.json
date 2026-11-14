@@ -1,0 +1,15 @@
+{
+  "note": "F3 error envelope. 403 = scope violation, 409 = changed state or insufficient funds, 422 = invalid input. Codes are SCREAMING_SNAKE_CASE.",
+  "403": {
+    "status": 403,
+    "body": { "error": { "code": "NOT_A_MEMBER", "message": "You can only add costs to groups you belong to.", "requestId": "00000000-0000-4000-8000-0000000000b1" } }
+  },
+  "409": {
+    "status": 409,
+    "body": { "error": { "code": "DRAFT_EXPIRED", "message": "This draft expired. Review the split again before confirming.", "requestId": "00000000-0000-4000-8000-0000000000b2" } }
+  },
+  "422": {
+    "status": 422,
+    "body": { "error": { "code": "INVALID_AMOUNT", "message": "Enter an amount greater than $0.00.", "requestId": "00000000-0000-4000-8000-0000000000b3" } }
+  }
+}
