@@ -1,0 +1,90 @@
+{
+  "create": {
+    "request": {
+      "method": "POST",
+      "path": "/api/expense-drafts",
+      "body": {
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "merchant": "Antonio’s",
+        "cents": 4200,
+        "category": "Food & drink",
+        "participantIds": [
+          "10000000-0000-4000-8000-000000000001",
+          "10000000-0000-4000-8000-000000000002",
+          "10000000-0000-4000-8000-000000000003"
+        ],
+        "bankRef": null
+      }
+    },
+    "response": {
+      "draft": {
+        "id": "50000000-0000-4000-8000-000000000001",
+        "status": "draft",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "payerUserId": "10000000-0000-4000-8000-000000000001",
+        "merchant": "Antonio’s",
+        "category": "Food & drink",
+        "totalCents": 4200,
+        "shares": [
+          { "userId": "10000000-0000-4000-8000-000000000001", "displayName": "Maya", "cents": 1400 },
+          { "userId": "10000000-0000-4000-8000-000000000002", "displayName": "Sam", "cents": 1400 },
+          { "userId": "10000000-0000-4000-8000-000000000003", "displayName": "Priya", "cents": 1400 }
+        ],
+        "bankRef": null,
+        "createdAt": "2026-11-14T12:00:00-05:00",
+        "expiresAt": "2026-11-14T12:15:00-05:00"
+      }
+    }
+  },
+  "createUnevenRemainder": {
+    "note": "A $10 three-way split totals exactly $10. Which member gets the extra cent is A2's stable remainder rule; this shows the payer getting it.",
+    "request": {
+      "method": "POST",
+      "path": "/api/expense-drafts",
+      "body": {
+        "groupId": "30000000-0000-4000-8000-000000000002",
+        "merchant": "Parking",
+        "cents": 1000,
+        "category": "Getting around",
+        "participantIds": [
+          "10000000-0000-4000-8000-000000000001",
+          "10000000-0000-4000-8000-000000000002",
+          "10000000-0000-4000-8000-000000000003"
+        ],
+        "bankRef": null
+      }
+    },
+    "response": {
+      "draft": {
+        "id": "50000000-0000-4000-8000-000000000002",
+        "status": "draft",
+        "groupId": "30000000-0000-4000-8000-000000000002",
+        "payerUserId": "10000000-0000-4000-8000-000000000001",
+        "merchant": "Parking",
+        "category": "Getting around",
+        "totalCents": 1000,
+        "shares": [
+          { "userId": "10000000-0000-4000-8000-000000000001", "displayName": "Maya", "cents": 334 },
+          { "userId": "10000000-0000-4000-8000-000000000002", "displayName": "Sam", "cents": 333 },
+          { "userId": "10000000-0000-4000-8000-000000000003", "displayName": "Priya", "cents": 333 }
+        ],
+        "bankRef": null,
+        "createdAt": "2026-11-14T12:01:00-05:00",
+        "expiresAt": "2026-11-14T12:16:00-05:00"
+      }
+    }
+  },
+  "confirm": {
+    "note": "Repeat-safe: confirming the same draft again returns the same expense ID.",
+    "request": { "method": "POST", "path": "/api/expense-drafts/50000000-0000-4000-8000-000000000001/confirm", "body": {} },
+    "response": {
+      "expense": {
+        "id": "50000000-0000-4000-8000-000000000001",
+        "status": "confirmed",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "totalCents": 4200,
+        "confirmedAt": "2026-11-14T12:02:00-05:00"
+      }
+    }
+  }
+}

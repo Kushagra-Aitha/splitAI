@@ -1,0 +1,54 @@
+{
+  "request": { "method": "GET", "path": "/api/overview?from=2026-11-01&to=2026-11-13&bucket=day" },
+  "note": "B3/B5. Buckets are per-period totals (not cumulative), zero-filled, purchases only for spending (transfers excluded). The UI accumulates for the running line.",
+  "response": {
+    "account": {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "nickname": "Maya’s demo account",
+      "mask": "0421",
+      "balanceCents": 124800,
+      "availableCents": 104800,
+      "balanceAsOf": "2026-11-14T11:58:00-05:00"
+    },
+    "range": { "from": "2026-11-01", "to": "2026-11-13", "bucket": "day" },
+    "totals": { "earnedCents": 102000, "spentCents": 109200 },
+    "buckets": [
+      { "start": "2026-11-01", "earnedCents": 28000, "spentCents": 16000 },
+      { "start": "2026-11-02", "earnedCents": 0, "spentCents": 4000 },
+      { "start": "2026-11-03", "earnedCents": 0, "spentCents": 7000 },
+      { "start": "2026-11-04", "earnedCents": 0, "spentCents": 5000 },
+      { "start": "2026-11-05", "earnedCents": 27000, "spentCents": 3000 },
+      { "start": "2026-11-06", "earnedCents": 0, "spentCents": 6000 },
+      { "start": "2026-11-07", "earnedCents": 0, "spentCents": 6000 },
+      { "start": "2026-11-08", "earnedCents": 47000, "spentCents": 10000 },
+      { "start": "2026-11-09", "earnedCents": 0, "spentCents": 20000 },
+      { "start": "2026-11-10", "earnedCents": 0, "spentCents": 7000 },
+      { "start": "2026-11-11", "earnedCents": 0, "spentCents": 6000 },
+      { "start": "2026-11-12", "earnedCents": 0, "spentCents": 9000 },
+      { "start": "2026-11-13", "earnedCents": 0, "spentCents": 10200 }
+    ],
+    "recent": [
+      {
+        "id": "80000000-0000-4000-8000-000000000001",
+        "providerTransactionId": "txn_fixture_0001",
+        "kind": "purchase",
+        "direction": "debit",
+        "amountCents": 450,
+        "description": "Campus café",
+        "occurredAt": "2026-11-13T08:40:00-05:00",
+        "status": "completed"
+      },
+      {
+        "id": "80000000-0000-4000-8000-000000000002",
+        "providerTransactionId": "txn_fixture_0002",
+        "kind": "deposit",
+        "direction": "credit",
+        "amountCents": 47000,
+        "description": "Paycheck",
+        "occurredAt": "2026-11-08T09:00:00-05:00",
+        "status": "completed"
+      }
+    ],
+    "sync": { "lastSyncedAt": "2026-11-14T11:58:00-05:00", "status": "ok" }
+  }
+}
