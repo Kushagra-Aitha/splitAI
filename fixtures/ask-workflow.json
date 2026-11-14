@@ -39,9 +39,9 @@
   },
   "confirm": { "method": "POST", "path": "/api/expense-drafts/90000000-0000-4000-8000-000000000003/confirm", "body": {}, "note": "Only explicit confirmation changes the ledger. Replays return the same confirmed expense." },
   "errors": {
-    "foreignProposal": { "status": 403, "code": "PROPOSAL_SCOPE_FORBIDDEN" },
-    "foreignGroup": { "status": 403, "code": "GROUP_SCOPE_FORBIDDEN" },
-    "foreignMember": { "status": 403, "code": "PARTICIPANT_NOT_A_MEMBER" },
+    "foreignProposal": { "status": 200, "type": "blocked", "reasonCode": "ASSISTANT_SCOPE_REJECTED", "note": "C3 returns a persisted eventId; no draft is created or confirmed." },
+    "foreignGroup": { "status": 200, "type": "blocked", "reasonCode": "ASSISTANT_SCOPE_REJECTED" },
+    "foreignMember": { "status": 200, "type": "blocked", "reasonCode": "ASSISTANT_SCOPE_REJECTED" },
     "expired": { "status": 409, "code": "PROPOSAL_EXPIRED" },
     "changedMessage": { "status": 409, "code": "REQUEST_KEY_REUSED" },
     "changedSelection": { "status": 409, "code": "PROPOSAL_ALREADY_REVIEWED" }

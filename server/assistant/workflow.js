@@ -3,6 +3,7 @@ import { HttpError } from '../http.js';
 import { createLedgerHandlers } from '../ledger/handlers.js';
 import { createAskHandler } from './ask.js';
 import { validateIntent, validateMessage } from './intent.js';
+import { createAssistantGuard, rejectedProposalReason } from './guard.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -19,7 +20,7 @@ function id(value, label) {
 function details(extraction, selection) {
   const merchant = selection?.merchant === undefined ? extraction.merchant : selection.merchant;
   const cents = selection?.cents === undefined ? extraction.cents : selection.cents;
-  if (merchant !== null && (typeof merchant !== 'string' || !merchant.trim() || merchant.length > 60 || /\p{Cc}/u.test(merchant))) {
+  if (merchant !== null && (typeof merchant !== 'string' || !merchant.trim() || merchant.length > 60 || /[\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(merchant))) {
     throw invalid('Enter a merchant between 1 and 60 characters.');
   }
   if (cents !== null && (!Number.isSafeInteger(cents) || cents <= 0)) throw invalid('Enter a positive amount in integer cents.');
@@ -147,10 +148,12 @@ async function advance(db, proposal, actor, selection) {
   return { type: 'draft', proposalId: proposal.id, draft, group: groupOptions.find((group) => group.id === groupId) };
 }
 
-export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial }) {
-  return async ({ actor, body }) => {
+export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial,
+  guard = createAssistantGuard({ withTransaction }) }) {
+  const run = async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
       if (Object.hasOwn(body, 'message')) throw invalid('Send a message or a proposal selection, not both.');
+      if (Object.keys(body).some((key) => !['proposalId', 'selection'].includes(key))) throw invalid('Send only the proposal ID and selection.');
       const proposalId = id(body.proposalId, 'proposal');
       if (!body.selection || typeof body.selection !== 'object' || Array.isArray(body.selection) ||
           Object.keys(body.selection).some((key) => !['groupId', 'participantIds', 'merchant', 'cents'].includes(key))) {
@@ -163,16 +166,19 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
         return advance(db, proposal, actor, body.selection);
       });
     }
+    if (!body || Object.keys(body).some((key) => !['message', 'requestKey', 'context'].includes(key))) throw invalid('Send only a message, request key, and optional group-note context.');
     const message = validateMessage(body);
     const requestKey = id(body.requestKey, 'request key');
+    if (Object.hasOwn(body, 'context')) return guard.reviewNote({ actor, context: body.context });
     const messageHash = hash(message);
     const { rows: [existing] } = await query(`SELECT ${columns} FROM assistant_proposals
       WHERE actor_user_id = $1 AND request_key = $2`, [actor.userId, requestKey]);
     if (existing && existing.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
     // No DB connection or transaction is held across the model request.
-    const parsed = existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message);
+    const parsed = validateIntent(existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message));
+    if (parsed.intent === 'unsupported') return guard.block({ actor, reasonCode: 'ASSISTANT_ACTION_UNSUPPORTED' });
     if (parsed.intent !== 'expense') {
-      if (parsed.intent !== 'unsupported' && answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
+      if (answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });
     }
     return withTransaction(async (db) => {
@@ -184,5 +190,15 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
       if (proposal.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
       return advance(db, proposal, actor);
     });
+  };
+  return async (context) => {
+    try { return await run(context); } catch (error) {
+      const reasonCode = rejectedProposalReason(error);
+      if (!reasonCode) throw error;
+      // A failed draft transaction has rolled back before a separate audit
+      // transaction records this decision. No settlement service is available
+      // to this workflow, regardless of model output or request fields.
+      return guard.block({ actor: context.actor, reasonCode });
+    }
   };
 }

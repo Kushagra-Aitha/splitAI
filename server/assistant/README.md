@@ -46,8 +46,44 @@ submit settlements or transfer money. A3 rechecks and locks membership for the
 payer and all share members when committing; confirmed replays add no obligations.
 
 Read classifications now use C4's actor-scoped facts and explanations.
-Unsupported requests get a fixed answer. C3 will add recorded Guard
-evaluation; an unsupported reply or invalid-output error is not a Guard event.
+C3 records unsupported Ask requests, invalid model proposals and scope violations
+through A9. The HTTP response is a decision with `type: "blocked"`, `eventId`,
+`reasonCode`, the persisted `reason`, and `createdAt`. It authorizes no financial
+operation. A scope rejection or invalid proposal rolls back any draft transaction
+before a separate audit transaction records the block. Scope violations on the
+other money endpoints retain their existing status contracts.
+
+Group notes can be reviewed with `{ message, requestKey, context: {
+kind: "group_note", groupId: "<your group UUID>" } }`. Together's **Check note
+with Guard** action uses this path. The server checks current group membership
+and note presence, then blocks treating the note as permission for an action.
+ALL notes are non-authoritative; this is not a semantic attack detector or a
+keyword filter. Raw notes never reach Gemini, an action dispatcher, an audit
+context, or logs. Client-supplied raw retrieved text, identities, tools and extra
+request fields are rejected. Normal message parsing still receives only the
+bounded message, and no settlement submission function is exposed to Ask.
+
+A9 persists fixed reason descriptions with an empty/redacted context. Ask and
+Guard activity display the real event ID; the displayed reason is read back from
+the stored event. If the audit write/read/commit fails, no blocked success or
+invented ID is returned. Provider timeouts and malformed user input remain
+ordinary recoverable errors, not fabricated Guard decisions. Retrying a rejected
+request can record another decision; expense mutation idempotency is unchanged.
+
+`fixtures/ask-guard.json` includes the controlled poisoned-note request and
+blocked-response contract. Verify its real HTTP/audit/ledger behavior with:
+
+```sh
+node --test server/test/assistant-guard.test.js
+RUN_ASSISTANT_GUARD_DB_TESTS=1 node --test server/test/assistant-guard.integration.test.js
+```
+
+This suite uses its own random PostgreSQL schema. It verifies a persisted reason
+and event ID, actor-scoped audit reads, unchanged financial row counts and debts,
+and zero attempted provider transfer POSTs. It traps a transfer attempt before
+network transmission; it does not create a real sandbox transfer. The test also
+injects an audit failure after insertion and verifies rollback and a 503 response
+without a fictional event ID. A separate valid expense still requires A3.
 
 C4: `facts.js` reads A4 debts, B4 funds, and B3 spending within one
 read-only, repeatable-read transaction, which ends before any model explanation.
@@ -103,9 +139,12 @@ For `gemini-3.5-flash`, classification uses the documented `minimal` thinking
 level to reduce unnecessary reasoning latency. Other models keep their defaults;
 no model-specific parameter is guessed or retried on provider rejection.
 
-Recoverable errors use the F3 envelope: invalid input 422, invalid/truncated/
-blocked/model tool output 502, provider/configuration/busy failures 503, timeout
-504. Ask's HTTP caller allows 60 seconds for classification plus explanation
+Recoverable errors use the F3 envelope: invalid user input 422,
+provider/configuration/busy or unavailable audit failures 503, timeout 504.
+Invalid/truncated/tool output is rejected in the parser with 502; C3's Ask
+workflow records it and returns a blocked decision when audit persistence works.
+The read-only insight endpoint still returns a recoverable 502 for invalid
+explanations. Ask's HTTP caller allows 60 seconds for classification plus explanation
 (each provider call is capped at 25 seconds), and retains input and the request key
 for explicit retries. All other API requests keep the default 15-second deadline.
 The UI presents errors as escaped text, disables pending selections, and never
@@ -155,3 +194,11 @@ and concurrent-snapshot consistency. The live Gemini insight smoke passed using
 only fixed synthetic $42 spending/$100 deposits and the explicit date window.
 The ordinary suite passed 60 tests (four optional DB suites skipped), and the
 production build passed. Visual browser verification remains outstanding.
+
+Local C3 verification: the ordinary suite passed 70 tests (six optional database
+suites skipped), the real Guard HTTP/PostgreSQL suite passed all eight tests,
+and the C2 real-database regression suite passed all nine tests with the new
+blocked-decision contract. The production build passed. Poisoned and benign
+notes both remained non-authoritative; rejection caused zero transfer attempts
+and no debt/financial-row changes. No live provider transfer was made or counted
+as evidence for SEC1. Visual/browser polish remains tracked separately under C7.

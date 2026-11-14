@@ -34,6 +34,7 @@ export function createGuard({ root, state, icon, esc, heading, render }) {
             <div class="log-body">
               <h3>${esc(event.reason)}</h3>
               <p>${esc(event.source)} · ${esc(new Date(event.createdAt).toLocaleString())}</p>
+              <p class="small">Event ID: <code>${esc(event.id)}</code></p>
             </div>
           </article>`).join('') || '<p>No Guard activity for this filter.</p>'
         : '<p role="status">Loading Guard activity…</p>';
