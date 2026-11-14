@@ -2,6 +2,7 @@ import { apiRequest } from '../../api/session.js';
 import { subscribeFinancialChanges } from '../../api/financial-state.js';
 import { usdToCents, formatUsdCents } from '../../lib/money.js';
 import { createGoalStore, goalPercent } from './store.js';
+import { preserveFocus } from '../../lib/focus.js';
 
 export function createGoals({ root, state, icon, icons, heading, money, dollarLabel, esc, render, persist, openModal, closeModal, closeButton, toast, announce }) {
   const prefs = { motion: true };
@@ -12,7 +13,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
   const store = createGoalStore({ request: apiRequest, onChange: () => {
     state.goals = store.state.goals;
     if (!state.goals.some((g) => g.id === state.activeGoal)) state.activeGoal = state.goals[0]?.id ?? null;
-    if (state.page === 'goals' && !root.querySelector('#sp-modal-root').children.length) render();
+    if (state.page === 'goals' && !root.querySelector('#sp-modal-root').children.length) preserveFocus(root, render);
   } });
   subscribeFinancialChanges(() => store.invalidate());
   const seenGoalScenes = new Set();
@@ -141,7 +142,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     if (store.state.status === 'idle' && !store.state.busy) void store.load();
     const header = heading('Your goals', 'Give the future a little shape.',
       'Big plans grow from the little bits you set aside.',
-      `<div class="goal-header-actions"><button type="button" class="secondary" data-action="refresh-goals">Refresh goals</button><button type="button" class="primary cursor-interaction" data-action="new-goal">${icon('plus')}New goal</button></div>`);
+      `<div class="goal-header-actions"><button id="sp-goal-refresh" type="button" class="secondary" data-action="refresh-goals">Refresh goals</button><button id="sp-goal-new" type="button" class="primary cursor-interaction" data-action="new-goal">${icon('plus')}New goal</button></div>`);
     const status = store.state.status === 'loading' ? '<p role="status">Loading your saved goals…</p>'
       : store.state.error ? `<p role="alert">${esc(store.state.error)} ${state.goals.length ? 'Showing the last confirmed progress.' : ''} <button type="button" class="text-button" data-action="refresh-goals">Try again</button></p>` : '';
     if (!state.goals.length) return header + status + (store.state.status === 'ready' ? '<section class="data-state"><p>No goals yet. Create one to start setting money aside.</p></section>' : '');
@@ -152,7 +153,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       real = realPercent(g);
     return (
       header + status +
-      `<div class="goals-tabs" aria-label="Choose a savings goal">${state.goals.map((item) => `<button type="button" class="goal-tab cursor-interaction" data-goal="${esc(item.id)}" aria-pressed="${item.id === g.id}">${icon(goalTypes[item.type].icon)}<span>${esc(item.name)}</span><span class="goal-tab-percent money">${realPercent(item)}%</span></button>`).join('')}</div><section class="goal-workshop" data-goal-type="${g.type}" aria-label="${esc(g.name)} progress scene"><div class="workshop-top"><button type="button" class="material-tag cursor-interaction" data-action="rotate-goal" aria-label="Turn the 3D scene 45 degrees">${icon('rotate-3d')}Turn the view</button><span id="sp-scene-badge" class="material-tag">${goalPreview === null ? 'Saved progress' : 'Preview only'} · <span id="sp-scene-percent">${pct}%</span></span></div><div class="goal-stage"><div class="diorama" id="sp-diorama" role="img" aria-label="3D ${esc(t.label.toLowerCase())} savings scene, ${pct} percent, ${esc(t.steps[stage])}"><div class="scene-loading">Setting the scene…</div><span class="scene-hint">${icon('move-horizontal')}Drag to turn</span></div><div class="scene-copy"><div class="eyebrow">${esc(g.name)}</div><h2 id="sp-stage-title">${t.titles[stage]}</h2><p id="sp-stage-description">${goalPreview !== null && pct === 100 ? `This is what reaching your target looks like. Your saved amount is still ${dollarLabel(g.saved)}.` : t.descriptions[stage]}</p><span class="stage-counter" id="sp-stage-counter">${icon('hammer')}Milestone ${stage + 1} of 5 · ${t.steps[stage]}</span></div></div><div class="milestones" aria-label="Preview goal milestones">${t.steps.map((name, i) => `<button type="button" data-milestone="${[0, 20, 40, 70, 100][i]}" class="milestone cursor-interaction ${i <= stage ? 'done' : ''} ${i === stage ? 'current' : ''}" aria-label="Preview ${name} milestone at ${[0, 20, 40, 70, 100][i]} percent"><span class="milestone-dot">${i < stage ? '✓' : i + 1}</span><span>${name}</span><small>${[0, 20, 40, 70, 100][i]}%</small></button>`).join('')}</div></section><div class="goal-lower"><section aria-label="Saved toward goal"><h2>${esc(g.name)}</h2><div class="goal-amount display money">${formatUsdCents(g.saved)} <small>of ${formatUsdCents(g.target)}</small></div><p class="small muted">${formatUsdCents(Math.max(0, g.target - g.saved))} to go${g.date ? ' · target ' + new Date(g.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ' · No target date'}</p><div class="goal-progress" role="progressbar" aria-label="Actual savings progress" aria-valuenow="${real}" aria-valuemin="0" aria-valuemax="100"><span style="width:${real}%"></span></div><div class="math-line small"><span>${real}% funded</span><span class="muted">${g.saved >= g.target ? 'You made it.' : 'One contribution at a time.'}</span></div><div class="goal-actions"><button type="button" class="primary cursor-interaction" data-action="add-savings">${icon('plus')}Add savings</button><button type="button" class="secondary cursor-interaction" data-action="withdraw-savings">Withdraw savings</button></div></section><section class="preview-panel" aria-label="Preview the goal animation"><div class="preview-title"><span>Watch your plan come to life</span><span class="preview-badge" id="sp-preview-label">${goalPreview === null ? 'Try a preview' : pct + '% preview'}</span></div><label for="sp-goal-preview" class="sr-only">Preview progress percentage without changing savings</label><input id="sp-goal-preview" type="range" min="0" max="100" value="${pct}" step="1" aria-valuetext="${pct} percent preview"><p>Slide through the milestones. This only changes the scene, never your saved amount.</p><div class="preview-buttons"><button type="button" class="text-button cursor-interaction" data-action="play-goal">${icon(g.type === 'savings' ? 'hand-coins' : 'play')}${g.type === 'savings' ? 'Watch a coin go in' : 'Play the whole story'}</button><button type="button" class="text-button cursor-interaction" data-action="reset-goal">${icon('rotate-ccw')}Back to my ${real}%</button></div></section></div><div class="goal-note">${icon('shield-check')}<span>Goal savings reserve part of your spendable funds. Withdrawing releases that reservation. No money is transferred.</span></div>`
+      `<div class="goals-tabs" aria-label="Choose a savings goal">${state.goals.map((item) => `<button type="button" id="sp-goal-tab-${esc(item.id)}" class="goal-tab cursor-interaction" data-goal="${esc(item.id)}" aria-pressed="${item.id === g.id}">${icon(goalTypes[item.type].icon)}<span>${esc(item.name)}</span><span class="goal-tab-percent money">${realPercent(item)}%</span></button>`).join('')}</div><section class="goal-workshop" data-goal-type="${g.type}" aria-label="${esc(g.name)} progress scene"><div class="workshop-top"><button type="button" class="material-tag cursor-interaction" id="sp-goal-rotate" data-action="rotate-goal" aria-label="Turn the 3D scene 45 degrees">${icon('rotate-3d')}Turn the view</button><span id="sp-scene-badge" class="material-tag">${goalPreview === null ? 'Saved progress' : 'Preview only'} · <span id="sp-scene-percent">${pct}%</span></span></div><div class="goal-stage"><div class="diorama" id="sp-diorama" role="img" aria-label="3D ${esc(t.label.toLowerCase())} savings scene, ${pct} percent, ${esc(t.steps[stage])}"><div class="scene-loading">Setting the scene…</div><span class="scene-hint">${icon('move-horizontal')}Drag to turn</span></div><div class="scene-copy"><div class="eyebrow">${esc(g.name)}</div><h2 id="sp-stage-title">${t.titles[stage]}</h2><p id="sp-stage-description">${goalPreview !== null && pct === 100 ? `This is what reaching your target looks like. Your saved amount is still ${dollarLabel(g.saved)}.` : t.descriptions[stage]}</p><span class="stage-counter" id="sp-stage-counter">${icon('hammer')}Milestone ${stage + 1} of 5 · ${t.steps[stage]}</span></div></div><div class="milestones" aria-label="Preview goal milestones">${t.steps.map((name, i) => `<button type="button" data-milestone="${[0, 20, 40, 70, 100][i]}" class="milestone cursor-interaction ${i <= stage ? 'done' : ''} ${i === stage ? 'current' : ''}" aria-label="Preview ${name} milestone at ${[0, 20, 40, 70, 100][i]} percent"><span class="milestone-dot">${i < stage ? '✓' : i + 1}</span><span>${name}</span><small>${[0, 20, 40, 70, 100][i]}%</small></button>`).join('')}</div></section><div class="goal-lower"><section aria-label="Saved toward goal"><h2>${esc(g.name)}</h2><div class="goal-amount display money">${formatUsdCents(g.saved)} <small>of ${formatUsdCents(g.target)}</small></div><p class="small muted">${formatUsdCents(Math.max(0, g.target - g.saved))} to go${g.date ? ' · target ' + new Date(g.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ' · No target date'}</p><div class="goal-progress" role="progressbar" aria-label="Actual savings progress" aria-valuenow="${real}" aria-valuemin="0" aria-valuemax="100"><span style="width:${real}%"></span></div><div class="math-line small"><span>${real}% funded</span><span class="muted">${g.saved >= g.target ? 'You made it.' : 'One contribution at a time.'}</span></div><div class="goal-actions"><button type="button" class="primary cursor-interaction" id="sp-goal-add" data-action="add-savings">${icon('plus')}Add savings</button><button type="button" class="secondary cursor-interaction" id="sp-goal-withdraw" data-action="withdraw-savings">Withdraw savings</button></div></section><section class="preview-panel" aria-label="Preview the goal animation"><div class="preview-title"><span>Watch your plan come to life</span><span class="preview-badge" id="sp-preview-label">${goalPreview === null ? 'Try a preview' : pct + '% preview'}</span></div><label for="sp-goal-preview" class="sr-only">Preview progress percentage without changing savings</label><input id="sp-goal-preview" type="range" min="0" max="100" value="${pct}" step="1" aria-valuetext="${pct} percent preview"><p>Slide through the milestones. This only changes the scene, never your saved amount.</p><div class="preview-buttons"><button type="button" class="text-button cursor-interaction" id="sp-goal-play" data-action="play-goal">${icon(g.type === 'savings' ? 'hand-coins' : 'play')}${g.type === 'savings' ? 'Watch a coin go in' : 'Play the whole story'}</button><button type="button" class="text-button cursor-interaction" id="sp-goal-reset" data-action="reset-goal">${icon('rotate-ccw')}Back to my ${real}%</button></div></section></div><div class="goal-note">${icon('shield-check')}<span>Goal savings reserve part of your spendable funds. Withdrawing releases that reservation. No money is transferred.</span></div>`
     );
   }
   function updateGoalScene(p) {
@@ -241,7 +242,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       <label class="field">Initial savings, USD<input name="saved" inputmode="decimal" value="0.00" required></label></div>
       <label class="field">Target date (optional)<input name="date" type="date"></label>
       <p>Initial savings reserve money from your spendable funds. Savings may exceed the target.</p>
-      <p role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">Create goal</button></div></fieldset></form>`);
+      <p role="alert"></p><p role="status" data-goal-save-status></p><div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">Create goal</button></div></fieldset></form>`);
   }
   function savingsForm(kind) {
     const g = activeGoal();
@@ -250,7 +251,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     openModal(withdrawal ? 'Withdraw savings' : 'Add savings', `<div class="modal-header"><div><div class="eyebrow">${esc(g.name)}</div><h2>${withdrawal ? 'Make room for today.' : 'Another little step.'}</h2></div>${closeButton}</div>
       <p>${withdrawal ? 'Release money reserved by this goal back to your spendable funds.' : 'Reserve part of your spendable funds for this goal.'} No money is transferred.</p>
       <form id="sp-savings-form" data-goal-id="${esc(g.id)}" data-kind="${kind}"><fieldset class="goal-form-fields"><label class="field">Amount, USD<input name="amount" inputmode="decimal" required placeholder="50.00"></label>
-      <div class="detail-row"><span>Currently saved</span><strong>${formatUsdCents(g.saved)}</strong></div><p role="alert"></p>
+      <div class="detail-row"><span>Currently saved</span><strong>${formatUsdCents(g.saved)}</strong></div><p role="alert"></p><p role="status" data-goal-save-status></p>
       <div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">${withdrawal ? 'Withdraw savings' : 'Add savings'}</button></div></fieldset></form>`);
   }
   root.addEventListener('input', (e) => {
@@ -266,7 +267,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       stopGoalPlay();
       state.activeGoal = b.dataset.goal;
       goalPreview = null;
-      render();
+      preserveFocus(root, render);
       persist();
     }
     if (b.dataset.milestone !== undefined) {
@@ -295,7 +296,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       case 'reset-goal':
         stopGoalPlay();
         goalPreview = null;
-        render();
+        preserveFocus(root, render);
         break;
     }
   });
@@ -304,6 +305,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     const button = form.querySelector('button[type="submit"]');
     const fieldset = form.querySelector('fieldset');
     const error = form.querySelector('[role="alert"]');
+    const status = form.querySelector('[data-goal-save-status]');
     error.textContent = '';
     let payload;
     let path;
@@ -325,6 +327,8 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       const previous = state.goals.find((g) => g.id === form.dataset.goalId);
       const from = previous ? realPercent(previous) : 0;
       button.disabled = true; fieldset.disabled = true; form.setAttribute('aria-busy', 'true');
+      status.textContent = 'Saving goal…';
+      announce('Saving goal.');
       const result = await store.save(path, { ...payload, requestKey: form.dataset.requestKey });
       if (!result) return;
       const { receipt, firstReceipt } = result;
@@ -346,6 +350,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       announce(error.textContent);
     } finally {
       button.disabled = false; fieldset.disabled = false; form.removeAttribute('aria-busy');
+      status.textContent = '';
     }
   }
   function handleGoalForm(form, fd) {

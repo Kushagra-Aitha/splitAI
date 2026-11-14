@@ -62,10 +62,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   function showGroup(id) {
+    const fromView = root.querySelector('#sp-view').contains(root.ownerDocument.activeElement);
     cached = undefined;
     state.page = 'groups';
     state.group = id;
     render();
+    if (fromView) root.querySelector('#sp-view h1')?.focus({ preventScroll: true });
   }
 
   function newGroup({ onCreated } = {}) {
@@ -92,9 +94,10 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   function draftTicket(draft) {
+    const pending = reviews.get(draft.id)?.pending ?? false;
     return `<div class="expense-ticket"><h3>${esc(draft.merchant)} · ${formatUsdCents(draft.totalCents)}</h3>
       ${draft.shares.map((s) => `<div class="math-line"><span>${esc(s.displayName)}</span><strong>${formatUsdCents(s.cents)}</strong></div>`).join('')}
-      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}"><button class="primary" type="submit">Confirm expense</button><button class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}">Discard</button><p role="alert"></p></form>`}
+      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}" aria-label="Confirm shared expense" aria-describedby="sp-expense-error-${esc(draft.id)}" aria-busy="${pending}"><button id="sp-expense-confirm-${esc(draft.id)}" class="primary" type="submit" ${pending ? 'disabled' : ''}>Confirm expense</button><button id="sp-expense-discard-${esc(draft.id)}" class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}" ${pending ? 'disabled' : ''}>Discard</button><p role="status">${pending ? 'Saving expense…' : ''}</p><p id="sp-expense-error-${esc(draft.id)}" role="alert" aria-atomic="true"></p></form>`}
       <p class="small muted">Adds a shared expense. No money will be transferred.</p></div>`;
   }
 
@@ -102,6 +105,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     const button = form.querySelector('[type="submit"]');
     if (button.disabled) return;
     button.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    const discard = form.querySelector('[data-action="discard-review"]');
+    const status = form.querySelector('[role="status"]');
+    if (discard) discard.disabled = true;
+    if (status) status.textContent = 'Saving expense…';
+    if (form.hasAttribute('data-expense-confirm')) announce('Saving expense.');
     try {
       if (form.id === 'sp-group-form') {
         const onCreated = groupCreated;
@@ -139,9 +148,18 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         toast('Expense saved.');
       }
     } catch (error) {
-      form.querySelector('[role="alert"]').textContent = error.message;
+      const alert = form.querySelector('[role="alert"]');
+      alert.textContent = error.message;
+      if (form.isConnected && root.ownerDocument.activeElement === root.ownerDocument.body) {
+        alert.setAttribute('tabindex', '-1');
+        alert.focus({ preventScroll: true });
+      }
+      announce(error.message);
     } finally {
       button.disabled = false;
+      if (discard) discard.disabled = false;
+      if (status) status.textContent = '';
+      form.setAttribute('aria-busy', 'false');
     }
   }
 
