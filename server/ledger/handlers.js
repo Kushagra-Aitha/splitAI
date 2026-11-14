@@ -82,10 +82,20 @@ export function createLedgerHandlers({ query, withTransaction }) {
   return {
     async 'groups.list'({ actor }) {
       const { rows } = await query(`
-        SELECT ${groupColumns}, count(m.user_id)::int AS "memberCount"
+        SELECT ${groupColumns}, count(m.user_id)::int AS "memberCount",
+          array_agg(u.initials ORDER BY m.joined_at, u.id) AS "memberInitials",
+          greatest(
+            (SELECT max(e.confirmed_at) FROM expenses e WHERE e.group_id = g.id AND e.status = 'confirmed'),
+            (SELECT max(s.updated_at) FROM settlements s WHERE s.group_id = g.id AND s.status IN ('pending','posted','failed')),
+            (SELECT max(c.created_at) FROM group_comments c WHERE c.group_id = g.id),
+            g.created_at
+          ) AS "lastActivityAt",
+          EXISTS (SELECT 1 FROM settlements s WHERE s.group_id = g.id AND s.status = 'pending'
+            AND (s.payer_user_id = $1 OR s.payee_user_id = $1)) AS "paymentPending"
         FROM group_members mine
         JOIN groups g ON g.id = mine.group_id
         JOIN group_members m ON m.group_id = g.id
+        JOIN users u ON u.id = m.user_id
         WHERE mine.user_id = $1 AND mine.left_at IS NULL AND m.left_at IS NULL
         GROUP BY g.id
         ORDER BY g.created_at, g.id

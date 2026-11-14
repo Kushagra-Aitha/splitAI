@@ -5,14 +5,26 @@ import { createActivity } from './activity.js';
 
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
   const activity = createActivity({ root, state, esc, money, announce });
-  function ticket() {
-    const names = demo.draft.people;
-    let share = Math.floor(demo.draft.cents / names.length);
-    return `<div class="expense-ticket"><div class="ticket-top"><div class="ticket-kicker"><span class="eyebrow">Ready when you are</span><span class="pending-label">Not saved yet</span></div><div class="ticket-amount display money">${money(demo.draft.cents)}</div><h3>${esc(demo.draft.merchant)}</h3><span class="small muted">${esc(demo.draft.category)} · Paid by you</span></div><div class="ticket-middle"><div class="math-line small"><span class="muted">Split equally in</span><strong>Puffton 4</strong></div><div class="split-equation"><div class="split-people">${names.map((n, i) => `<div class="split-person">${avatar(n)}<span>${n === 'Maya' ? 'You' : n}</span><strong class="money">${money(share + (i === 0 ? demo.draft.cents - share * names.length : 0))}</strong></div>`).join('')}</div><button type="button" class="text-button cursor-interaction" data-action="edit-split">Edit</button></div><div class="ticket-actions"><button type="button" class="primary cursor-interaction" data-action="confirm-expense">${icon('check')}Confirm expense</button><button type="button" class="secondary cursor-interaction" data-action="discard">Discard</button></div></div><div class="ticket-foot">${icon('shield-check')}Adds a shared expense. No money will be transferred.</div></div>`;
-  }
+  const avatars = (initials) => `<span class="avatar-stack" aria-hidden="true">${initials.slice(0, 5)
+    .map((value) => `<span class="avatar">${esc(value)}</span>`).join('')}</span>`;
   let cached;
   const reviews = new Map();
   let groupCreated;
+  let memberEmails = [];
+
+  function saveEmail(input) {
+    if (!input.value.trim() || !input.checkValidity()) return false;
+    const email = input.value.trim().toLowerCase();
+    if (!memberEmails.includes(email)) memberEmails.push(email);
+    input.value = '';
+    renderEmailChips(input.form);
+    return true;
+  }
+
+  function renderEmailChips(form) {
+    form.querySelector('[data-email-chips]').innerHTML = memberEmails
+      .map((email, i) => `<button type="button" class="tag" data-remove-email="${i}" aria-label="Remove ${esc(email)}">${esc(email)} ×</button>`).join(' ');
+  }
   let navigationTarget;
 
   function registerReview(draft, { onConfirmed, onDiscard } = {}) {
@@ -43,25 +55,43 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     if (!cached.data) return '<p role="status">Loading groups…</p>';
     if (!id) {
       return heading('Your groups', 'Together', '', '<button class="primary" data-action="new-group">New group</button>') +
-        `<div class="group-list">${cached.data.groups.map((g) => `
-          <section class="group-large"><h2>${esc(g.name)}</h2><p>${g.memberCount} members</p>
-          <p>You owe ${money(g.youOweCents)} · Owed to you ${money(g.owedToYouCents)}</p>
-          <button class="secondary" data-group-id="${esc(g.id)}">Open group</button></section>`).join('') || '<p>No groups yet.</p>'}</div>`;
+        `<div class="a12-grid">${cached.data.groups.map((g) => {
+          const net = g.owedToYouCents - g.youOweCents;
+          return `<article class="sp-card a12-group-card"><header><span class="group-picture">${icon(g.kind === 'trip' ? 'luggage' : 'house')}</span>
+            <div><h2>${esc(g.name)}</h2><p class="small muted">${g.memberCount} members</p></div></header>
+            ${avatars(g.memberInitials ?? [])}
+            <p class="${net < 0 ? 'a12-owe' : net > 0 ? 'a12-credit' : ''}">${net < 0 ? 'You owe' : net > 0 ? 'Owed to you' : 'All square'} ${net ? money(Math.abs(net)) : ''}</p>
+            <p class="small muted">Last activity ${esc(new Date(g.lastActivityAt).toLocaleDateString())}</p>
+            ${g.paymentPending ? '<span class="tag">Payment pending</span>' : ''}
+            <button type="button" class="secondary" data-group-id="${esc(g.id)}">Open group</button></article>`;
+        }).join('') || '<p>No groups yet.</p>'}</div>`;
     }
-    const { group, members, debts } = cached.data;
+    const { group, members, debts, ledger } = cached.data;
+    const pending = new Map(ledger.filter((item) => item.type === 'settlement' && item.status === 'pending')
+      .map((item) => [`${item.payerUserId}:${item.payeeUserId}`, item.amountCents]));
+    const me = members.find((member) => member.isYou)?.userId;
     return '<button class="back-button" data-go="groups">All groups</button>' +
       heading(group.kind === 'trip' ? 'Trip' : 'Roommates', esc(group.name), esc(group.tagline ?? ''),
-        '<button class="primary" data-action="new-group-expense">Add expense</button> ' +
-        '<button class="secondary" data-action="add-group-member">Add member</button> ' +
-        '<button class="secondary" data-action="leave-group">Leave group</button>') +
+        '<button type="button" class="primary" data-page="transactions">Split a transaction</button> ' +
+        '<button type="button" class="secondary" data-activity-action="chat">Chat <span id="sp-group-unread"></span></button> ' +
+        '<details class="a12-menu"><summary aria-label="Group actions">⋯</summary><div>' +
+        '<button type="button" data-action="new-group-expense">Add cash expense</button>' +
+        '<button type="button" data-action="add-group-member">Add member</button>' +
+        '<button type="button" data-action="leave-group">Leave group</button></div></details>') +
+      avatars(members.map((m) => m.initials)) +
       (group.tagline?.trim() ? `<button type="button" class="text-button" data-ask-note-group="${esc(group.id)}">Check note with Guard</button>` : '') +
-      `<div class="member-list">${members.map((m) => `<p>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</p>`).join('')}</div>
-        <section><h2>You owe ${money(debts.youOweCents)}</h2>
-          ${debts.youOwe.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}
-            <button type="button" class="secondary" data-settle-with="${esc(d.userId)}">Settle up</button></p>`).join('')}
-        <h2>Owed to you ${money(debts.owedToYouCents)}</h2>
-          ${debts.owedToYou.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}</section>
-        <section id="sp-group-activity" aria-label="Group activity"></section>`;
+      `<div class="a12-layout"><main><section class="sp-card a12-balance"><h2>Group balance</h2>
+        ${debts.youOwe.map((d) => `<p>You owe <strong>${esc(d.displayName)} ${money(d.cents)}</strong>
+          ${pending.has(`${me}:${d.userId}`) ? `<span class="tag">Payment pending · ${money(pending.get(`${me}:${d.userId}`))}</span>` :
+            `<button type="button" class="secondary" data-settle-with="${esc(d.userId)}">Settle up</button>`}</p>`).join('') || '<p>You have nothing to pay.</p>'}
+        <p>Owed to you <strong>${money(debts.owedToYouCents)}</strong></p></section>
+        <section id="sp-group-activity" aria-label="Group ledger"></section></main>
+        <aside class="sp-card member-list"><h2>Members</h2>${members.map((m) => {
+          const owes = debts.youOwe.find((d) => d.userId === m.userId);
+          const owed = debts.owedToYou.find((d) => d.userId === m.userId);
+          return `<p><strong>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</strong><br>
+            <span class="small muted">${owes ? `You pay ${money(owes.cents)}` : owed ? `Pays you ${money(owed.cents)}` : m.isYou ? 'Your group account' : 'All square with you'}</span></p>`;
+        }).join('')}</aside></div>`;
   }
 
   function showGroup(id, target = {}) {
@@ -76,14 +106,15 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
 
   function newGroup({ onCreated } = {}) {
     groupCreated = onCreated;
+    memberEmails = [];
     openModal('New group', `<h2>New group</h2>${closeButton}
       <form id="sp-group-form" class="field-grid">
       <label class="field">Name<input name="name" required></label>
       <label class="field">Type<select name="kind"><option value="roommates">Roommates</option><option value="trip">Trip</option></select></label>
       <label class="field">Starts on<input name="startsOn" type="date"></label>
       <label class="field">Ends on<input name="endsOn" type="date"></label>
-      <label class="field">Member emails (optional)<input type="email" name="emails" multiple
-        placeholder="sam@example.com, priya@example.com"></label>
+      <label class="field">Member email (optional)<input type="email" name="emails" placeholder="sam@example.com"></label>
+      <button type="button" class="secondary" data-action="add-email-chip">Add email</button><div data-email-chips></div>
       <button class="primary" type="submit">Create group</button><p role="alert"></p></form>`);
   }
 
@@ -154,7 +185,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         const onCreated = groupCreated;
         const { group } = await apiRequest('/api/groups', { method: 'POST', body: {
           name: fd.get('name'), kind: fd.get('kind'), startsOn: fd.get('startsOn') || null, endsOn: fd.get('endsOn') || null,
-          memberEmails: String(fd.get('emails') ?? '').split(',').map((email) => email.trim()).filter(Boolean),
+          memberEmails: [...memberEmails, String(fd.get('emails') ?? '').trim()].filter(Boolean),
         } });
         if (form.isConnected) closeModal();
         if (onCreated) await onCreated(group);
@@ -245,15 +276,16 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   }
 
-  function editSplit() {
-    openModal(
-      'Edit expense',
-      `<div class="modal-header"><div><div class="eyebrow">Before you confirm</div><h2>Make it your split.</h2></div>${closeButton}</div><form id="sp-edit-form"><label class="field">Merchant<input name="merchant" required maxlength="60" value="${esc(demo.draft.merchant)}"></label><div class="field-grid"><label class="field">Total, USD<input name="amount" type="number" min="0.01" max="9999.99" step="0.01" required value="${(demo.draft.cents / 100).toFixed(2)}"></label><label class="field">Category<select name="category">${['Food & drink', 'Getting around', 'Just for fun', 'Groceries'].map((n) => `<option ${n === demo.draft.category ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div><p style="margin:13px 0 5px">Split equally with members of Puffton 4</p>${['Maya', 'Sam', 'Priya'].map((n) => `<label class="check-label"><input type="checkbox" name="person" value="${n}" ${demo.draft.people.includes(n) ? 'checked' : ''} ${n === 'Maya' ? 'disabled' : ''}>${n === 'Maya' ? 'You · paid the full amount' : n}</label>`).join('')}<div id="sp-edit-error" class="error" role="alert"></div><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Cancel</button><button type="submit" class="primary cursor-interaction">Update preview</button></div><div class="modal-fine">Nothing is saved until you confirm the expense.</div></form>`,
-    );
-  }
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.hasAttribute('data-remove-email')) {
+      memberEmails.splice(Number(b.dataset.removeEmail), 1);
+      const form = b.closest('form');
+      renderEmailChips(form);
+      form.elements.emails.focus();
+      return;
+    }
     if (b.dataset.settleWith) { void reviewSettlement(b); return; }
     if (b.dataset.groupId) { showGroup(b.dataset.groupId); return; }
     if (b.dataset.filter) {
@@ -278,6 +310,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       case 'leave-group':
         manageMembership(true);
         break;
+      case 'add-email-chip': {
+        const input = b.closest('form').elements.emails;
+        if (input.reportValidity()) saveEmail(input);
+        input.focus();
+        break;
+      }
       case 'new-group':
         newGroup();
         break;
@@ -292,24 +330,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       case 'new-group-expense':
         newExpense();
         break;
-      case 'edit-split':
-        editSplit();
-        break;
-      case 'confirm-expense':
-        if (state.logged) break;
-        state.logged = true;
-        demo.messages = demo.messages.filter((m) => !m.html?.includes('expense-ticket'));
-        demo.draftVisible = false;
-        render();
-        persist();
-        toast('Expense saved. Everyone has the same numbers.');
-        break;
-      case 'discard':
-        demo.draftVisible = false;
-        demo.messages = demo.messages.filter((m) => !m.html?.includes('expense-ticket'));
-        render();
-        toast('Preview discarded. Nothing was saved.');
-        break;
+
     }
   });
   function handleExpenseForm(form, fd) {
@@ -320,34 +341,10 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       void submitGroupForm(form, fd);
       return;
     }
-    if (form.id !== 'sp-edit-form') return;
-      const amount = Math.round(Number(fd.get('amount')) * 100),
-        selected = ['Maya', ...fd.getAll('person').filter((n) => n !== 'Maya')];
-      if (
-        !fd.get('merchant')?.trim() ||
-        amount < 1 ||
-        !Number.isFinite(amount) ||
-        selected.length < 2
-      ) {
-        root.querySelector('#sp-edit-error').textContent =
-          'Add a merchant, a positive amount, and at least one other person.';
-        return;
-      }
-      demo.draft = {
-        ...demo.draft,
-        merchant: String(fd.get('merchant')).trim(),
-        cents: amount,
-        people: selected,
-        category: String(fd.get('category')),
-      };
-      closeModal();
-      demo.draftVisible = true;
-      demo.messages = demo.messages.filter((m) => !m.html?.includes('expense-ticket'));
-      render();
-      announce('Expense preview updated. Not saved yet.');
+
   }
 
-  return { groups, ticket, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: newGroup, handleExpenseForm,
+  return { groups, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: newGroup, handleExpenseForm,
     onNotifications: activity.onNotifications,
     afterRender() {
       if (state.page === 'groups' && state.group && cached?.data && !cached.error) {
