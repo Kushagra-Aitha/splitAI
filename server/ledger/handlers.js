@@ -1,3 +1,4 @@
+import { readDebts, readLedger, summarizeDebts } from './debts.js';
 import { HttpError } from '../http.js';
 
 const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
@@ -65,7 +66,11 @@ export function createLedgerHandlers({ query, withTransaction }) {
         GROUP BY g.id
         ORDER BY g.created_at, g.id
       `, [actor.userId]);
-      return { groups: rows.map((group) => ({ ...group, youOweCents: 0, owedToYouCents: 0 })) };
+      const debtRows = await readDebts({ query }, rows.map(({ id }) => id), actor.userId);
+      return { groups: rows.map((group) => {
+        const { youOweCents, owedToYouCents } = summarizeDebts(debtRows.filter(({ groupId }) => groupId === group.id));
+        return { ...group, youOweCents, owedToYouCents };
+      }) };
     },
 
     async 'groups.create'({ actor, body }) {
@@ -190,7 +195,11 @@ export function createLedgerHandlers({ query, withTransaction }) {
         WHERE m.group_id = $1
         ORDER BY "isYou" DESC, m.joined_at, u.id
       `, [group.id, actor.userId]);
-      return { group, members, debts: { youOwe: [], owedToYou: [], youOweCents: 0, owedToYouCents: 0 }, ledger: [] };
+      const [debts, ledger] = await Promise.all([
+        readDebts({ query }, [group.id], actor.userId).then(summarizeDebts),
+        readLedger({ query }, group.id, actor.userId),
+      ]);
+      return { group, members, debts, ledger };
     },
   };
 }
