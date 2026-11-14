@@ -50,6 +50,19 @@ required actor-scoped read services. Unsupported requests get a fixed answer;
 model prose is never presented as financial advice. C3 will add recorded Guard
 evaluation; an unsupported reply or invalid-output error is not a Guard event.
 
+C4 groundwork: `facts.js` reads A4 debts, B4 funds, and B3 spending within one
+read-only, repeatable-read transaction, which ends before any model explanation.
+It validates safe integer amounts, exposes the explicit New York date window,
+and keeps held payments separate from spendable funds. Groups are ordered by
+creation time then UUID. This module is not registered as an endpoint yet;
+recommendation policy (whole versus partial debts) and explanation integration
+remain unfinished. Verify its snapshot isolation and scope with:
+
+```sh
+node --test server/test/assistant-facts.test.js
+RUN_FACTS_DB_TESTS=1 node --test server/test/assistant-facts.integration.test.js
+```
+
 `fixtures/ask.json` contains the C1 parser-only examples;
 `fixtures/ask-workflow.json` describes the current C2 HTTP workflow. Existing
 A/B fixtures are unchanged; group member details add `fullName` and `handle`
