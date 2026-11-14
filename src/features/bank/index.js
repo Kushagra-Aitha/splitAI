@@ -40,7 +40,7 @@ export function mountBank(root) {
       const credit = connected.find((account) => account.type === 'Credit Card');
       dashboard.innerHTML = `${error ? `<p class="bank-error" role="alert">${esc(error)}</p>` : ''}${loading ? '<p role="status">Refreshing your bank…</p>' : ''}
         <section class="bank-accounts" aria-label="Your accounts">${connected.map(card).join('')}
-        ${!credit ? `<div class="bank-connect"><h2>Your bank, ready to try.</h2><p>Connect checking and open a Capital Two credit card with a $5,000 sandbox limit.</p><button type="button" data-bank-action="connect" ${busy ? 'disabled' : ''}>${connected.length ? 'Open credit card' : 'Open your bank'}</button></div>` : ''}</section>
+        ${!credit ? `<div class="bank-connect"><h2>Your bank, ready to try.</h2><p>Open checking and a Capital Two credit card with a $2,000 sandbox limit. Share them through Split's Connect screen when you choose.</p><button type="button" data-bank-action="connect" ${busy ? 'disabled' : ''}>${connected.length ? 'Open credit card' : 'Open your bank'}</button></div>` : ''}</section>
         <div class="bank-columns"><section class="bank-panel"><h2>Buy something</h2><p>Choose a purchase, then review how you’ll pay.</p><div class="bank-presets">${data.presets.map((preset, index) => `<button type="button" data-bank-preset="${index}" ${busy || !connected.length ? 'disabled' : ''}><strong>${esc(preset.payee)}</strong><span>${money(preset.amountCents)}</span></button>`).join('')}</div>
           <div class="bank-actions"><button type="button" data-bank-action="purchase" ${!connected.length ? 'disabled' : ''}>Custom purchase</button><button type="button" data-bank-action="withdrawal" ${!connected.length ? 'disabled' : ''}>Withdraw cash</button></div></section>
         <section class="bank-panel"><h2>Payments, on your terms</h2><p>Pay a business now, schedule it for later, or repeat it monthly.</p><div class="bank-payment-options">
@@ -125,7 +125,10 @@ export function mountBank(root) {
         form.querySelector('[role="alert"]').textContent = 'The bank declined or cancelled this payment. Check your balance and details. Editing starts a new payment.';
       } else {
         dialog.close(); activeForm = null;
-        message(result.schedule ? 'Payment schedule saved.' : status === 'completed' ? 'Done · Split will sync' : 'Payment is being verified. Split will sync once confirmed.');
+        const shared = data.accounts.find((account) => account.id === body.accountId)?.sharedWithSplit;
+        message(result.schedule ? 'Payment schedule saved.' : status === 'completed'
+          ? shared ? 'Done · Split will sync' : 'Done · Connect this account in Split to sync'
+          : 'Payment is being verified. Shared accounts sync once confirmed.');
       }
       void refresh().then(() => {
         if (status === 'completed' && owned() && !stopped) {

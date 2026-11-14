@@ -7,7 +7,7 @@ export async function reconcileSettlements(db, accountId, activity) {
     SELECT s.id, s.amount_cents AS "amountCents", s.provider_reference AS reference,
       a.provider_account_id AS "payeeProviderId"
     FROM settlements s JOIN bank_accounts a ON a.id = s.payee_account_id
-    WHERE s.payer_account_id = $1 AND s.status = 'pending' AND s.hold_cents > 0
+    WHERE s.payer_account_id = $1 AND s.status = 'pending'
     FOR UPDATE OF s
   `, [accountId]);
   for (const settlement of rows) {
@@ -21,19 +21,22 @@ export async function reconcileSettlements(db, accountId, activity) {
     const tx = matches[0];
     const posted = tx.status === 'completed';
     const failed = tx.status === 'declined' || tx.status === 'cancelled';
+    // Provider available funds already reflect pending debits. The ledger
+    // still needs to track the transfer until the provider reports an outcome.
+    const coveredByProvider = tx.status === 'pending' && Number.isSafeInteger(activity.balance.availableCents);
     if (posted && !Number.isSafeInteger(activity.balance.availableCents ?? activity.balance.balanceCents)) continue;
     const changed = await db.query(`
       UPDATE settlements
       SET provider_reference = $2, provider_status = $3,
           status = CASE WHEN $4 THEN 'posted' WHEN $5 THEN 'failed' ELSE 'pending' END,
-          hold_cents = CASE WHEN $4 OR $5 THEN 0 ELSE hold_cents END,
+          hold_cents = CASE WHEN $4 OR $5 OR $6 THEN 0 ELSE amount_cents END,
           posted_at = CASE WHEN $4 THEN now() ELSE posted_at END,
           resolved_at = CASE WHEN $4 OR $5 THEN now() ELSE resolved_at END,
           failure_reason = CASE WHEN $5 THEN 'provider_rejected' ELSE failure_reason END,
           updated_at = now()
       WHERE id = $1 AND status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM settlements WHERE provider_reference = $2 AND id <> $1)
-    `, [settlement.id, tx.providerTransactionId, tx.status, posted, failed]);
+    `, [settlement.id, tx.providerTransactionId, tx.status, posted, failed, coveredByProvider]);
     if (changed.rowCount) {
       await notify(db, { kind: 'settlement_sent', sourceId: settlement.id });
       if (posted || failed) await notify(db, { kind: posted ? 'settlement_posted' : 'settlement_failed', sourceId: settlement.id });

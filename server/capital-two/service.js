@@ -58,7 +58,7 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
     },
     async summary(userId) {
       const results = await Promise.all([
-        query(`SELECT id, account_type AS type, account_mask AS mask, balance_cents AS "balanceCents",
+        query(`SELECT id, account_type AS type, kind, linked_at IS NOT NULL AS "sharedWithSplit", account_mask AS mask, balance_cents AS "balanceCents",
           available_cents AS "availableCents", credit_limit_cents AS "creditLimitCents", balance_as_of AS "asOf",
           provider_account_id IS NOT NULL AS connected FROM bank_accounts WHERE user_id = $1
           AND account_type IN ('Checking', 'Credit Card') ORDER BY account_type`, [userId]),

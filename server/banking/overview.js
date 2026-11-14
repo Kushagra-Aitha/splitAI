@@ -48,16 +48,22 @@ export function parseRange({ from, to, bucket } = {}) {
 }
 
 // Rows that can count toward the chart, inside [from, to] local dates.
-const IN_RANGE = `
-  account_id = $1
-  AND occurred_at >= ($2::date::timestamp AT TIME ZONE '${TIME_ZONE}')
-  AND occurred_at <  (($3::date + 1)::timestamp AT TIME ZONE '${TIME_ZONE}')`;
+const inRange = (alias = '') => `
+  ${alias}account_id = ANY($1::uuid[])
+  AND ${alias}occurred_at >= ($2::date::timestamp AT TIME ZONE '${TIME_ZONE}')
+  AND ${alias}occurred_at <  (($3::date + 1)::timestamp AT TIME ZONE '${TIME_ZONE}')`;
+const IN_RANGE = inRange();
 const COUNTS = `status IN ('pending', 'completed')`;
 
-/** The overview for one bank account over a validated range. */
+/**
+ * The overview for a user's money over a validated range. `accountId` is the
+ * checking account (balance and spendable funds); activity, spending and
+ * recent transactions cover every account that user has linked, so credit
+ * card purchases count too (B12). Moving money between your own accounts
+ * (paying the card) is a transfer and never counts as earned or spent.
+ */
 export async function getOverview(db, accountId, range, { recentLimit = 25 } = {}) {
   const interval = BUCKETS[range.bucket];
-  const params = [accountId, range.from, range.to, interval];
 
   const account = await db.query(
     `SELECT a.id, a.nickname, a.account_mask AS mask, a.balance_cents AS "balanceCents",
@@ -65,6 +71,24 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
        FROM bank_accounts a WHERE a.id = $1`,
     [accountId],
   );
+  const { rows: linked } = await db.query(
+    `SELECT b.id, b.kind, b.nickname, b.account_mask AS mask, b.balance_cents AS "balanceCents",
+            b.available_cents AS "availableCents", b.credit_limit_cents AS "creditLimitCents",
+            b.balance_as_of AS "balanceAsOf"
+       FROM bank_accounts a JOIN bank_accounts b ON b.user_id = a.user_id
+      WHERE a.id = $1 AND (b.id = $1 OR b.linked_at IS NOT NULL)`,
+    [accountId],
+  );
+  const accountIds = linked.map((row) => row.id);
+  if (!accountIds.includes(accountId)) accountIds.push(accountId);
+  const params = [accountIds, range.from, range.to, interval];
+  // What you owe on a card is its limit minus available credit, which also
+  // covers purchases that are still pending.
+  const cards = linked.filter((row) => row.kind === 'credit_card').map(({ kind, ...card }) => ({
+    ...card,
+    owedCents: card.creditLimitCents !== null && card.availableCents !== null
+      ? Math.max(0, card.creditLimitCents - card.availableCents) : null,
+  }));
 
   // Zero-filled buckets: a generated series of local bucket starts, left
   // joined to time_bucket aggregates over local timestamps.
@@ -93,18 +117,26 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
     params,
   );
 
+  // Each row carries what A2/A3 need to split it (accountId + providerKey)
+  // and, once split, the group it was split with.
   const recent = await db.query(
-    `SELECT id, provider_transaction_id AS "providerTransactionId", kind, direction,
-            amount_cents AS "amountCents", description, merchant_name AS "merchantName",
-            category, payment_method AS "paymentMethod", status, source,
-            occurred_at AS "occurredAt",
-            to_char(greatest(time_bucket($4::interval, occurred_at AT TIME ZONE '${TIME_ZONE}'), $2::date::timestamp), 'YYYY-MM-DD') AS "bucketStart",
-            CASE WHEN status NOT IN ('pending', 'completed') THEN null
-                 WHEN kind = 'purchase' THEN 'spent'
-                 WHEN kind = 'deposit' THEN 'earned' END AS "countsAs"
-       FROM bank_transactions
-      WHERE ${IN_RANGE}
-      ORDER BY occurred_at DESC, id
+    `SELECT t.id, t.provider_transaction_id AS "providerTransactionId", t.kind, t.direction,
+            t.amount_cents AS "amountCents", t.description, t.merchant_name AS "merchantName",
+            t.category, t.payment_method AS "paymentMethod", t.status, t.source,
+            t.occurred_at AS "occurredAt", t.account_id AS "accountId", acct.kind AS "accountKind",
+            acct.account_mask AS "accountMask", k.provider_key AS "providerKey",
+            g.id AS "splitGroupId", g.name AS "splitGroupName",
+            to_char(greatest(time_bucket($4::interval, t.occurred_at AT TIME ZONE '${TIME_ZONE}'), $2::date::timestamp), 'YYYY-MM-DD') AS "bucketStart",
+            CASE WHEN t.status NOT IN ('pending', 'completed') THEN null
+                 WHEN t.kind = 'purchase' THEN 'spent'
+                 WHEN t.kind = 'deposit' THEN 'earned' END AS "countsAs"
+       FROM bank_transactions t
+       JOIN bank_accounts acct ON acct.id = t.account_id
+       LEFT JOIN bank_import_keys k ON k.account_id = t.account_id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
+       LEFT JOIN expenses e ON e.bank_account_id = t.account_id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
+       LEFT JOIN groups g ON g.id = e.group_id
+      WHERE ${inRange('t.')}
+      ORDER BY t.occurred_at DESC, t.id
       LIMIT $5`,
     [...params, recentLimit],
   );
@@ -140,6 +172,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
           spendableCents: funds.spendableCents,
         }
       : null,
+    cards,
     range: { from: range.from, to: range.to, bucket: range.bucket, timeZone: TIME_ZONE },
     totals: {
       earnedCents: rows.reduce((a, b) => a + b.earnedCents, 0),
@@ -156,8 +189,14 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   };
 }
 
-/** The account owned by a user (mapped or not), or null. */
+/**
+ * The user's linked checking account, or null. Overview, spendable funds,
+ * goals and Ask's facts all start from it; null means "connect your bank".
+ */
 export async function accountIdForUser(db, userId) {
-  const { rows } = await db.query("SELECT id FROM bank_accounts WHERE user_id = $1 AND account_type = 'Checking'", [userId]);
+  const { rows } = await db.query(
+    `SELECT id FROM bank_accounts WHERE user_id = $1 AND kind = 'checking' AND linked_at IS NOT NULL`,
+    [userId],
+  );
   return rows[0]?.id ?? null;
 }

@@ -7,30 +7,49 @@ const CREDIT_KINDS = new Set(['deposit', 'interest_credit', 'refund', 'chargebac
 const DEBIT_KINDS = new Set(['purchase', 'withdrawal', 'fee', 'bill_payment']);
 const STATUSES = new Set(['pending', 'completed', 'declined', 'cancelled']);
 
+// A user can have a checking account and a credit card (B12). Only accounts
+// the user linked on the Connect screen (`linked_at`) are read or synced.
+const LINKED = `a.provider = 'nessie' AND a.provider_account_id IS NOT NULL AND a.linked_at IS NOT NULL`;
+
 /**
- * Mapped demo accounts: one bank_accounts row per user with a provider ID.
- * Pass a pool or a transaction client.
+ * Every linked account (all users, both kinds). Pass a pool or a
+ * transaction client.
  */
 export async function listMappedAccounts(db) {
   const { rows } = await db.query(
-    `SELECT a.id, a.user_id AS "userId", a.provider_account_id AS "providerAccountId",
+    `SELECT a.id, a.user_id AS "userId", a.provider_account_id AS "providerAccountId", a.kind,
             u.display_name AS "displayName"
        FROM bank_accounts a JOIN users u ON u.id = a.user_id
-      WHERE a.provider = 'nessie' AND a.provider_account_id IS NOT NULL
-      ORDER BY u.handle`,
+      WHERE ${LINKED}
+      ORDER BY u.handle, a.kind`,
   );
   return rows;
 }
 
-/** The mapped account for one user, or null when that user has none. */
+/**
+ * The user's linked checking account, or null. Spendable funds, goals and
+ * settlements always use this account; cards never pay settlements.
+ */
 export async function getMappedAccountForUser(db, userId) {
   const { rows } = await db.query(
-    `SELECT id, user_id AS "userId", provider_account_id AS "providerAccountId"
-       FROM bank_accounts
-      WHERE user_id = $1 AND account_type = 'Checking' AND provider = 'nessie' AND provider_account_id IS NOT NULL`,
+    `SELECT a.id, a.user_id AS "userId", a.provider_account_id AS "providerAccountId"
+       FROM bank_accounts a
+      WHERE a.user_id = $1 AND a.kind = 'checking' AND ${LINKED}`,
     [userId],
   );
   return rows[0] ?? null;
+}
+
+/** All of one user's linked accounts, checking first. */
+export async function listLinkedAccountsForUser(db, userId) {
+  const { rows } = await db.query(
+    `SELECT a.id, a.user_id AS "userId", a.provider_account_id AS "providerAccountId", a.kind
+       FROM bank_accounts a
+      WHERE a.user_id = $1 AND ${LINKED}
+      ORDER BY a.kind = 'checking' DESC`,
+    [userId],
+  );
+  return rows;
 }
 
 /** Balance snapshot for one provider account, in cents. */
@@ -44,13 +63,19 @@ export async function readProviderBalance(providerAccountId) {
     accountMask: String(data.account_number ?? '').slice(-4) || null,
     balanceCents: data.balance_cents,
     availableCents: data.available_cents,
+    creditLimitCents: data.credit_limit_cents ?? null,
     pendingDebitsCents: data.pending_debits_cents ?? 0,
     balanceAsOf,
   };
 }
 
-/** id → { name, category } for every merchant on this key (paged). */
-export async function readMerchants() {
+// Merchants rarely change; automatic sync (B12) reads them at most every 5 min.
+const MERCHANT_TTL_MS = 5 * 60_000;
+let merchantCache = null;
+
+/** id → { name, category } for every merchant on this key (paged, cached). */
+export async function readMerchants({ fresh = false } = {}) {
+  if (!fresh && merchantCache && Date.now() - merchantCache.at < MERCHANT_TTL_MS) return merchantCache.names;
   const names = new Map();
   let cursor = null;
   do {
@@ -59,6 +84,7 @@ export async function readMerchants() {
     for (const m of data.items ?? []) names.set(m.id, { name: m.name, category: m.category ?? null });
     cursor = data.next_cursor || null;
   } while (cursor && names.size < 2000);
+  merchantCache = { at: Date.now(), names };
   return names;
 }
 

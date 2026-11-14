@@ -1,5 +1,5 @@
 import { apiRequest, getSession } from '../../api/session.js';
-import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
+import { financialChanged, financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { usdToCents } from '../../lib/money.js';
 
 // B5 · Overview and Profile, driven by GET /api/overview and
@@ -21,6 +21,8 @@ const CATEGORY_ICONS = {
 };
 const METHOD_ICONS = [
   ['Bank transfer', 'landmark'],
+  ['Debit card', 'credit-card'],
+  ['Credit card', 'credit-card'],
   ['Card', 'credit-card'],
   ['Contactless', 'nfc'],
   ['Cash', 'banknote'],
@@ -66,7 +68,12 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     lastSync: null,
     connecting: false,
     connectError: null,
+    lastSyncAt: null,
+    seenTx: null, // transaction ids already shown (B12 "New" badges)
+    newTx: new Map(), // id → first seen (ms)
   };
+  const NEW_BADGE_MS = 90_000;
+  const AUTO_SYNC_MS = 20_000;
   const visible = () => ['home', 'profile', 'transactions'].includes(state.page);
   const refresh = () => {
     if (visible() && !root.querySelector('#sp-modal-root').children.length) render();
@@ -81,7 +88,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       const data = await apiRequest(
         `/api/overview?from=${r.from}&to=${r.to}&bucket=${r.bucket}`,
       );
-      if (revision === financialRevision()) store.data[period] = data;
+      if (revision === financialRevision()) {
+        store.data[period] = data;
+        if (period === 'month') noteNewTransactions(data.recent);
+      }
     } catch (err) {
       store.errors[period] = err;
     } finally {
@@ -136,6 +146,13 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     return current ? insight.data : null;
   }
 
+  function noteNewTransactions(recent) {
+    const ids = recent.map((t) => t.id);
+    if (store.seenTx) for (const id of ids) if (!store.seenTx.has(id)) store.newTx.set(id, Date.now());
+    store.seenTx = new Set([...(store.seenTx ?? []), ...ids]);
+  }
+  const isNew = (t) => (store.newTx.get(t.id) ?? 0) > Date.now() - NEW_BADGE_MS;
+
   subscribeFinancialChanges(() => {
     store.data = {};
     store.errors = {};
@@ -157,74 +174,167 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     return store.data[period] ?? null;
   }
 
-  async function sync({ quiet = false } = {}) {
-    if (store.syncing) return;
+  // B12 · Sync with Capital Two on load, on Refresh, when the tab regains
+  // focus, and every 20 s while Overview, Transactions or Insights is open.
+  // Views only reload when the sync actually found something.
+  async function sync({ quiet = false, auto = false } = {}) {
+    if (store.syncing || store.connecting) return;
+    const hadError = Boolean(store.syncError);
     store.syncing = true;
     store.syncError = null;
-    refresh();
+    if (!auto) refresh();
+    else updateSyncChip();
+    let rerender = !auto || hadError;
     try {
-      store.lastSync = await apiRequest('/api/banking/sync', { method: 'POST', body: {} });
-      store.data = {};
-      store.errors = {};
+      const result = await apiRequest('/api/banking/sync', { method: 'POST', body: {} });
+      store.lastSync = result;
+      store.lastSyncAt = Date.now();
+      if (result.changed || !auto) {
+        store.data = {};
+        store.errors = {};
+        rerender = true;
+      }
+      if (result.changed) financialChanged();
       if (!quiet) {
-        const n = store.lastSync.imported;
-        toast(n ? `${n} new ${n === 1 ? 'transaction' : 'transactions'} from your bank.` : 'You’re up to date with your bank.');
+        const n = result.imported;
+        toast(n ? `${n} new ${n === 1 ? 'transaction' : 'transactions'} from Capital Two.` : 'You’re up to date with Capital Two.');
       }
     } catch (err) {
       store.syncError = err;
-      if (!quiet) announce('We couldn’t reach your bank. Showing your saved activity.');
+      rerender = rerender || !hadError;
+      if (!quiet) announce('We couldn’t reach Capital Two. Showing your saved activity.');
     } finally {
       store.syncing = false;
       store.synced = true;
-      refresh();
+      if (rerender) refresh();
+      else updateSyncChip();
     }
   }
 
-  // B9 · A user without a linked bank account gets a Connect card in place
-  // of the sync bar. Connecting opens their Nessie sandbox account (repeat-safe).
+  const modalOpen = () => Boolean(root.querySelector('#sp-modal-root').children.length);
+  function autoSync() {
+    if (document.visibilityState !== 'visible' || !visible() || !store.synced || needsBank() || modalOpen()) return;
+    if (Date.now() - (store.lastSyncAt ?? 0) < 5_000) return;
+    void sync({ quiet: true, auto: true });
+  }
+  setInterval(autoSync, AUTO_SYNC_MS);
+  document.addEventListener('visibilitychange', autoSync);
+  window.addEventListener('focus', autoSync);
+
+  // B9/B12 · Capital Two accounts are shared with Split only after the user
+  // allows it on the Connect screen. Without a linked account, Overview shows
+  // a Connect card in place of the sync chip.
   const needsBank = () => store.syncError?.code === 'NO_LINKED_ACCOUNT';
+  let consentAsked = false;
 
   function connectCard() {
-    const err = store.connectError;
-    return `<div class="data-state" role="status" data-bank-connect>${icon('landmark')}<div><strong>Connect your bank</strong><p class="small muted">Split opens a sandbox checking account for you with ${money(150000)} of practice money. No real bank or money is involved.</p>${err ? `<p class="small" role="alert">${esc(err.message)}</p>` : ''}<button type="button" class="primary cursor-interaction" data-action="bank-connect" ${store.connecting ? 'disabled aria-busy="true"' : ''}>${icon('landmark')}${store.connecting ? 'Connecting…' : 'Connect bank'}</button></div></div>`;
+    return `<div class="data-state" role="status" data-bank-connect>${icon('landmark')}<div><strong>Connect Capital Two</strong><p class="small muted">Share your Capital Two checking account and credit card with Split to see your balance and split purchases with your groups.</p><button type="button" class="primary cursor-interaction" data-action="bank-manage">${icon('landmark')}Connect Capital Two</button></div></div>`;
   }
 
-  async function connectBank() {
+  function accountLine(a) {
+    const label = a.kind === 'credit_card' ? 'Credit card' : 'Checking';
+    const number = a.mask ? ` ••${esc(a.mask)}` : '';
+    const detail = !a.opened
+      ? 'Opens when you allow'
+      : a.kind === 'credit_card'
+        ? `${money(a.creditLimitCents ?? 0)} limit`
+        : money(a.balanceCents ?? 0);
+    return `<li class="consent-account">${icon(a.kind === 'credit_card' ? 'credit-card' : 'landmark')}<span><strong>${label}${number}</strong><span class="small muted">${detail}</span></span><span class="tag">${a.linked ? 'Shared' : 'Not shared'}</span></li>`;
+  }
+
+  /** The Connect screen (B12): sign-up, the Connect card and the account menu. */
+  async function openBankConnect({ auto = false } = {}) {
+    let listing;
+    try {
+      listing = await apiRequest('/api/banking/accounts');
+    } catch (err) {
+      if (!auto) toast(err.message);
+      return;
+    }
+    if (auto && (!listing.needsConsent || modalOpen())) return;
+    const accounts = listing.accounts.length
+      ? listing.accounts
+      : [{ kind: 'checking', opened: false, linked: false }, { kind: 'credit_card', opened: false, linked: false }];
+    if (!accounts.some((a) => a.kind === 'credit_card')) accounts.push({ kind: 'credit_card', opened: false, linked: false });
+    const body = listing.needsConsent
+      ? `<p>Capital Two wants to share these accounts with Split:</p><ul class="consent-list">${accounts.map(accountLine).join('')}</ul><div class="checks"><div class="check-row">${icon('check')}Split can see balances and transactions.</div><div class="check-row">${icon('shield-check')}Split can’t move money without your approval.</div></div><p class="error" role="alert" data-connect-error></p><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Not now</button><button type="button" class="primary cursor-interaction" data-action="bank-allow">Allow</button></div>`
+      : `<p>These Capital Two accounts are shared with Split and sync automatically.</p><ul class="consent-list">${accounts.map(accountLine).join('')}</ul><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="bank-sync-now">Sync now</button><button type="button" class="primary cursor-interaction" data-action="close">Done</button></div>`;
+    openModal('Connect Capital Two', `<div class="modal-header"><div><div class="eyebrow">Capital Two</div><h2>${listing.needsConsent ? 'Share your accounts with Split?' : 'Connected to Split'}</h2></div>${closeButton}</div>${body}`);
+  }
+
+  function maybeAskConsent() {
+    if (consentAsked) return;
+    consentAsked = true;
+    setTimeout(() => void openBankConnect({ auto: true }), 300);
+  }
+
+  async function connectBank(button) {
     if (store.connecting) return;
     store.connecting = true;
     store.connectError = null;
-    refresh();
+    const errorHost = root.querySelector('[data-connect-error]');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Connecting…';
+    }
     try {
-      const result = await apiRequest('/api/banking/connect', { method: 'POST', body: {}, timeoutMs: 45_000 });
+      const result = await apiRequest('/api/banking/connect', { method: 'POST', body: {}, timeoutMs: 60_000 });
       store.syncError = null;
       store.synced = true;
       store.lastSync = result;
+      store.lastSyncAt = Date.now();
       store.data = {};
       store.errors = {};
-      toast(`Your sandbox bank account is ready with ${money(result.account.balanceCents ?? 0)}.`);
+      if (button?.isConnected) closeModal();
+      financialChanged();
+      const masks = result.accounts.filter((a) => a.linked && a.mask).map((a) => `${a.kind === 'credit_card' ? 'card' : 'checking'} ••${a.mask}`);
+      toast(`Capital Two connected${masks.length ? `: ${masks.join(' and ')}` : ''}.`);
     } catch (err) {
       store.connectError = err;
+      if (errorHost?.isConnected) errorHost.textContent = err.message;
       announce(err.message);
+      if (button?.isConnected) {
+        button.disabled = false;
+        button.textContent = 'Try again';
+      }
     } finally {
       store.connecting = false;
       refresh();
     }
   }
 
+  function relativeTime(ms) {
+    if (!ms) return null;
+    const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+    return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }).format(new Date(ms));
+  }
+
+  function syncText(d) {
+    if (store.syncing) return 'Syncing with Capital Two…';
+    if (store.syncError) return 'Couldn’t reach Capital Two · showing saved numbers';
+    const asOf = store.lastSyncAt ?? (d?.account?.balanceAsOf ? new Date(d.account.balanceAsOf).getTime() : null);
+    return asOf ? `Synced with Capital Two · ${relativeTime(asOf)}` : 'Not synced with Capital Two yet';
+  }
+
   function syncBar(d) {
-    if (needsBank()) return connectCard();
-    const asOf = d?.account?.balanceAsOf;
-    const when = asOf
-      ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }).format(new Date(asOf))
-      : null;
-    const status = store.syncing
-      ? 'Checking your bank for new activity…'
-      : store.syncError
-        ? 'We couldn’t reach your bank just now. These are your saved numbers.'
-        : when
-          ? `Bank balance as of ${when}`
-          : 'Not synced with your bank yet.';
-    return `<div class="sync-bar${store.syncError ? ' is-error' : ''}" role="status"><span>${icon(store.syncError ? 'info' : 'landmark')}${esc(status)}</span><button type="button" class="text-button cursor-interaction" data-action="bank-sync" ${store.syncing ? 'disabled aria-busy="true"' : ''}>${icon('rotate-ccw')}${store.syncing ? 'Refreshing' : 'Refresh'}</button></div>`;
+    if (needsBank()) {
+      maybeAskConsent();
+      return connectCard();
+    }
+    return `<div class="sync-chip${store.syncError ? ' is-error' : ''}${store.syncing ? ' is-syncing' : ''}" data-sync-chip><span class="sync-dot" aria-hidden="true"></span><span class="sync-text" role="status">${esc(syncText(d))}</span><button type="button" class="sync-now cursor-interaction" data-action="bank-sync" aria-label="Sync with Capital Two now" ${store.syncing ? 'disabled aria-busy="true"' : ''}>${icon('rotate-ccw')}</button></div>`;
+  }
+
+  /** Refresh the chip text in place (no full re-render when nothing changed). */
+  function updateSyncChip() {
+    const chip = root.querySelector('[data-sync-chip]');
+    if (!chip) return;
+    chip.classList.toggle('is-syncing', store.syncing);
+    chip.classList.toggle('is-error', Boolean(store.syncError));
+    chip.querySelector('.sync-text').textContent = syncText(store.data.month ?? Object.values(store.data)[0]);
+    const button = chip.querySelector('[data-action="bank-sync"]');
+    button.disabled = store.syncing;
   }
 
   function loadingCard() {
@@ -233,7 +343,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
 
   function errorCard(period) {
     const err = store.errors[period];
-    if (err?.code === 'NO_LINKED_ACCOUNT') return needsBank() ? '' : connectCard();
+    if (err?.code === 'NO_LINKED_ACCOUNT') {
+      maybeAskConsent();
+      return needsBank() ? '' : connectCard();
+    }
     const msg = err?.code === 'NO_LINKED_ACCOUNT'
       ? 'Your demo bank account isn’t connected yet.'
       : err?.message || 'Something went wrong loading your numbers.';
@@ -355,12 +468,21 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   }
 
   function chartControls(id, data, period = 'month') {
-    return `<div>${['earned', 'spent'].map((k) => `<button type="button" class="chart-toggle cursor-interaction" data-toggle-series="${k}" aria-pressed="${chartVisibility[k]}"><span class="chart-swatch ${k}"></span>${k === 'earned' ? 'Earned' : 'Spent'}</button>`).join('')}</div><div class="chart-range"><label for="${id}-range">Inspect ${period === 'month' ? 'a day' : 'a month'}</label><input type="range" id="${id}-range" data-chart-range="${id}" min="0" max="${data.length - 1}" step="1" value="${data.length - 1}" aria-label="Inspect ${id === 'home-flow' ? 'overview' : 'profile'} chart date"></div>`;
+    return `<div>${['earned', 'spent'].map((k) => `<button type="button" class="chart-toggle cursor-interaction" data-toggle-series="${k}" aria-pressed="${chartVisibility[k]}"><span class="chart-swatch ${k}"></span>${k === 'earned' ? 'Earned' : 'Spent'}</button>`).join('')}</div><div class="chart-range sr-only"><label for="${id}-range">Inspect ${period === 'month' ? 'a day' : 'a month'}</label><input type="range" id="${id}-range" data-chart-range="${id}" min="0" max="${data.length - 1}" step="1" value="${data.length - 1}" aria-label="Inspect ${id === 'home-flow' ? 'overview' : 'profile'} chart date"></div>`;
   }
 
   // ── Shared bits ───────────────────────────────────────────────────────
-  function tx(name, sub, amount, symbol) {
-    return `<div class="transaction"><span class="tx-icon">${icon(symbol)}</span><div class="tx-copy"><strong>${name}</strong><span>${sub}</span></div><span class="tx-amount money">${amount}</span></div>`;
+  function tx(name, sub, amount, symbol, trailing = '') {
+    return `<div class="transaction"><span class="tx-icon">${icon(symbol)}</span><div class="tx-copy"><strong>${name}</strong><span>${sub}</span></div><span class="tx-amount money">${amount}</span>${trailing}</div>`;
+  }
+
+  // Purchases can be split with a group (A2/A3 bank link); split ones say where.
+  const splittable = (t) => t.kind === 'purchase' && t.direction === 'debit' && t.providerKey &&
+    ['pending', 'completed'].includes(t.status);
+  function txActions(t) {
+    if (t.splitGroupName) return `<span class="tx-split-tag">${icon('users')}${esc(t.splitGroupName)}</span>`;
+    if (!splittable(t)) return '<span class="tx-split-tag is-empty" aria-hidden="true"></span>';
+    return `<button type="button" class="tx-split cursor-interaction" data-action="split-tx" data-tx-id="${esc(t.id)}" aria-label="Split ${esc(t.merchantName || t.description)}, ${money(t.amountCents)}">Split</button>`;
   }
 
   function dayWord(day, today) {
@@ -372,20 +494,26 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   function txRow(t, today) {
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt));
     const label = t.kind === 'transfer' ? 'Transfer' : t.kind === 'deposit' ? 'Deposit' : t.category || 'Purchase';
-    const flags = [t.status === 'pending' ? 'pending' : null, t.source === 'demo' ? 'demo history' : null].filter(Boolean);
+    const flags = [
+      t.accountKind === 'credit_card' ? `card${t.accountMask ? ` ••${esc(t.accountMask)}` : ''}` : null,
+      t.status === 'pending' ? 'pending' : null,
+      t.source === 'demo' ? 'demo history' : null,
+    ].filter(Boolean);
     const sign = t.direction === 'credit' ? '+ ' : '− ';
     const symbol = t.kind === 'transfer' ? 'repeat-2' : CATEGORY_ICONS[t.category] || (t.kind === 'deposit' ? 'arrow-down-left' : 'receipt');
     return tx(
-      esc(t.merchantName || t.description),
+      `${esc(t.merchantName || t.description)}${isNew(t) ? ' <span class="tx-new">New</span>' : ''}`,
       `${dayWord(day, today)} · ${esc(label)}${flags.length ? ` · ${flags.join(' · ')}` : ''}`,
       sign + money(t.amountCents),
       symbol,
+      txActions(t),
     );
   }
 
   // ── Transactions (B10 interim; A11 replaces this page) ───────────────
   // This month's latest activity from the overview response, by day.
   function transactions() {
+    maybeAskConsent();
     const today = todayLocal();
     const d = need('month');
     const head = heading('Transactions', 'Your transactions', 'This month’s latest activity from Capital Two.');
@@ -406,10 +534,12 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     }).join('');
   }
 
-  /** "••1234" for the account menu, once Overview has loaded the account. */
+  /** "••1234 · card ••9876" for the account menu, once Overview has loaded. */
   function bankLabel() {
-    const mask = Object.values(store.data).find((d) => d?.account)?.account?.mask;
-    return mask ? `••${mask}` : null;
+    const d = Object.values(store.data).find((x) => x?.account);
+    if (!d) return null;
+    const parts = [d.account.mask ? `••${d.account.mask}` : null, d.cards?.[0]?.mask ? `card ••${d.cards[0].mask}` : null].filter(Boolean);
+    return parts.length ? parts.join(' · ') : null;
   }
 
   const billsWithin = (bills, today, days) =>
@@ -417,13 +547,19 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   const sumCents = (list, key = 'amountCents') => list.reduce((a, b) => a + b[key], 0);
 
   // ── Overview (home) ───────────────────────────────────────────────────
-  function budget(name, spent, total, symbol) {
-    let p = Math.min(spent / total, 1);
-    return `<button type="button" class="budget-row cursor-interaction" data-category="${name}" aria-label="See ${name} spending details" style="width:100%;text-align:left"><div class="budget-ring"><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--sp-soft)" stroke-width="3"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--sp-pine)" stroke-width="3" stroke-dasharray="${p * 94.25} 94.25" stroke-linecap="round"/></svg><span class="ring-symbol">${icon(symbol)}</span></div><div class="budget-body"><div class="budget-title"><span>${name}</span><span class="money">${dollarLabel(Math.round(spent * 100))}<span class="muted"> / $${total}</span></span></div><div class="budget-sub">${spent > total ? dollarLabel(Math.round((spent - total) * 100)) + ' over budget' : dollarLabel(Math.round((total - spent) * 100)) + ' left this month'}</div></div></button>`;
+  // What you spent on most this month (real data; replaces fixed budgets).
+  function topCategories(d) {
+    const cats = d.breakdown.categories.filter((c) => c.cents > 0).slice(0, 4);
+    if (!cats.length) return '<p class="small muted">No spending yet this month.</p>';
+    const total = d.totals.spentCents || cats.reduce((a, c) => a + c.cents, 0);
+    return cats.map((c) => {
+      const pct = total ? Math.round((c.cents / total) * 100) : 0;
+      return `<button type="button" class="top-category cursor-interaction" data-category="${esc(c.category)}" aria-label="${esc(c.category)}: ${money(c.cents)}, ${pct} percent of spending. See details"><span class="top-category-icon">${icon(CATEGORY_ICONS[c.category] || 'receipt')}</span><span class="top-category-body"><span class="math-line"><strong>${esc(c.category)}</strong><span class="money">${dollarLabel(c.cents)}</span></span><span class="category-track"><span style="width:${pct}%"></span></span><span class="small muted">${pct}% of spending</span></span></button>`;
+    }).join('');
   }
 
-  function categoryCents(d, ...names) {
-    return d.breakdown.categories.filter((c) => names.includes(c.category)).reduce((a, c) => a + c.cents, 0);
+  function cardStrip(d) {
+    return (d.cards ?? []).map((c) => `<div class="card-strip">${icon('credit-card')}<span><strong>Capital Two card${c.mask ? ` ••${esc(c.mask)}` : ''}</strong><span class="small muted">${c.owedCents === null ? 'Balance not synced yet' : `${money(c.owedCents)} owed · ${money(Math.max(0, (c.creditLimitCents ?? 0) - c.owedCents))} available of ${money(c.creditLimitCents ?? 0)}`}</span></span></div>`).join('');
   }
 
   const clock = (iso) =>
@@ -449,28 +585,28 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     return `<div class="insight" data-insight aria-busy="${!data && !failed}">${icon('sprout')}<div><div class="insight-label">A thought from Split · AI</div>${body}</div></div>`;
   }
 
-  function groupPeeks() {
+  function groupRows() {
     const groups = needGroups();
     if (!groups) {
       return groupStore.error
         ? `<p class="small muted" role="alert">${esc(groupStore.error.message)} <button type="button" class="text-button cursor-interaction" data-action="groups-retry">Try again</button></p>`
         : '<p class="small muted" role="status">Loading your groups…</p>';
     }
-    if (!groups.length) return '<p class="small muted">No shared groups yet.</p>';
-    return groups
-      .map((g) => {
-        const net = g.owedToYouCents - g.youOweCents;
-        return `<div class="group-peek"><div class="group-title"><span class="group-picture">${icon(g.kind === 'trip' ? 'users' : 'house')}</span><div><h3>${esc(g.name)}</h3><span class="small muted">${g.memberCount} people${g.tagline ? ` · ${esc(g.tagline)}` : ''}</span></div></div><div class="peek-value display money">${money(Math.abs(net))}</div><p class="small muted">${net > 0 ? 'you’re owed, after your share' : net < 0 ? 'you owe, after your share' : 'all square'}</p><div class="peek-foot"><span class="small muted">You owe ${money(g.youOweCents)} · Owed ${money(g.owedToYouCents)}</span><button type="button" class="text-button cursor-interaction" data-group-id="${esc(g.id)}">See the split ${icon('arrow-right')}</button></div></div>`;
-      })
-      .join('');
+    if (!groups.length) return '<div class="group-row-empty small muted">No groups yet. <button type="button" class="text-button cursor-interaction" data-go="groups">Start one</button></div>';
+    return `<div class="group-rows">${groups.map((g) => {
+      const net = g.owedToYouCents - g.youOweCents;
+      const tone = net > 0 ? 'is-owed' : net < 0 ? 'is-owing' : '';
+      return `<button type="button" class="group-row cursor-interaction" data-group-id="${esc(g.id)}"><span class="group-picture">${icon(g.kind === 'trip' ? 'luggage' : 'house')}</span><span class="group-row-copy"><strong>${esc(g.name)}</strong><span class="small muted">${g.memberCount} people</span></span><span class="group-row-net ${tone}"><strong class="money">${net === 0 ? 'Settled' : money(Math.abs(net))}</strong><span class="small">${net > 0 ? 'you’re owed' : net < 0 ? 'you owe' : 'all square'}</span></span>${icon('chevron-right')}</button>`;
+    }).join('')}</div>`;
   }
 
   function home() {
+    maybeAskConsent();
     const today = todayLocal();
     const first = getSession()?.actor?.displayName?.split(' ')[0] || 'there';
     const d = need('month');
     const dateLine = fmtDay(today, { weekday: 'long', month: 'long', day: 'numeric' });
-    const addButton = `<button type="button" class="primary cursor-interaction" data-action="overview-add-expense">${icon('plus')}Add an expense</button>`;
+    const addButton = `<div class="heading-actions"><button type="button" class="secondary cursor-interaction" data-action="overview-add-expense">${icon('banknote')}Cash expense</button><button type="button" class="primary cursor-interaction" data-go="transactions">${icon('receipt')}Split a transaction</button></div>`;
     if (!d) {
       return (
         heading(dateLine, `Hey ${esc(first)}.`, '', addButton) +
@@ -488,7 +624,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const net = d.totals.earnedCents - d.totals.spentCents;
     const series_ = series(d);
     const anyDemo = d.recent.some((r) => r.source === 'demo');
-    const recent = d.recent.slice(0, 4);
+    const recent = d.recent.slice(0, 5);
     return (
       heading(
         dateLine,
@@ -498,9 +634,9 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       ) +
       syncBar(d) +
       `
-<div class="balance-strip"><div class="available"><div class="label">Left after this week’s bills ${icon('arrow-up-right')}</div><div class="figure display money">${whole}<span class="cents">${known ? '.' + cents : ''}</span></div><p class="footnote">${!known ? 'Refresh to read your bank balance.' : planWith >= 0 ? 'This week’s bills are covered. This is the breathing room.' : 'This week’s bills are more than what’s free right now.'}</p><span class="smile" aria-hidden="true"></span></div><div class="balance-math"><div class="math-line"><span class="muted">In your account</span><strong class="money">${a.balanceCents === null ? '—' : money(a.balanceCents)}</strong></div>${holds ? `<div class="math-line"><span class="muted">Set aside for goals and payments</span><span class="money">− ${money(holds)}</span></div>` : ''}<div class="math-line"><span class="muted">Bills due this week</span><span class="money">− ${money(billsWeek)}</span></div><div class="math-line"><span>Yours to plan with</span><span class="money">${known ? money(planWith) : '—'}</span></div></div></div>
+<div class="balance-strip"><div class="available"><div class="label">Left after this week’s bills ${icon('arrow-up-right')}</div><div class="figure display money">${whole}<span class="cents">${known ? '.' + cents : ''}</span></div><p class="footnote">${!known ? 'Refresh to read your bank balance.' : planWith >= 0 ? 'This week’s bills are covered. This is the breathing room.' : 'This week’s bills are more than what’s free right now.'}</p></div><div class="balance-math"><div class="math-line"><span class="muted">In your account</span><strong class="money">${a.balanceCents === null ? '—' : money(a.balanceCents)}</strong></div>${holds ? `<div class="math-line"><span class="muted">Set aside for goals and payments</span><span class="money">− ${money(holds)}</span></div>` : ''}<div class="math-line"><span class="muted">Bills due this week</span><span class="money">− ${money(billsWeek)}</span></div><div class="math-line"><span>Yours to plan with</span><span class="money">${known ? money(planWith) : '—'}</span></div></div></div>${cardStrip(d)}
 <section class="chart-section" aria-label="Monthly money flow"><div class="section-head"><h2>The month so far</h2><span class="month-label">${fmtDay(today, { month: 'long', year: 'numeric' })}</span></div><div class="chart-summary"><p><strong class="money">${dollarLabel(d.totals.earnedCents)}</strong> earned <span aria-hidden="true">·</span> <strong class="money">${dollarLabel(d.totals.spentCents)}</strong> spent</p><span class="forecast">${icon('move-up-right')}${net >= 0 ? 'Ahead by ' + dollarLabel(net) : 'Behind by ' + dollarLabel(-net)} so far</span></div>${moneyChart('home-flow', series_, 'home')}${chartControls('home-flow', series_)}<p class="chart-note">Spending counts purchases only; transfers between accounts don’t count.${anyDemo ? ' Activity before your sandbox connected is labeled demo history.' : ''}</p></section>
-<div class="under-chart"><section aria-label="Category budgets"><div class="section-head"><h2>Room for the good stuff</h2></div>${budget('Food & drink', categoryCents(d, 'Food & drink', 'Groceries') / 100, 300, 'utensils')}${budget('Getting around', categoryCents(d, 'Getting around') / 100, 100, 'train-front')}${budget('Just for fun', categoryCents(d, 'Just for fun') / 100, 120, 'ticket')}${insightCard()}</section><section aria-label="Shared money"><div class="section-head"><h2>In it together</h2><button type="button" class="text-button cursor-interaction" data-go="groups">All groups ${icon('arrow-up-right')}</button></div>${groupPeeks()}<div class="activity"><div class="section-head" style="margin-bottom:4px"><h3>Recent activity</h3></div>${recent.length ? recent.map((t) => txRow(t, today)).join('') : '<p class="small muted">No activity yet this month. Refresh to check your bank.</p>'}</div></section></div>`
+<div class="under-chart"><section aria-label="Top spending categories"><div class="section-head"><h2>Where it went</h2><button type="button" class="text-button cursor-interaction" data-go="profile">Insights ${icon('arrow-up-right')}</button></div>${topCategories(d)}${insightCard()}</section><section aria-label="Shared money"><div class="section-head"><h2>In it together</h2><button type="button" class="text-button cursor-interaction" data-go="groups">All groups ${icon('arrow-up-right')}</button></div>${groupRows()}<div class="activity"><div class="section-head" style="margin-bottom:4px"><h3>Recent transactions</h3><button type="button" class="text-button cursor-interaction" data-go="transactions">See all ${icon('arrow-up-right')}</button></div>${recent.length ? recent.map((t) => txRow(t, today)).join('') : '<p class="small muted">No transactions yet this month. Buy something at Capital Two and it shows up here.</p>'}</div></section></div>`
     );
   }
 
@@ -511,14 +647,12 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   }
 
   function profile() {
+    maybeAskConsent();
     const today = todayLocal();
-    const actor = getSession()?.actor;
-    const name = actor?.displayName || 'You';
-    const initials = name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
     const tab = state.profileTab;
     const period = tab === 'spending' ? state.period : 'month';
     const d = need(period);
-    return `<div class="profile-head"><span class="avatar profile-avatar">${esc(initials)}</span><div><div class="eyebrow muted" style="margin-bottom:6px">Insights</div><h1>${esc(name)}</h1></div><span class="tag">${icon('calendar-days')}${fmtDay(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div class="profile-toolbar"><div class="profile-nav" aria-label="Profile detail sections">${[
+    return `${heading('Insights', 'Where your money goes', '', `<span class="tag">${icon('calendar-days')}${fmtDay(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span>`)}<div class="profile-toolbar"><div class="profile-nav" aria-label="Profile detail sections">${[
       ['spending', 'Spending'],
       ['recurring', 'Recurring'],
       ['upcoming', 'Coming up'],
@@ -543,7 +677,12 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     }`;
   }
 
+  const noRecurring = () => `<div class="sp-empty">${icon('repeat-2')}<h2>No recurring payments yet</h2><p>Rent, subscriptions and other payments you set up to repeat at Capital Two show up here with their next due date.</p></div>`;
+
   function profileSpending(d, today) {
+    if (!d.totals.earnedCents && !d.totals.spentCents && !d.recent.length) {
+      return `<div class="sp-empty">${icon('sprout')}<h2>Nothing to look at yet</h2><p>Once you buy something or get paid at Capital Two, your spending breaks down here by category, merchant and card.</p><button type="button" class="secondary cursor-interaction" data-period="half">Look further back</button></div>`;
+    }
     const totals = d.totals,
       net = totals.earnedCents - totals.spentCents,
       out = totals.spentCents,
@@ -563,7 +702,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       .join('')}<p class="small muted" style="margin-top:8px">Select a bar to see the merchants below.</p></section><section aria-label="Payment methods"><h3 style="margin-bottom:10px">How you paid</h3>${METHOD_ICONS.map(([method, sym]) => {
       const c = d.breakdown.paymentMethods.find((m) => m.paymentMethod === method)?.cents ?? 0;
       return `<div class="payment-row">${icon(sym)}<span>${method}</span><strong class="money">${dollarLabel(c)}</strong></div>`;
-    }).join('')}<div class="insight" style="margin-top:17px">${icon('repeat-2')}<div><div class="insight-label">The regulars</div><p>${d.bills.length} recurring ${d.bills.length === 1 ? 'cost' : 'costs'}. ${money(sumCents(thirty))} expected over the next 30 days.</p><button type="button" class="cursor-interaction" data-profile-tab="recurring">Look at the recurring stuff</button></div></div></section></div><section class="merchant-ledger" aria-label="Merchant spending detail"><div class="section-head"><h2>${state.category === 'all' ? 'The places behind the numbers' : esc(state.category)}</h2><span class="small muted">${filtered.length} ${filtered.length === 1 ? 'merchant' : 'merchants'}</span></div><div aria-live="polite">${
+    }).join('')}${d.bills.length ? `<div class="insight" style="margin-top:17px">${icon('repeat-2')}<div><div class="insight-label">The regulars</div><p>${d.bills.length} recurring ${d.bills.length === 1 ? 'cost' : 'costs'}. ${money(sumCents(thirty))} expected over the next 30 days.</p><button type="button" class="cursor-interaction" data-profile-tab="recurring">Look at the recurring stuff</button></div></div>` : ''}</section></div><section class="merchant-ledger" aria-label="Merchant spending detail"><div class="section-head"><h2>${state.category === 'all' ? 'The places behind the numbers' : esc(state.category)}</h2><span class="small muted">${filtered.length} ${filtered.length === 1 ? 'merchant' : 'merchants'}</span></div><div aria-live="polite">${
       filtered.length
         ? filtered
             .map((r) => `<div class="merchant-row"><div><strong>${esc(r.name)}</strong><div class="small">${r.count} ${r.count === 1 ? 'transaction' : 'transactions'} · ${esc(r.category)}</div></div><span class="small">${esc(r.paymentMethod)}</span><strong class="money">${money(r.cents)}</strong></div>`)
@@ -585,12 +724,14 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   }
 
   function profileRecurring(d, today) {
+    if (!d.bills.length) return noRecurring();
     const thirty = billsWithin(d.bills, today, 30);
     const estimated = d.bills.some((b) => b.isEstimate);
     return `<div class="bill-summary"><div><div class="eyebrow muted">Expected in the next 30 days</div><div class="display money">${money(sumCents(thirty))}</div><p class="small muted">${d.bills.length} recurring ${d.bills.length === 1 ? 'cost' : 'costs'}${estimated ? ' · includes estimates' : ''}</p></div><span class="tag">${icon('repeat-2')}Monthly rhythm</span></div><div class="section-head"><h2>The regulars</h2><span class="small muted">Next due date</span></div>${billRows(d.bills)}<div class="goal-note">${icon('info')}<span>These are expected costs, not pending transfers. Changes to subscriptions are made with the provider.</span></div>`;
   }
 
   function profileUpcoming(d, today) {
+    if (!d.bills.length) return noRecurring();
     const week = billsWithin(d.bills, today, 7);
     const later = d.bills.filter((b) => b.nextDueOn > addDays(today, 6) && b.nextDueOn <= addDays(today, 29));
     const spendable = d.account.spendableCents;
@@ -656,10 +797,6 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       sync();
       return;
     }
-    if (b.dataset.action === 'bank-connect') {
-      void connectBank();
-      return;
-    }
     if (b.dataset.action === 'overview-retry') {
       store.errors[b.dataset.period] = null;
       render();
@@ -702,7 +839,16 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   const EXPENSE_FORM = 'sp-overview-expense-form';
   const focusAddButton = () => root.querySelector('[data-action="overview-add-expense"]')?.focus({ preventScroll: true });
 
-  async function openAddExpense(button) {
+  /** The recent transaction a Split button refers to (from any loaded period). */
+  function findTransaction(id) {
+    for (const d of Object.values(store.data)) {
+      const t = d?.recent?.find((row) => row.id === id);
+      if (t) return t;
+    }
+    return null;
+  }
+
+  async function openAddExpense(button, fromTransaction = null) {
     if (expenseOpening) return;
     expenseOpening = true;
     button.disabled = true;
@@ -713,19 +859,26 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
         return;
       }
       const details = await Promise.all(groups.map((g) => apiRequest(`/api/groups/${encodeURIComponent(g.id)}`)));
-      if (state.page !== 'home') return;
+      if (!['home', 'transactions'].includes(state.page)) return;
       const selected = groups.some((g) => g.id === lastGroupId) ? lastGroupId : groups[0].id;
       const people = details
         .map(({ group, members }) => `<fieldset class="expense-people" data-group-members="${esc(group.id)}" ${group.id === selected ? '' : 'hidden disabled'}><legend>Split equally with</legend>${members
           .map((m) => `<label class="check-label"><input type="checkbox" name="participant" value="${esc(m.userId)}" checked>${m.isYou ? 'You · paid the full amount' : esc(m.displayName)}</label>`)
           .join('')}</fieldset>`)
         .join('');
+      const t = fromTransaction;
+      const merchant = t ? esc(t.merchantName || t.description || '') : '';
+      const category = t?.category && CATEGORIES.includes(t.category) ? t.category : null;
+      // A bank purchase keeps its exact amount: A3 checks it against the bank.
+      const source = t
+        ? `<div class="split-source">${icon(t.accountKind === 'credit_card' ? 'credit-card' : 'landmark')}<span><strong>${merchant}</strong><span class="small muted">${fmtDay(new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt)), { month: 'short', day: 'numeric' })} · Capital Two ${t.accountKind === 'credit_card' ? 'card' : 'checking'}${t.accountMask ? ` ••${esc(t.accountMask)}` : ''}</span></span><strong class="money">${money(t.amountCents)}</strong></div>`
+        : '';
       openModal(
-        'Add an expense',
-        `<div class="modal-header"><div><div class="eyebrow">Shared expense</div><h2>Add an expense</h2></div>${closeButton}</div><form id="${EXPENSE_FORM}"><label class="field">Group<select name="groupId">${groups
+        t ? 'Split a transaction' : 'Add a cash expense',
+        `<div class="modal-header"><div><div class="eyebrow">${t ? 'From Capital Two' : 'Cash expense'}</div><h2>${t ? 'Split this purchase' : 'Add a cash expense'}</h2></div>${closeButton}</div><form id="${EXPENSE_FORM}"${t ? ` data-bank-account="${esc(t.accountId)}" data-bank-key="${esc(t.providerKey)}"` : ''}>${source}<label class="field">Group<select name="groupId">${groups
           .map((g) => `<option value="${esc(g.id)}" ${g.id === selected ? 'selected' : ''}>${esc(g.name)}</option>`)
-          .join('')}</select></label><label class="field">Merchant<input name="merchant" required maxlength="60" autocomplete="off"></label><div class="field-grid"><label class="field">Total, USD<input name="amount" required inputmode="decimal" autocomplete="off" placeholder="42.00"></label><label class="field">Category<select name="category">${CATEGORIES
-          .map((c) => `<option>${esc(c)}</option>`)
+          .join('')}</select></label><label class="field">${t ? 'Name it' : 'Merchant'}<input name="merchant" required maxlength="60" autocomplete="off" value="${merchant}"></label><div class="field-grid"><label class="field">Total, USD<input name="amount" required inputmode="decimal" autocomplete="off" placeholder="42.00"${t ? ` value="${(t.amountCents / 100).toFixed(2)}" readonly aria-readonly="true"` : ''}></label><label class="field">Category<select name="category">${CATEGORIES
+          .map((c) => `<option ${c === category ? 'selected' : ''}>${esc(c)}</option>`)
           .join('')}</select></label></div>${people}<p class="error" role="alert"></p><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Cancel</button><button type="submit" class="primary cursor-interaction">Review split</button></div><div class="modal-fine">Nothing is saved until you confirm the expense. No money moves.</div></form>`,
       );
     } catch (err) {
@@ -757,16 +910,20 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     form.setAttribute('aria-busy', 'true');
     error.textContent = '';
     try {
+      const bankRef = form.dataset.bankAccount
+        ? { accountId: form.dataset.bankAccount, providerKey: form.dataset.bankKey }
+        : null;
       const { draft } = await apiRequest('/api/expense-drafts', {
         method: 'POST',
-        body: { groupId, merchant: String(fd.get('merchant')).trim(), cents, category: String(fd.get('category')), participantIds },
+        body: { groupId, merchant: String(fd.get('merchant')).trim(), cents, category: String(fd.get('category')), participantIds,
+          ...(bankRef ? { bankRef } : {}) },
       });
       if (!form.isConnected) return;
       lastGroupId = groupId;
       const groupName = form.querySelector(`option[value="${CSS.escape(groupId)}"]`)?.textContent ?? '';
       registerReview(draft, {
         onConfirmed: () => {
-          if (state.page !== 'home') return;
+          if (!['home', 'transactions'].includes(state.page)) return;
           render();
           focusAddButton();
         },
@@ -800,6 +957,16 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.action === 'overview-add-expense') void openAddExpense(b);
+    if (b.dataset.action === 'split-tx') {
+      const t = findTransaction(b.dataset.txId);
+      if (t) void openAddExpense(b, t);
+    }
+    if (b.dataset.action === 'bank-manage') void openBankConnect();
+    if (b.dataset.action === 'bank-allow') void connectBank(b);
+    if (b.dataset.action === 'bank-sync-now') {
+      closeModal();
+      void sync();
+    }
     if (b.dataset.action === 'insight-retry') {
       insight.revision = -1;
       insight.error = null;
@@ -832,5 +999,5 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     chartRegistry = {};
   }
 
-  return { home, profile, transactions, bankLabel, mountMoneyCharts, resetCharts, observe, handleOverviewForm, tx };
+  return { home, profile, transactions, bankLabel, openBankConnect, mountMoneyCharts, resetCharts, observe, handleOverviewForm, tx };
 }

@@ -1,10 +1,4 @@
--- C12's shared checking/card mapping; existing funds/goals keep using checking.
-UPDATE bank_accounts SET account_type = 'Checking' WHERE account_type IS NULL;
-ALTER TABLE bank_accounts DROP CONSTRAINT bank_accounts_user_id_key;
-ALTER TABLE bank_accounts ALTER COLUMN account_type SET DEFAULT 'Checking';
-ALTER TABLE bank_accounts ALTER COLUMN account_type SET NOT NULL;
-ALTER TABLE bank_accounts ADD CONSTRAINT bank_accounts_user_type_key UNIQUE (user_id, account_type);
-ALTER TABLE bank_accounts ADD COLUMN credit_limit_cents bigint CHECK (credit_limit_cents > 0);
+-- Account kinds, limits and sharing consent are owned by B12 migration 0202.
 
 CREATE TABLE capital_schedules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

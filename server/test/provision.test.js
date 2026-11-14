@@ -13,4 +13,5 @@ test('Nessie customer names come from the account name with safe fallbacks', () 
 
 test('the account nickname ties a Nessie account to one Split user', () => {
   assert.equal(accountNickname('1234abcd-0000-4000-8000-000000000000'), 'Split · 1234abcd');
+  assert.equal(accountNickname('1234abcd-0000-4000-8000-000000000000', 'credit_card'), 'Split card · 1234abcd');
 });

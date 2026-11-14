@@ -27,18 +27,15 @@ and browser acceptance are verified.
 
 ## Member B integration contract
 
-Migration `0304_capital_two.sql` changes `bank_accounts` from one row per
-user to unique `(user_id, account_type)`, defaults null/omitted types to
-Checking, and adds nullable `credit_limit_cents`. C12 provisions one
-Checking account and one Credit Card for the same provider customer.
-Existing checking IDs and goal/settlement references stay intact.
-
-The existing `getMappedAccountForUser()` and `accountIdForUser()` explicitly
-select Checking. B9 provisioning's lookup/conflict target also uses the
-Checking type. `listMappedAccounts()` already returns both accounts, so
-the batch sync CLI can consume them. B12 can expand its actor sync and
-analytics to include card purchases; checking remains the cash/spendable
-source. Repayment is a transfer recorded on both accounts, not a purchase.
+B12's migration `0202_bank_account_kinds.sql` and provisioning helper own
+account kinds (`checking`, `credit_card`), the $2,000 card limit, and sharing
+consent (`linked_at`). C12's `0304_capital_two.sql` adds only its schedules,
+operations and merchant cache. C12 calls B12 provisioning directly and never
+sets `linked_at`: opening/using the bank does not grant Split access.
+B12's explicit Connect / Allow flow retains control of that permission.
+Checking remains the cash/funds/Goals account; repayment is a transfer,
+not spending. Bank summaries include `sharedWithSplit` so the UI does not
+promise sync for an account the user has not shared.
 
 Schedules live in `capital_schedules`; each occurrence creates a
 `capital_operations` row with `schedule_id`, `occurrence` and its unique
@@ -59,9 +56,8 @@ always the session actor; source accounts must belong to that actor.
 - `GET /api/bank`: saved `{accounts, schedules, operations, transactions,
   presets}`. Lists are bounded (100 schedules, 30 operations, 40 transactions).
 - `POST /api/bank/connect` with `{}`: explicitly provision/recover checking
-  and card, refresh, return the same summary. Card limit is $5,000; checking
-  uses B9's $1,500 sandbox opening balance. Provisioning recovers a card by
-  full actor UUID nickname on the same customer after a lost response.
+  and card, refresh, return the same summary. Card limit is B12’s $2,000; checking
+  uses B9's $1,500 sandbox opening balance. Provisioning and lost-response recovery use B12’s helper.
 - `POST /api/bank/sync` with `{}`: refresh both owned accounts and return
   the summary. Concurrent refreshes for one actor share a promise.
 - `POST /api/bank/operations`: `{accountId, kind, payee?, amountCents,

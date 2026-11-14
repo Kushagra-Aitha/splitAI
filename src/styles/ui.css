@@ -396,3 +396,18 @@
   font-size: 15px;
   margin: 0;
 }
+
+/* B12 · The bank line in the account menu opens the Connect screen. */
+#split-common-ground .account-menu-bank {
+  width: calc(100% - 4px);
+  border: 0;
+  color: var(--sp-ink);
+  text-align: left;
+  box-shadow: none;
+  font: inherit;
+}
+#split-common-ground .account-menu-bank:hover,
+#split-common-ground .account-menu-bank:focus-visible {
+  background: var(--sp-nav);
+  outline: none;
+}
