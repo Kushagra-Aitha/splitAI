@@ -5,7 +5,7 @@ import { normalizeTransaction } from '../banking/provider.js';
 // Shapes copied from real Nessie v2 sandbox responses.
 const MAYA = 'acct_maya';
 const SAM = 'acct_sam';
-const merchants = new Map([['mrc_cafe', 'Campus Café']]);
+const merchants = new Map([['mrc_cafe', { name: 'Campus Café', category: 'Food & drink' }]]);
 const base = { status: 'pending', created_at: '2026-11-14T06:54:24.027090311Z', settle_at: '2026-11-14T06:54:34Z' };
 
 test('a purchase is a debit with its merchant name', () => {
@@ -23,6 +23,7 @@ test('a purchase is a debit with its merchant name', () => {
     status: 'pending',
     description: 'Campus Café',
     merchantName: 'Campus Café',
+    category: 'Food & drink',
     counterpartyAccountId: null,
   });
 });
