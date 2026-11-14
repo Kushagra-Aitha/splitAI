@@ -8,5 +8,6 @@ test('manual expense amounts round-trip exactly without floating-point transcrip
     assert.equal(usdToCents(centsToUsdText(cents)), cents);
   }
   assert.equal(formatUsdCents(Number.MAX_SAFE_INTEGER), '$90,071,992,547,409.91');
+  assert.equal(usdToCents('0.00', { allowZero: true }), 0);
   for (const text of ['1.005', '-1', '0', '1e3', 'NaN', 'Infinity', '90071992547409.92']) assert.throws(() => usdToCents(text));
 });
