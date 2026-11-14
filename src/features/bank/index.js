@@ -19,7 +19,13 @@ export function mountBank(root) {
     <dialog class="bank-dialog" aria-labelledby="bank-dialog-title"><div id="bank-dialog-content"></div></dialog></div>`;
   const dashboard = root.querySelector('#bank-dashboard');
   const dialog = root.querySelector('dialog');
-  const message = (text) => { root.querySelector('#bank-status').textContent = text; };
+  const message = (text, operation = null) => {
+    const host = root.querySelector('#bank-status'); host.textContent = text;
+    if (operation?.kind === 'purchase' && operation.sharedWithSplit && operation.transactionId && ['pending', 'completed'].includes(operation.status)) {
+      const link = root.ownerDocument.createElement('a'); link.textContent = 'Split now →';
+      link.href = `/?split=${encodeURIComponent(operation.transactionId)}#/transactions`; link.className = 'bank-split-now'; host.append(link);
+    }
+  };
   function accountOptions() {
     return data.accounts.filter((account) => account.connected).map((account) => `<option value="${esc(account.id)}">${esc(account.type)} ••${esc(account.mask || '••••')}</option>`).join('');
   }
@@ -125,13 +131,16 @@ export function mountBank(root) {
         form.querySelector('[role="alert"]').textContent = 'The bank declined or cancelled this payment. Check your balance and details. Editing starts a new payment.';
       } else {
         dialog.close(); activeForm = null;
-        const shared = data.accounts.find((account) => account.id === body.accountId)?.sharedWithSplit;
+        const shared = result.operation?.sharedWithSplit;
         message(result.schedule ? 'Payment schedule saved.' : status === 'completed'
           ? shared ? 'Done · Split will sync' : 'Done · Connect this account in Split to sync'
-          : 'Payment is being verified. Shared accounts sync once confirmed.');
+          : status === 'pending' ? result.operation.kind === 'purchase' && shared
+            ? 'Purchase ready to split · bank posting pending.'
+            : shared ? 'Payment received · bank posting pending.' : 'Payment received · connect this account in Split to share it.'
+          : 'The bank is verifying this payment. No automatic resend.', result.operation);
       }
       void refresh().then(() => {
-        if (status === 'completed' && owned() && !stopped) {
+        if (['pending', 'completed'].includes(status) && owned() && !stopped) {
           const card = root.querySelector(`[data-bank-card="${body.accountId}"]`);
           card?.classList.add('is-swiping');
           card?.addEventListener('animationend', () => card.classList.remove('is-swiping'), { once: true });
@@ -175,7 +184,7 @@ export function mountBank(root) {
         else {
           const command = button.dataset.bankCommand, path = `/api/bank/schedules/${encodeURIComponent(button.dataset.bankSchedule)}`;
           result = await apiRequest(`${path}${command === 'run' ? '/run' : ''}`, { method: 'POST', body: command === 'run' ? {} : { action: command }, timeoutMs: 30_000 });
-          if (result.operation) message(result.operation.status === 'completed' ? 'Done · Split will sync' : `Payment ${statusText[result.operation.status]?.toLowerCase() || 'is being verified'}.`);
+          if (result.operation) message(result.operation.status === 'completed' ? 'Done · Split will sync' : `Payment ${statusText[result.operation.status]?.toLowerCase() || 'is being verified'}.`, result.operation);
           else message('Payment schedule updated.');
         }
         if (!owned() || stopped) return;

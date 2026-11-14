@@ -26,27 +26,13 @@ const PAYMENT_METHOD = {
   withdrawal: 'Cash',
 };
 
-/**
- * Writes one account's provider snapshot. `activity` is the result of
- * readAccountActivity. Returns counts of inserted / updated / unchanged rows.
- */
-export async function persistActivity(db, accountId, activity) {
-  await lockAccount(db, accountId);
-  const { rows: [current] } = await db.query(`
-    SELECT balance_cents AS "balanceCents", available_cents AS "availableCents", kind,
-      balance_as_of AS "balanceAsOf", balance_as_of >= $2::timestamptz AS stale
-    FROM bank_accounts WHERE id = $1
-  `, [accountId, activity.balance.balanceAsOf]);
-  if (current.stale) {
-    const { balanceCents, availableCents, balanceAsOf } = current;
-    return { accountId, kind: current.kind, inserted: 0, updated: 0, unchanged: activity.transactions.length,
-      skipped: activity.skipped, balanceCents, availableCents, balanceAsOf, changed: false };
-  }
+/** Caller holds the shared account lock and transaction. No balance is invented. */
+export async function persistTransactions(db, accountId, accountKind, transactions) {
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
 
-  for (const t of activity.transactions) {
+  for (const t of transactions) {
     const key = await db.query(
       `INSERT INTO bank_import_keys (account_id, provider_key, transaction_id, occurred_at, source)
        VALUES ($1, $2, gen_random_uuid(), $3, 'nessie')
@@ -64,7 +50,7 @@ export async function persistActivity(db, accountId, activity) {
           key.rows[0].transaction_id, key.rows[0].occurred_at, accountId, t.providerTransactionId,
           t.kind, t.direction, t.amountCents, t.status, t.description, t.merchantName,
           t.counterpartyAccountId, t.category,
-          (t.kind === 'purchase' ? PURCHASE_METHOD[current.kind] : null) ?? PAYMENT_METHOD[t.kind] ?? null,
+          (t.kind === 'purchase' ? PURCHASE_METHOD[accountKind] : null) ?? PAYMENT_METHOD[t.kind] ?? null,
         ],
       );
       inserted++;
@@ -84,6 +70,27 @@ export async function persistActivity(db, accountId, activity) {
     if (res.rowCount) updated++;
     else unchanged++;
   }
+
+  return { inserted, updated, unchanged };
+}
+
+/**
+ * Writes one account's provider snapshot. `activity` is the result of
+ * readAccountActivity. Returns counts of inserted / updated / unchanged rows.
+ */
+export async function persistActivity(db, accountId, activity) {
+  await lockAccount(db, accountId);
+  const { rows: [current] } = await db.query(`
+    SELECT balance_cents AS "balanceCents", available_cents AS "availableCents", kind,
+      balance_as_of AS "balanceAsOf", balance_as_of >= $2::timestamptz AS stale
+    FROM bank_accounts WHERE id = $1
+  `, [accountId, activity.balance.balanceAsOf]);
+  if (current.stale) {
+    const { balanceCents, availableCents, balanceAsOf } = current;
+    return { accountId, kind: current.kind, inserted: 0, updated: 0, unchanged: activity.transactions.length,
+      skipped: activity.skipped, balanceCents, availableCents, balanceAsOf, changed: false };
+  }
+  const { inserted, updated, unchanged } = await persistTransactions(db, accountId, current.kind, activity.transactions);
 
   const b = activity.balance;
   const acct = await db.query(

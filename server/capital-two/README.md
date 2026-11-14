@@ -16,14 +16,16 @@ Automatic card-bill repayment is deferred at the user's request until an
 end-user preference flow is defined. It is separate from fixed recurring
 payments and is not silently enabled.
 
-**Live acceptance limitation:** the real Nessie sandbox returned/stayed
-pending for the disposable test's card purchase after attempts to settle
-early. Retrying made exactly one purchase. The feature preserves Pending
-and reconciles the existing provider reference; it does not fake completion
-or resubmit. Instant posting/card posted-balance acceptance is not verified.
-The disposable customer's accounts and the test DB schema were removed.
-Keep #70 open until this provider behavior is resolved and the live flow
-and browser acceptance are verified.
+The demo accepts delayed provider posting. An acknowledged purchase receipt
+is imported atomically with the operation, including Pending. For explicitly
+shared accounts, **Split now** opens A11's existing purchase review immediately,
+without waiting for periodic sync. Ownership and sharing consent are rechecked
+on lookup and confirmation; nothing is split without user confirmation.
+Posted balances still come from Nessie. The real sandbox previously remained
+Pending after early settlement; the UI preserves that accurate status and
+reconciles the same provider reference without another charge. Disposable
+live-test accounts and schemas were removed. Instant provider posting and
+browser acceptance are not claimed.
 
 ## Member B integration contract
 
@@ -118,6 +120,7 @@ RUN_CAPITAL_DB_TESTS=1 RUN_PROVISION_DB_TESTS=1 node --env-file=.env --test test
 The isolated DB/provider tests cover multi-account provisioning races,
 checking-only funds selection, one charge across concurrent retries, card
 debt and repayment, response loss, acknowledgement persistence failure,
-restart recovery, settle failures, rejection, occurrence deduplication,
+restart recovery, immediate splitting of pending receipts without sync,
+cross-user/unshared receipt filtering, settle failures, rejection, occurrence deduplication,
 pause/delete, short-month dates, sessions, CSRF and cross-user access.
 They do not claim real Nessie instant settlement or browser verification.

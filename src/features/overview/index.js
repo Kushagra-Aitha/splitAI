@@ -1076,6 +1076,21 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   }
 
   function observe() {
+    // A Capital Two action already imported its receipt. Open the existing
+    // review directly, without waiting for the periodic bank sync.
+    const url = new URL(window.location.href), target = url.searchParams.get('split');
+    if (target) {
+      url.searchParams.delete('split'); window.history.replaceState(null, '', url);
+      if (/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu.test(target) && state.page === 'transactions') {
+        void apiRequest(`/api/banking/transactions?id=${encodeURIComponent(target)}`).then(({ transactions }) => {
+          const purchase = transactions.find((transaction) => transaction.id === target);
+          if (!purchase || !splittable(purchase) || purchase.splitGroupName) {
+            toast('This purchase is unavailable to split. Check bank sharing and whether it is already split.'); return;
+          }
+          if (state.page === 'transactions') void openAddExpense(root.ownerDocument.createElement('button'), [purchase]);
+        }).catch(() => toast('The purchase could not be opened. Try it from Transactions.'));
+      }
+    }
     let lastChartWidth = 0;
     new ResizeObserver(() => {
       const w = Math.round(view.getBoundingClientRect().width);

@@ -20,6 +20,7 @@
 #split-common-ground .capital-bank .bank-heading > div > p:last-child { color: var(--bank-muted); }
 #split-common-ground .capital-bank .bank-eyebrow { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .13em; }
 #split-common-ground .capital-bank #bank-status:not(:empty) { padding: 12px 16px; margin-bottom: 20px; border: 1px solid #bcd5c7; background: #edf6f0; border-radius: 10px; }
+#split-common-ground .capital-bank .bank-split-now { display: inline-block; margin-left: 16px; color: #183d2d; font-weight: 700; text-underline-offset: 4px; }
 #split-common-ground .capital-bank .bank-accounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 28px 0 36px; }
 #split-common-ground .capital-bank .bank-card { position: relative; min-width: 0; height: 276px; perspective: 1200px; transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)); transition: transform 120ms ease-out; }
 #split-common-ground .capital-bank .bank-card-inner { position: relative; height: 100%; transform-style: preserve-3d; transition: transform 480ms ease; }

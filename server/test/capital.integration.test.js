@@ -9,6 +9,8 @@ import { accountIdForUser } from '../banking/overview.js';
 import { linkBankAccounts, CARD_LIMIT_CENTS } from '../banking/provision.js';
 import { createCapitalService } from '../capital-two/service.js';
 import { createCapitalHandlers } from '../capital-two/handlers.js';
+import { listTransactions } from '../banking/transactions.js';
+import { createLedgerHandlers } from '../ledger/handlers.js';
 import { fakeCapitalProvider } from './support/capital-provider.js';
 import { loginAs, memoryAuth } from './support/auth.js';
 
@@ -87,10 +89,12 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
 
   await t.test('a crash while recording provider acknowledgement recovers the original transaction after restart', async () => {
     const body = payment(); const before = provider.createCalls; let fail = true;
-    const flaky = createCapitalService({ ...dependencies, query: async (...args) => {
-      if (fail && args[0].includes('SET provider_reference = $3')) { fail = false; throw new Error('Synthetic database failure'); }
-      return query(...args);
-    } });
+    const flaky = createCapitalService({ ...dependencies, withTransaction: (fn) => withTransaction((client) => fn({
+      query: (...args) => {
+        if (fail && args[0].includes('SET provider_reference = $3')) { fail = false; throw new Error('Synthetic database failure'); }
+        return client.query(...args);
+      },
+    })) });
     await assert.rejects(flaky.operations.create(users[0], body), /Synthetic database failure/);
     await db.query("UPDATE capital_operations SET claimed_at = clock_timestamp() - interval '31 seconds' WHERE request_key = $1", [body.requestKey]);
     const restarted = createCapitalService(dependencies);
@@ -109,6 +113,34 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
     assert.equal((await service.operations.create(users[0], rejected)).status, 'declined');
     const calls = provider.createCalls;
     assert.equal((await service.operations.create(users[0], rejected)).status, 'declined'); assert.equal(provider.createCalls, calls);
+  });
+
+  await t.test('a pending receipt can be split immediately without sync and remains one purchase after posting', async () => {
+    const body = payment(), before = provider.createCalls;
+    provider.failSettlement(true);
+    const operation = await service.operations.create(users[0], body);
+    assert.equal(operation.status, 'pending'); assert.ok(operation.transactionId); assert.equal(operation.sharedWithSplit, true);
+    const filter = new URLSearchParams({ id: operation.transactionId });
+    const { transactions } = await listTransactions(db, users[0], filter);
+    assert.equal(transactions.length, 1); assert.equal(transactions[0].status, 'pending');
+    assert.equal((await listTransactions(db, users[1], filter)).transactions.length, 0);
+    await db.query('UPDATE bank_accounts SET linked_at = NULL WHERE id = $1', [card.id]);
+    assert.equal((await listTransactions(db, users[0], filter)).transactions.length, 0);
+    await linkBankAccounts(db, users[0]);
+    const ledger = createLedgerHandlers({ query, withTransaction }), actor = { userId: users[0] };
+    const { group } = await ledger['groups.create']({ actor, body: { name: 'Instant demo', kind: 'roommates', memberEmails: ['capital1@split.test'] } });
+    const { draft } = await ledger['expenseDrafts.create']({ actor, body: {
+      groupId: group.id, merchant: body.payee, cents: body.amountCents, participantIds: users,
+      bankRef: { accountId: card.id, providerKey: transactions[0].providerKey },
+    } });
+    await ledger['expenseDrafts.confirm']({ actor, params: { id: draft.id } });
+    await ledger['expenseDrafts.confirm']({ actor, params: { id: draft.id } });
+    assert.equal((await db.query("SELECT id FROM expenses WHERE id = $1 AND status = 'confirmed'", [draft.id])).rowCount, 1);
+    provider.failSettlement(false);
+    const posted = await service.operations.create(users[0], body);
+    assert.equal(posted.status, 'completed'); assert.equal(posted.transactionId, operation.transactionId);
+    assert.equal(provider.createCalls, before + 1);
+    assert.equal((await listTransactions(db, users[0], filter)).transactions[0].status, 'completed');
   });
 
   await t.test('monthly run-now is repeat-safe; pause/delete stop future unsent occurrences', async () => {

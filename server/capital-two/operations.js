@@ -2,6 +2,9 @@ import { NessieError } from '../lib/nessie.js';
 import { HttpError } from '../http.js';
 import { ownedAccount } from './accounts.js';
 import { operationInput, uuid } from './input.js';
+import { lockAccount } from '../banking/funds.js';
+import { normalizeTransaction } from '../banking/provider.js';
+import { persistTransactions } from '../banking/sync.js';
 
 export const operationColumns = `id, account_id AS "accountId", kind, payee, amount_cents AS "amountCents",
   status, schedule_id AS "scheduleId", occurrence, failure_code AS "failureCode", created_at AS "createdAt", updated_at AS "updatedAt"`;
@@ -16,7 +19,12 @@ const matches = (transaction, operation, source, destination) => transaction?.pa
 export function createOperations({ query, withTransaction, nessie }) {
   const read = async (id, userId) => {
     const { rows: [operation] } = await query(`SELECT ${operationColumns}, provider_reference AS reference,
-      claimed_at AS "claimedAt" FROM capital_operations WHERE id = $1 AND user_id = $2`, [id, userId]);
+      claimed_at AS "claimedAt",
+      (SELECT transaction_id FROM bank_import_keys k WHERE k.account_id = capital_operations.account_id
+        AND k.provider_key = capital_operations.provider_reference) AS "transactionId",
+      EXISTS (SELECT 1 FROM bank_accounts a WHERE a.id = capital_operations.account_id
+        AND a.user_id = $2 AND a.linked_at IS NOT NULL) AS "sharedWithSplit"
+      FROM capital_operations WHERE id = $1 AND user_id = $2`, [id, userId]);
     if (!operation) throw new HttpError(404, 'BANK_OPERATION_NOT_FOUND', 'Payment not found.');
     return operation;
   };
@@ -45,13 +53,22 @@ export function createOperations({ query, withTransaction, nessie }) {
   }
 
   async function capture(operation, transaction, source, destination) {
-    if (!matches(transaction, operation, source, destination) || typeof transaction.id !== 'string' || !transaction.id ||
+    if (!matches(transaction, operation, source.reference, destination) || typeof transaction.id !== 'string' || !transaction.id ||
         !['pending', 'completed', 'declined', 'cancelled'].includes(transaction.status)) throw new Error('Invalid bank transaction.');
-    await query(`UPDATE capital_operations SET provider_reference = $3, status = $4,
+    const names = new Map(transaction.merchant_id ? [[transaction.merchant_id, { name: operation.payee, category: operation.payee === 'Rent' ? 'Housing' : 'Other' }]] : []);
+    const receipt = normalizeTransaction(transaction, source.reference, names);
+    if (!receipt) throw new Error('Invalid bank receipt.');
+    await withTransaction(async (db) => {
+      await lockAccount(db, source.id);
+      const updated = await db.query(`UPDATE capital_operations SET provider_reference = $3, status = $4,
       failure_code = CASE WHEN $4 = 'declined' THEN 'bank_declined' WHEN $4 = 'cancelled' THEN 'bank_cancelled' ELSE NULL END,
       updated_at = clock_timestamp() WHERE id = $1 AND user_id = $2
       AND status IN ('submitting', 'unknown', 'pending') AND (provider_reference IS NULL OR provider_reference = $3)`,
-    [operation.id, operation.userId, transaction.id, transaction.status]);
+      [operation.id, operation.userId, transaction.id, transaction.status]);
+      // Import the acknowledged receipt atomically, including Pending. The
+      // split review can use it now; posted balances still come from the bank.
+      if (updated.rowCount) await persistTransactions(db, source.id, source.kind, [receipt]);
+    });
   }
 
   async function process(id, userId) {
@@ -100,11 +117,11 @@ export function createOperations({ query, withTransaction, nessie }) {
       if (found.length !== 1) return publicOperation(operation);
       [transaction] = found;
     }
-    await capture(operation, transaction, source.reference, destination);
+    await capture(operation, transaction, source, destination);
     if (transaction.status === 'pending') {
       try {
         const { data } = await nessie(`/transactions/${encodeURIComponent(transaction.id)}/settle`, { method: 'POST', retries: 0 });
-        await capture(operation, data, source.reference, destination);
+        await capture(operation, data, source, destination);
       } catch { /* Creation is durable; retries reconcile/settle this ID only. */ }
     }
     return publicOperation(await read(id, userId));
