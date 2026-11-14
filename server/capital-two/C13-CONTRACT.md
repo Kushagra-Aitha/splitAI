@@ -36,6 +36,10 @@ skips overdue periods. The existing bounded worker/cadence is unchanged.
 - Match receipts through `(account_id, provider_reference)` on operations and
   `(account_id, provider_key)` on `bank_import_keys`. There is no amount/name guess.
 - Salary is `o.kind = 'deposit' AND o.category = 'Salary'`; its employer is `o.payee`.
+- New salary descriptions use `Payroll · <Employer> [<operation UUID>]`, matching
+  B15's documented Salary detection. Recovery also accepts the earlier exact
+  `Capital Two <Employer> [<operation UUID>]` description for existing deposits;
+  changing the display prefix must never cause an old deposit to be resent.
 - Explicit recurring metadata joins `o.schedule_id` to `capital_schedules`.
   A recurring schedule has a monthly day or salary kind; a dated one-time purchase
   is not recurring. Summary receipts expose `isSalary` and `isRecurring`.

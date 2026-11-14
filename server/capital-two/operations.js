@@ -10,9 +10,10 @@ export const operationColumns = `id, account_id AS "accountId", kind, payee, cat
   status, schedule_id AS "scheduleId", occurrence, failure_code AS "failureCode", created_at AS "createdAt", updated_at AS "updatedAt"`;
 const terminal = new Set(['completed', 'declined', 'cancelled']);
 const definitive = (error) => error instanceof NessieError && [400, 401, 403, 404, 422, 429].includes(error.status);
-const reference = (operation) => `Capital Two ${operation.payee} [${operation.id}]`;
+const reference = (operation) => `${operation.kind === 'deposit' ? 'Payroll ·' : 'Capital Two'} ${operation.payee} [${operation.id}]`;
 const matches = (transaction, operation, source, destination) => transaction?.payer_id === source &&
-  transaction.amount_cents === operation.amountCents && transaction.description === reference(operation) &&
+  transaction.amount_cents === operation.amountCents && (transaction.description === reference(operation) ||
+    operation.kind === 'deposit' && transaction.description === `Capital Two ${operation.payee} [${operation.id}]`) &&
   transaction.kind === (operation.kind === 'card_payment' ? 'transfer' : operation.kind) &&
   (operation.kind !== 'card_payment' || transaction.payee_id === destination);
 
