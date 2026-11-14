@@ -1,9 +1,12 @@
 import { apiRequest, getSession } from '../../api/session.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
+import { usdToCents } from '../../lib/money.js';
 
 // B5 · Overview and Profile, driven by GET /api/overview and
 // POST /api/banking/sync. Every number on these two pages comes from the API;
 // pages render from a small cache and refetch when the range changes.
+// B6 · Add an expense from Overview through A's draft/confirm routes and A5's
+// shared ticket, and show C4's GET /api/insight for the same month window.
 
 const TIME_ZONE = 'America/New_York';
 const PERIODS = { month: null, quarter: 2, half: 5 }; // months back from this one
@@ -45,7 +48,7 @@ export function rangeFor(period, today = todayLocal()) {
   return { from, to: today, bucket: 'month' };
 }
 
-export function createOverview({ root, view, state, demo, icon, money, dollarLabel, esc, heading, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast }) {
+export function createOverview({ root, view, state, icon, money, dollarLabel, esc, heading, render, persist, announce, openModal, closeModal, closeButton, toast, draftTicket, registerReview }) {
   state.profileTab = state.profileTab || 'spending';
   state.period = PERIODS[state.period] !== undefined ? state.period : 'month';
   state.category = state.category || 'all';
@@ -85,7 +88,61 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
     }
   }
 
-  subscribeFinancialChanges(() => { store.data = {}; store.errors = {}; refresh(); });
+  // Shared groups (A1) for "In it together" and the Add Expense group picker.
+  const groupStore = { list: null, error: null, inflight: false };
+  async function loadGroups() {
+    const revision = financialRevision();
+    groupStore.inflight = true;
+    groupStore.error = null;
+    try {
+      const { groups } = await apiRequest('/api/groups');
+      if (revision === financialRevision()) groupStore.list = groups;
+    } catch (err) {
+      groupStore.error = err;
+    } finally {
+      groupStore.inflight = false;
+      refresh();
+    }
+  }
+  function needGroups() {
+    if (!groupStore.list && !groupStore.inflight && !groupStore.error) loadGroups();
+    return groupStore.list;
+  }
+
+  // C4's insight for this month. It is requested only after the bank sync has
+  // settled, and is tied to the financial revision it was computed from, so a
+  // confirmed expense, goal move, settlement or sync always triggers a new one.
+  const insight = { data: null, error: null, inflight: false, revision: -1 };
+  async function loadInsight() {
+    const revision = financialRevision();
+    const r = rangeFor('month');
+    insight.inflight = true;
+    insight.error = null;
+    try {
+      const data = await apiRequest(`/api/insight?from=${r.from}&to=${r.to}&bucket=${r.bucket}`, { timeoutMs: 30_000 });
+      if (revision === financialRevision()) Object.assign(insight, { data, revision });
+    } catch (err) {
+      if (revision === financialRevision()) Object.assign(insight, { error: err, revision });
+    } finally {
+      insight.inflight = false;
+      refresh();
+    }
+  }
+  function needInsight() {
+    const current = insight.revision === financialRevision();
+    if (store.synced && !store.syncing && !current && !insight.inflight) loadInsight();
+    return current ? insight.data : null;
+  }
+
+  subscribeFinancialChanges(() => {
+    store.data = {};
+    store.errors = {};
+    groupStore.list = null;
+    groupStore.error = null;
+    insight.data = null;
+    insight.error = null;
+    refresh();
+  });
 
   /** Cached overview for a period; starts a fetch (once) when missing. */
   function need(period) {
@@ -305,15 +362,45 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
     return d.breakdown.categories.filter((c) => names.includes(c.category)).reduce((a, c) => a + c.cents, 0);
   }
 
+  const clock = (iso) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+
+  function insightCard() {
+    const data = needInsight();
+    const failed = !data && insight.error && insight.revision === financialRevision();
+    const body = data
+      ? `<p>${esc(data.answer)}</p><span class="small muted">Worked out at ${clock(data.asOf)} from your balance and this month’s activity.</span>`
+      : failed
+        ? `<p>${insight.error.code === 'ASSISTANT_NOT_CONFIGURED' ? 'Split AI isn’t set up on this server yet, so there’s no thought to share.' : esc(insight.error.message)}</p><button type="button" class="cursor-interaction" data-action="insight-retry">Try again</button>`
+        : '<p class="muted" role="status">Reading this month’s activity…</p>';
+    return `<div class="insight" data-insight aria-busy="${!data && !failed}">${icon('sprout')}<div><div class="insight-label">A thought from Split · AI</div>${body}</div></div>`;
+  }
+
+  function groupPeeks() {
+    const groups = needGroups();
+    if (!groups) {
+      return groupStore.error
+        ? `<p class="small muted" role="alert">${esc(groupStore.error.message)} <button type="button" class="text-button cursor-interaction" data-action="groups-retry">Try again</button></p>`
+        : '<p class="small muted" role="status">Loading your groups…</p>';
+    }
+    if (!groups.length) return '<p class="small muted">No shared groups yet.</p>';
+    return groups
+      .map((g) => {
+        const net = g.owedToYouCents - g.youOweCents;
+        return `<div class="group-peek"><div class="group-title"><span class="group-picture">${icon(g.kind === 'trip' ? 'users' : 'house')}</span><div><h3>${esc(g.name)}</h3><span class="small muted">${g.memberCount} people${g.tagline ? ` · ${esc(g.tagline)}` : ''}</span></div></div><div class="peek-value display money">${money(Math.abs(net))}</div><p class="small muted">${net > 0 ? 'you’re owed, after your share' : net < 0 ? 'you owe, after your share' : 'all square'}</p><div class="peek-foot"><span class="small muted">You owe ${money(g.youOweCents)} · Owed ${money(g.owedToYouCents)}</span><button type="button" class="text-button cursor-interaction" data-group-id="${esc(g.id)}">See the split ${icon('arrow-right')}</button></div></div>`;
+      })
+      .join('');
+  }
+
   function home() {
     const today = todayLocal();
     const first = getSession()?.actor?.displayName?.split(' ')[0] || 'there';
     const d = need('month');
     const dateLine = fmtDay(today, { weekday: 'long', month: 'long', day: 'numeric' });
-    const addButton = `<button type="button" class="primary cursor-interaction" data-go="chat">${icon('plus')}Add an expense</button>`;
+    const addButton = `<button type="button" class="primary cursor-interaction" data-action="overview-add-expense">${icon('plus')}Add an expense</button>`;
     if (!d) {
       return (
-        heading(dateLine, `Hey ${esc(first)}.`, 'A clear look at this month. Then, back to life.', addButton) +
+        heading(dateLine, `Hey ${esc(first)}.`, '', addButton) +
         syncBar(null) +
         (store.errors.month ? errorCard('month') : loadingCard())
       );
@@ -327,21 +414,20 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
     const [whole, cents] = known ? money(planWith).split('.') : ['—', '—'];
     const net = d.totals.earnedCents - d.totals.spentCents;
     const series_ = series(d);
-    const own = state.logged ? shareFor('Maya') : 0;
     const anyDemo = d.recent.some((r) => r.source === 'demo');
     const recent = d.recent.slice(0, 4);
     return (
       heading(
         dateLine,
         known && planWith >= 0 ? `Hey ${esc(first)}. You’ve got room.` : `Hey ${esc(first)}. Bills come first this week.`,
-        'A clear look at this month. Then, back to life.',
+        '',
         addButton,
       ) +
       syncBar(d) +
       `
 <div class="balance-strip"><div class="available"><div class="label">Left after this week’s bills ${icon('arrow-up-right')}</div><div class="figure display money">${whole}<span class="cents">${known ? '.' + cents : ''}</span></div><p class="footnote">${!known ? 'Refresh to read your bank balance.' : planWith >= 0 ? 'This week’s bills are covered. This is the breathing room.' : 'This week’s bills are more than what’s free right now.'}</p><span class="smile" aria-hidden="true"></span></div><div class="balance-math"><div class="math-line"><span class="muted">In your account</span><strong class="money">${a.balanceCents === null ? '—' : money(a.balanceCents)}</strong></div>${holds ? `<div class="math-line"><span class="muted">Set aside for goals and payments</span><span class="money">− ${money(holds)}</span></div>` : ''}<div class="math-line"><span class="muted">Bills due this week</span><span class="money">− ${money(billsWeek)}</span></div><div class="math-line"><span>Yours to plan with</span><span class="money">${known ? money(planWith) : '—'}</span></div></div></div>
 <section class="chart-section" aria-label="Monthly money flow"><div class="section-head"><h2>The month so far</h2><span class="month-label">${fmtDay(today, { month: 'long', year: 'numeric' })}</span></div><div class="chart-summary"><p><strong class="money">${dollarLabel(d.totals.earnedCents)}</strong> earned <span aria-hidden="true">·</span> <strong class="money">${dollarLabel(d.totals.spentCents)}</strong> spent</p><span class="forecast">${icon('move-up-right')}${net >= 0 ? 'Ahead by ' + dollarLabel(net) : 'Behind by ' + dollarLabel(-net)} so far</span></div>${moneyChart('home-flow', series_, 'home')}${chartControls('home-flow', series_)}<p class="chart-note">Spending counts purchases only; transfers between accounts don’t count.${anyDemo ? ' Activity before your sandbox connected is labeled demo history.' : ''}</p></section>
-<div class="under-chart"><section aria-label="Category budgets"><div class="section-head"><h2>Room for the good stuff</h2></div>${budget('Food & drink', categoryCents(d, 'Food & drink', 'Groceries') / 100, 300, 'utensils')}${budget('Getting around', categoryCents(d, 'Getting around') / 100, 100, 'train-front')}${budget('Just for fun', categoryCents(d, 'Just for fun') / 100, 120, 'ticket')}<div class="insight">${icon('sprout')}<div><div class="insight-label">A thought from Split · AI</div><p>${state.cap ? 'Your $' + state.cap + ' takeout cap is set. A small plan for the rest of the month.' : 'Takeout is running above your usual. A $60 cap for the rest of the month could help keep your savings plan on track.'}</p><button type="button" class="cursor-interaction" data-action="cap">${state.cap ? 'Adjust the cap' : 'Make a small plan'}</button></div></div></section><section aria-label="Shared money"><div class="section-head"><h2>In it together</h2><button type="button" class="text-button cursor-interaction" data-go="groups">All groups ${icon('arrow-up-right')}</button></div><div class="group-peek"><div class="group-title"><span class="group-picture">${icon('house')}</span><div><h3>Puffton 4</h3><span class="small muted">Home, sweet shared home</span></div></div>${stack()}<div class="peek-value display money">${money((state.settled ? 6450 : 4650) + (state.logged ? demo.draft.cents - own : 0))}</div><p class="small muted">you’re owed, after your share</p><div class="peek-foot"><span class="small muted">${state.settled ? 'Your payment is done' : '3 simple transfers'}</span><button type="button" class="text-button cursor-interaction" data-action="puffton">See the split ${icon('arrow-right')}</button></div></div><div class="activity"><div class="section-head" style="margin-bottom:4px"><h3>Recent activity</h3></div>${state.logged ? tx(esc(demo.draft.merchant), 'Today · your share', money(own), 'utensils') : ''}${recent.length ? recent.map((t) => txRow(t, today)).join('') : '<p class="small muted">No activity yet this month. Refresh to check your bank.</p>'}</div></section></div>`
+<div class="under-chart"><section aria-label="Category budgets"><div class="section-head"><h2>Room for the good stuff</h2></div>${budget('Food & drink', categoryCents(d, 'Food & drink', 'Groceries') / 100, 300, 'utensils')}${budget('Getting around', categoryCents(d, 'Getting around') / 100, 100, 'train-front')}${budget('Just for fun', categoryCents(d, 'Just for fun') / 100, 120, 'ticket')}${insightCard()}</section><section aria-label="Shared money"><div class="section-head"><h2>In it together</h2><button type="button" class="text-button cursor-interaction" data-go="groups">All groups ${icon('arrow-up-right')}</button></div>${groupPeeks()}<div class="activity"><div class="section-head" style="margin-bottom:4px"><h3>Recent activity</h3></div>${recent.length ? recent.map((t) => txRow(t, today)).join('') : '<p class="small muted">No activity yet this month. Refresh to check your bank.</p>'}</div></section></div>`
     );
   }
 
@@ -355,12 +441,11 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
     const today = todayLocal();
     const actor = getSession()?.actor;
     const name = actor?.displayName || 'You';
-    const first = name.split(' ')[0];
     const initials = name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
     const tab = state.profileTab;
     const period = tab === 'spending' ? state.period : 'month';
     const d = need(period);
-    return `<div class="profile-head"><span class="avatar profile-avatar">${esc(initials)}</span><div><div class="eyebrow muted" style="margin-bottom:6px">Your profile</div><h1>${esc(first)}, in the details.</h1><p>Your spending habits, plans, and recurring little things.</p></div><span class="tag">${icon('calendar-days')}${fmtDay(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div class="profile-toolbar"><div class="profile-nav" aria-label="Profile detail sections">${[
+    return `<div class="profile-head"><span class="avatar profile-avatar">${esc(initials)}</span><div><div class="eyebrow muted" style="margin-bottom:6px">Your profile</div><h1>${esc(name)}</h1></div><span class="tag">${icon('calendar-days')}${fmtDay(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div class="profile-toolbar"><div class="profile-nav" aria-label="Profile detail sections">${[
       ['spending', 'Spending'],
       ['recurring', 'Recurring'],
       ['upcoming', 'Coming up'],
@@ -532,23 +617,124 @@ export function createOverview({ root, view, state, demo, icon, money, dollarLab
     }
   });
 
-  function cap() {
-    openModal(
-      'Takeout spending cap',
-      `<div class="modal-header"><div><div class="eyebrow">A small plan · AI suggestion</div><h2>Keep some room for later.</h2></div>${closeButton}</div><p>Takeout is running above your usual pace this month.</p><form id="sp-cap-form"><label class="field">Takeout cap for the rest of the month<input type="number" name="cap" min="0" max="1000" step="1" required value="${state.cap ?? 60}"></label><div class="checks"><div class="check-row">${icon('bell')}We’ll flag it when you reach 80%.</div><div class="check-row">${icon('check')}This is a reminder. It won’t restrict payments.</div></div><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Maybe later</button><button type="submit" class="primary cursor-interaction">Set my cap</button></div></form>`,
-    );
+  // ── Add an expense (B6) ───────────────────────────────────────────────
+  // Overview stays the page underneath: the form creates an A2 draft, the
+  // review is A5's shared ticket, and only its Confirm calls A3.
+  let expenseOpening = false;
+  let lastGroupId = null;
+  const EXPENSE_FORM = 'sp-overview-expense-form';
+  const focusAddButton = () => root.querySelector('[data-action="overview-add-expense"]')?.focus({ preventScroll: true });
+
+  async function openAddExpense(button) {
+    if (expenseOpening) return;
+    expenseOpening = true;
+    button.disabled = true;
+    try {
+      const { groups } = await apiRequest('/api/groups');
+      if (!groups.length) {
+        toast('Create a group in Together before adding a shared expense.');
+        return;
+      }
+      const details = await Promise.all(groups.map((g) => apiRequest(`/api/groups/${encodeURIComponent(g.id)}`)));
+      if (state.page !== 'home') return;
+      const selected = groups.some((g) => g.id === lastGroupId) ? lastGroupId : groups[0].id;
+      const people = details
+        .map(({ group, members }) => `<fieldset class="expense-people" data-group-members="${esc(group.id)}" ${group.id === selected ? '' : 'hidden disabled'}><legend>Split equally with</legend>${members
+          .map((m) => `<label class="check-label"><input type="checkbox" name="participant" value="${esc(m.userId)}" checked>${m.isYou ? 'You · paid the full amount' : esc(m.displayName)}</label>`)
+          .join('')}</fieldset>`)
+        .join('');
+      openModal(
+        'Add an expense',
+        `<div class="modal-header"><div><div class="eyebrow">Shared expense</div><h2>Add an expense</h2></div>${closeButton}</div><form id="${EXPENSE_FORM}"><label class="field">Group<select name="groupId">${groups
+          .map((g) => `<option value="${esc(g.id)}" ${g.id === selected ? 'selected' : ''}>${esc(g.name)}</option>`)
+          .join('')}</select></label><label class="field">Merchant<input name="merchant" required maxlength="60" autocomplete="off"></label><div class="field-grid"><label class="field">Total, USD<input name="amount" required inputmode="decimal" autocomplete="off" placeholder="42.00"></label><label class="field">Category<select name="category">${CATEGORIES
+          .map((c) => `<option>${esc(c)}</option>`)
+          .join('')}</select></label></div>${people}<p class="error" role="alert"></p><div class="modal-actions"><button type="button" class="secondary cursor-interaction" data-action="close">Cancel</button><button type="submit" class="primary cursor-interaction">Review split</button></div><div class="modal-fine">Nothing is saved until you confirm the expense. No money moves.</div></form>`,
+      );
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      expenseOpening = false;
+      if (button.isConnected) button.disabled = false;
+    }
   }
+
+  async function submitExpense(form, fd) {
+    const button = form.querySelector('[type="submit"]');
+    const error = form.querySelector('[role="alert"]');
+    if (button.disabled) return;
+    const groupId = String(fd.get('groupId'));
+    const participantIds = fd.getAll('participant');
+    let cents;
+    try {
+      cents = usdToCents(String(fd.get('amount') ?? '').trim());
+    } catch (err) {
+      error.textContent = err.message;
+      return;
+    }
+    if (!participantIds.length) {
+      error.textContent = 'Choose at least one person to split with.';
+      return;
+    }
+    button.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    error.textContent = '';
+    try {
+      const { draft } = await apiRequest('/api/expense-drafts', {
+        method: 'POST',
+        body: { groupId, merchant: String(fd.get('merchant')).trim(), cents, category: String(fd.get('category')), participantIds },
+      });
+      if (!form.isConnected) return;
+      lastGroupId = groupId;
+      const groupName = form.querySelector(`option[value="${CSS.escape(groupId)}"]`)?.textContent ?? '';
+      registerReview(draft, {
+        onConfirmed: () => {
+          if (state.page !== 'home') return;
+          render();
+          focusAddButton();
+        },
+        onDiscard: () => {
+          toast('Discarded. Nothing was saved.');
+          focusAddButton();
+        },
+      });
+      // Close first so focus returns to "Add an expense" when the review closes.
+      closeModal();
+      openModal('Review split', `<div class="modal-header"><div><div class="eyebrow">${esc(groupName)} · not saved yet</div><h2>Review the split</h2></div>${closeButton}</div>${draftTicket(draft)}`);
+    } catch (err) {
+      if (form.isConnected) error.textContent = err.message;
+      announce(err.message);
+    } finally {
+      button.disabled = false;
+      form.setAttribute('aria-busy', 'false');
+    }
+  }
+
+  root.addEventListener('change', (e) => {
+    const select = e.target;
+    if (select.name !== 'groupId' || select.form?.id !== EXPENSE_FORM) return;
+    select.form.querySelectorAll('[data-group-members]').forEach((fs) => {
+      const on = fs.dataset.groupMembers === select.value;
+      fs.hidden = !on;
+      fs.disabled = !on;
+    });
+  });
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
-    if (b?.dataset.action === 'cap') cap();
+    if (!b) return;
+    if (b.dataset.action === 'overview-add-expense') void openAddExpense(b);
+    if (b.dataset.action === 'insight-retry') {
+      insight.revision = -1;
+      insight.error = null;
+      render();
+    }
+    if (b.dataset.action === 'groups-retry') {
+      groupStore.error = null;
+      render();
+    }
   });
   function handleOverviewForm(form, fd) {
-    if (form.id !== 'sp-cap-form') return;
-    state.cap = Number(fd.get('cap'));
-    closeModal();
-    render();
-    persist();
-    toast('Your takeout cap is set. You can change it anytime.');
+    if (form.id === EXPENSE_FORM) void submitExpense(form, fd);
   }
 
   function observe() {
