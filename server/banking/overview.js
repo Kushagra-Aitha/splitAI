@@ -10,6 +10,7 @@
 //   - account.spendableCents is B4's figure: available after goal and
 //     pending settlement holds. That is the number users see as available.
 import { getSpendableFunds } from './funds.js';
+import { effectiveCategory, isSalary, recurringColumns, recurringJoins } from './details.js';
 
 export const TIME_ZONE = 'America/New_York';
 const BUCKETS = { day: '1 day', week: '1 week', month: '1 month' };
@@ -62,6 +63,14 @@ const COUNTS = `status IN ('pending', 'completed')`;
  * card purchases count too (B12). Moving money between your own accounts
  * (paying the card) is a transfer and never counts as earned or spent.
  */
+/** YYYY-MM-DD: `last` plus the number of days between `previous` and `last`. */
+function nextFromGap(previous, last) {
+  const day = 86_400_000;
+  const gap = Math.round((Date.parse(`${last}T12:00:00Z`) - Date.parse(`${previous}T12:00:00Z`)) / day);
+  if (gap < 7 || gap > 40) return null;
+  return new Date(Date.parse(`${last}T12:00:00Z`) + gap * day).toISOString().slice(0, 10);
+}
+
 export async function getOverview(db, accountId, range, { recentLimit = 25 } = {}) {
   const interval = BUCKETS[range.bucket];
 
@@ -122,7 +131,8 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   const recent = await db.query(
     `SELECT t.id, t.provider_transaction_id AS "providerTransactionId", t.kind, t.direction,
             t.amount_cents AS "amountCents", t.description, t.merchant_name AS "merchantName",
-            t.category, t.payment_method AS "paymentMethod", t.status, t.source,
+            ${effectiveCategory('t')} AS category, t.payment_method AS "paymentMethod", t.status, t.source,
+            ${recurringColumns('t')},
             t.occurred_at AS "occurredAt", t.account_id AS "accountId", acct.kind AS "accountKind",
             acct.account_mask AS "accountMask", k.provider_key AS "providerKey",
             g.id AS "splitGroupId", g.name AS "splitGroupName",
@@ -135,6 +145,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
        LEFT JOIN bank_import_keys k ON k.account_id = t.account_id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
        LEFT JOIN expenses e ON e.bank_account_id = t.account_id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
        LEFT JOIN groups g ON g.id = e.group_id
+       ${recurringJoins('t', 'k')}
       WHERE ${inRange('t.')}
       ORDER BY t.occurred_at DESC, t.id
       LIMIT $5`,
@@ -144,7 +155,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   // Purchases in range, grouped for Profile (categories, methods, merchants).
   const merchants = await db.query(
     `SELECT coalesce(merchant_name, description) AS name,
-            coalesce(category, 'Other') AS category,
+            coalesce(${effectiveCategory('bank_transactions')}, 'Other') AS category,
             coalesce(payment_method, 'Card') AS "paymentMethod",
             sum(amount_cents)::bigint AS cents, count(*)::int AS count
        FROM bank_transactions
@@ -155,6 +166,23 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   );
 
   const funds = account.rows.length ? await getSpendableFunds(accountId, db) : null;
+
+  // Salary (B15): the latest paychecks across linked accounts; the next one is
+  // estimated from the gap between the last two (never invented from one).
+  const { rows: paychecks } = await db.query(
+    `SELECT t.amount_cents AS "amountCents", t.description,
+            to_char(t.occurred_at AT TIME ZONE '${TIME_ZONE}', 'YYYY-MM-DD') AS "paidOn"
+       FROM bank_transactions t
+      WHERE t.account_id = ANY($1::uuid[]) AND ${isSalary('t')} AND t.status IN ('pending', 'completed')
+      ORDER BY t.occurred_at DESC LIMIT 2`,
+    [accountIds],
+  );
+  const salary = paychecks.length ? {
+    amountCents: paychecks[0].amountCents,
+    employer: paychecks[0].description.replace(/^(payroll|salary|direct deposit)\s*[·:-]?\s*/i, '') || null,
+    lastPaidOn: paychecks[0].paidOn,
+    nextPaidOn: paychecks.length > 1 ? nextFromGap(paychecks[1].paidOn, paychecks[0].paidOn) : null,
+  } : null;
 
   const sumBy = (key) => {
     const m = new Map();
@@ -173,6 +201,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
         }
       : null,
     cards,
+    salary,
     range: { from: range.from, to: range.to, bucket: range.bucket, timeZone: TIME_ZONE },
     totals: {
       earnedCents: rows.reduce((a, b) => a + b.earnedCents, 0),

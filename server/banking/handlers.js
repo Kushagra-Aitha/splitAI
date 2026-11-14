@@ -7,7 +7,7 @@ import { RangeError422, TIME_ZONE, accountIdForUser, getOverview, parseRange } f
 import { listBills } from './bills.js';
 import { linkBankAccounts, listBankAccounts, provisionBankAccount } from './provision.js';
 import { syncForUser } from './sync.js';
-import { listTransactions } from './transactions.js';
+import { listTransactions, setTransactionCategory } from './transactions.js';
 
 /** Today's date in the app time zone, as YYYY-MM-DD. */
 function localToday(now = new Date()) {
@@ -52,6 +52,8 @@ function syncResponse(result) {
 
 export const bankingHandlers = {
   'banking.transactions': ({ actor, query }) => listTransactions(getPool(), actor.userId, query),
+  /** POST /api/banking/transactions/:id/category (B15) → your category, or null for the bank's. */
+  'banking.transactionCategory': ({ actor, params, body }) => setTransactionCategory(getPool(), actor.userId, params.id, body),
   /** POST /api/banking/sync → refresh the actor's balance and activity. */
   'banking.sync': async ({ actor }) => {
     const result = await withProvider(() => syncForUser(getPool(), actor.userId));

@@ -1,5 +1,6 @@
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from './overview.js';
+import { CATEGORY_CHOICES, effectiveCategory, recurringColumns, recurringJoins } from './details.js';
 
 const PAGE_SIZE = 50;
 
@@ -16,7 +17,8 @@ export async function listTransactions(db, userId, query) {
 
   const { rows } = await db.query(`
     SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", t.description,
-           t.merchant_name AS "merchantName", t.category, t.status, t.source,
+           t.merchant_name AS "merchantName", ${effectiveCategory('t')} AS category, t.status, t.source,
+           ${recurringColumns('t')},
            t.occurred_at AS "occurredAt", a.id AS "accountId", a.kind AS "accountKind",
            a.account_mask AS "accountMask", k.provider_key AS "providerKey",
            g.name AS "splitGroupName",
@@ -27,8 +29,8 @@ export async function listTransactions(db, userId, query) {
            CASE WHEN e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
              AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed') THEN
              CASE WHEN suggestions.name IS NOT NULL THEN 'Split with ' || suggestions.name
-                  WHEN lower(t.category) IN ('home & bills', 'rent', 'utilities') OR coalesce(t.merchant_name, t.description) ~* '\\m(rent|utilities)\\M' THEN 'Rent or utilities'
-                  WHEN lower(t.category) IN ('food & drink', 'restaurant', 'restaurants', 'dining') AND t.amount_cents >= 5000 THEN 'Large food or drink purchase'
+                  WHEN lower(${effectiveCategory('t')}) IN ('home & bills', 'rent', 'utilities') OR coalesce(t.merchant_name, t.description) ~* '\\m(rent|utilities)\\M' THEN 'Rent or utilities'
+                  WHEN lower(${effectiveCategory('t')}) IN ('food & drink', 'restaurant', 'restaurants', 'dining') AND t.amount_cents >= 5000 THEN 'Large food or drink purchase'
              END
            END AS "suggestion",
            suggestions.id AS "suggestedGroupId",
@@ -38,6 +40,7 @@ export async function listTransactions(db, userId, query) {
       LEFT JOIN bank_import_keys k ON k.account_id = a.id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
       LEFT JOIN expenses e ON e.bank_account_id = a.id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
       LEFT JOIN groups g ON g.id = e.group_id
+      ${recurringJoins('t', 'k')}
       LEFT JOIN LATERAL (
         SELECT candidate.id, candidate.name
           FROM group_members m JOIN groups candidate ON candidate.id = m.group_id
@@ -65,7 +68,7 @@ export async function listTransactions(db, userId, query) {
      WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
        AND ($7::uuid IS NULL OR t.id = $7)
        AND ($2::text IS NULL OR a.kind = $2)
-       AND ($3::text IS NULL OR coalesce(t.category, 'Other') = $3)
+       AND ($3::text IS NULL OR coalesce(${effectiveCategory('t')}, 'Other') = $3)
        AND (NOT $4 OR (
          e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
          AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed')
@@ -74,7 +77,7 @@ export async function listTransactions(db, userId, query) {
      LIMIT $5 OFFSET $6
   `, [userId, account, category, unsplit, PAGE_SIZE + 1, offset, id]);
   const { rows: categories } = await db.query(`
-    SELECT DISTINCT coalesce(t.category, 'Other') AS category
+    SELECT DISTINCT coalesce(${effectiveCategory('t')}, 'Other') AS category
     FROM bank_accounts a JOIN bank_transactions t ON t.account_id = a.id
     WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
     ORDER BY category
@@ -82,6 +85,30 @@ export async function listTransactions(db, userId, query) {
   return {
     transactions: rows.slice(0, PAGE_SIZE),
     categories: categories.map(({ category }) => category),
+    categoryChoices: [...new Set([...CATEGORY_CHOICES, ...categories.map(({ category }) => category)])],
     nextOffset: rows.length > PAGE_SIZE ? offset + PAGE_SIZE : null,
   };
+}
+
+/**
+ * B15 · Re-categorize one of your transactions in Split. `category: null`
+ * goes back to the bank's category. The bank's value is never overwritten.
+ */
+export async function setTransactionCategory(db, userId, id, body) {
+  const valid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu;
+  const category = body?.category === null ? null : typeof body?.category === 'string' ? body.category.trim() : undefined;
+  if (!valid.test(id ?? '') || category === undefined || Object.keys(body).some((key) => key !== 'category') ||
+      (category !== null && (!category || [...category].length > 40 || /\p{Cc}/u.test(category)))) {
+    throw new HttpError(422, 'INVALID_CATEGORY', 'Choose a category of up to 40 characters.');
+  }
+  const { rows: [row] } = await db.query(`
+    UPDATE bank_transactions t
+       SET category_override = $3, category_overridden_at = CASE WHEN $3::text IS NULL THEN NULL ELSE now() END
+      FROM bank_accounts a
+     WHERE t.id = $1 AND a.id = t.account_id AND a.user_id = $2 AND a.linked_at IS NOT NULL
+     RETURNING t.id, ${effectiveCategory('t')} AS category, t.category AS "bankCategory",
+               t.category_override IS NOT NULL AS "categoryOverridden"`,
+  [id, userId, category]);
+  if (!row) throw new HttpError(404, 'TRANSACTION_NOT_FOUND', 'Transaction not found.');
+  return { transaction: row };
 }
