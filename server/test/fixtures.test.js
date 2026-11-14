@@ -65,6 +65,6 @@ test('overview buckets are zero-filled days that add up to the totals', () => {
 
 test('spendable funds = balance − goal holds − settlement holds', () => {
   const r = load('funds.json').getSpendableFunds.result;
-  assert.equal(r.spendableCents, r.balanceCents - r.goalHoldsCents - r.settlementHoldsCents);
+  assert.equal(r.spendableCents, (r.availableCents ?? r.balanceCents) - r.goalHoldsCents - r.settlementHoldsCents);
   assert.equal(load('funds.json').reserveFundsInsufficient.httpResponse.status, 409);
 });
