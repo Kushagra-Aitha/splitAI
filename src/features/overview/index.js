@@ -1009,7 +1009,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       }
       const details = await Promise.all(groups.map((g) => apiRequest(`/api/groups/${encodeURIComponent(g.id)}`)));
       if (!['home', 'transactions'].includes(state.page)) return;
-      const preferred = purchases[0]?.suggestedGroupId || lastGroupId;
+      const preferred = (purchases.length && state.transactionGroupId) || purchases[0]?.suggestedGroupId || lastGroupId;
       const selected = groups.some((g) => g.id === preferred) ? preferred : groups[0].id;
       const people = details.map(({ group, members }) => `<fieldset class="expense-people" data-group-members="${esc(group.id)}" ${group.id === selected ? '' : 'hidden disabled'}><legend>People</legend>${members.map((m) => `
         <div><label class="check-label"><input type="checkbox" name="participant" value="${esc(m.userId)}" checked>${m.isYou ? 'You · paid the full amount' : esc(m.displayName)}</label>

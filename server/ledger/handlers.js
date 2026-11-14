@@ -6,7 +6,8 @@ import { HttpError } from '../http.js';
 import { notify } from '../notifications/notify.js';
 
 const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
-const groupColumns = `g.id, g.kind, g.name, g.tagline,
+const groupKinds = new Set(['trip', 'roommates', 'friends', 'couple', 'event', 'work']);
+const groupColumns = `g.id, g.kind, g.name, g.tagline, coalesce(g.banner, g.kind) AS banner,
   g.starts_on::text AS "startsOn", g.ends_on::text AS "endsOn"`;
 
 function invalid(message) {
@@ -33,6 +34,19 @@ function readDate(value, field) {
     if (Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value) return value;
   }
   throw invalid(`${field} must be a valid YYYY-MM-DD date.`);
+}
+
+function readGroupDetails(body) {
+  const { kind, banner = kind } = body;
+  if (!groupKinds.has(kind) || !groupKinds.has(banner)) throw invalid('Choose a group type and banner.');
+  const name = optionalText(body.name, 'name');
+  if (!name || name.length > 100) throw invalid('Enter a group name up to 100 characters.');
+  const tagline = optionalText(body.tagline, 'tagline');
+  if (tagline && tagline.length > 200) throw invalid('Enter a group description up to 200 characters.');
+  const startsOn = readDate(body.startsOn, 'startsOn');
+  const endsOn = readDate(body.endsOn, 'endsOn');
+  if (startsOn && endsOn && endsOn < startsOn) throw invalid('The end date must follow the start date.');
+  return [kind, name, tagline, startsOn, endsOn, banner];
 }
 
 async function requireGroup(db, id, userId) {
@@ -209,6 +223,10 @@ export function createLedgerHandlers({ query, withTransaction }) {
       const { rows } = await query(`
         SELECT ${groupColumns}, count(m.user_id)::int AS "memberCount",
           array_agg(u.initials ORDER BY m.joined_at, u.id) AS "memberInitials",
+          (SELECT jsonb_build_object('merchant', e.merchant, 'author', u.display_name, 'at', e.confirmed_at)
+            FROM expenses e JOIN users u ON u.id = e.created_by
+            WHERE e.group_id = g.id AND e.status = 'confirmed'
+            ORDER BY e.confirmed_at DESC, e.id LIMIT 1) AS "lastExpense",
           greatest(
             (SELECT max(e.confirmed_at) FROM expenses e WHERE e.group_id = g.id AND e.status = 'confirmed'),
             (SELECT max(s.updated_at) FROM settlements s WHERE s.group_id = g.id AND s.status IN ('pending','posted','failed')),
@@ -233,27 +251,31 @@ export function createLedgerHandlers({ query, withTransaction }) {
     },
 
     async 'groups.create'({ actor, body }) {
-      const { kind } = body;
-      if (kind !== 'roommates' && kind !== 'trip') throw invalid('Choose roommates or trip.');
-      const name = optionalText(body.name, 'name');
-      if (!name) throw invalid('Enter a group name.');
-      const tagline = optionalText(body.tagline, 'tagline');
-      const startsOn = readDate(body.startsOn, 'startsOn');
-      const endsOn = readDate(body.endsOn, 'endsOn');
-      if (startsOn && endsOn && endsOn < startsOn) throw invalid('The end date must follow the start date.');
+      const details = readGroupDetails(body);
       if (Object.hasOwn(body, 'memberIds')) throw invalid('Add members by email address.');
 
       return withTransaction(async (db) => {
         const memberIds = [...new Set([actor.userId, ...await resolveMemberEmails(db, body.memberEmails ?? [])])];
         const { rows: [group] } = await db.query(`
-          INSERT INTO groups AS g (kind, name, tagline, starts_on, ends_on, created_by)
-          VALUES ($1, $2, $3, $4, $5, $6)
+          INSERT INTO groups AS g (kind, name, tagline, starts_on, ends_on, banner, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
           RETURNING ${groupColumns}
-        `, [kind, name, tagline, startsOn, endsOn, actor.userId]);
+        `, [...details, actor.userId]);
         await db.query(`
           INSERT INTO group_members (group_id, user_id)
           SELECT $1, user_id FROM unnest($2::uuid[]) AS members(user_id)
         `, [group.id, memberIds]);
+        return { group };
+      });
+    },
+
+    async 'groups.update'({ actor, body, params }) {
+      const details = readGroupDetails(body);
+      return withTransaction(async (db) => {
+        const current = await lockGroupMembership(db, params.id, actor.userId);
+        const { rows: [group] } = await db.query(`UPDATE groups AS g SET kind = $1, name = $2,
+          tagline = $3, starts_on = $4, ends_on = $5, banner = $6 WHERE id = $7
+          RETURNING ${groupColumns}`, [...details, current.id]);
         return { group };
       });
     },
