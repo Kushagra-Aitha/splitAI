@@ -115,12 +115,16 @@ test('live database: Ask resolves selections and creates one draft that only exp
     expense = { merchant: 'Synthetic', cents: 1000, participantNames: ['Unknown'], groupHint: null };
     const selection = await ask({ actor, body: begin('Scope check expense') });
     const before = await count('expenses');
-    await assert.rejects(ask({ actor: { userId: USERS.sam }, body: {
+    const foreignProposal = await ask({ actor: { userId: USERS.sam }, body: {
       proposalId: selection.proposalId, selection: { groupId: GROUPS.bostonWeekend },
-    } }), (error) => error.status === 403 && error.code === 'PROPOSAL_SCOPE_FORBIDDEN');
-    await assert.rejects(ask({ actor, body: { proposalId: selection.proposalId, selection: {
+    } });
+    assert.equal(foreignProposal.type, 'blocked');
+    assert.equal(foreignProposal.reasonCode, 'ASSISTANT_SCOPE_REJECTED');
+    const foreignMember = await ask({ actor, body: { proposalId: selection.proposalId, selection: {
       groupId: GROUPS.bostonWeekend, participantIds: [USERS.alex],
-    } } }), (error) => error.status === 403 && error.code === 'PARTICIPANT_NOT_A_MEMBER');
+    } } });
+    assert.equal(foreignMember.type, 'blocked');
+    assert.equal(foreignMember.reasonCode, 'ASSISTANT_SCOPE_REJECTED');
     assert.equal(await count('expenses'), before);
   });
 
@@ -165,7 +169,9 @@ test('live database: Ask resolves selections and creates one draft that only exp
       groupId: GROUPS.puffton4, participantIds: [USERS.sam],
     } } }), (error) => error.status === 409 && error.code === 'PROPOSAL_EXPIRED');
     modelError = true;
-    await assert.rejects(ask({ actor, body: begin('Bad model output') }), (error) => error.code === 'INVALID_ASSISTANT_OUTPUT');
+    const rejected = await ask({ actor, body: begin('Bad model output') });
+    assert.equal(rejected.type, 'blocked');
+    assert.equal(rejected.reasonCode, 'ASSISTANT_PROPOSAL_REJECTED');
     assert.equal(await count('expenses'), before);
   });
 });

@@ -2,6 +2,10 @@ const descriptions = Object.freeze({
   EXPENSE_CONFIRMED: ['allowed', 'expense', 'You confirmed a shared expense.'],
   SETTLEMENT_APPROVED: ['allowed', 'settlement', 'You approved a sandbox settlement for submission.'],
   UNTRUSTED_INSTRUCTION: ['blocked', 'assistant', 'Guard blocked an untrusted payment instruction.'],
+  UNTRUSTED_CONTEXT: ['blocked', 'assistant', 'Group notes are reference text and cannot authorize an action. No money was moved.'],
+  ASSISTANT_ACTION_UNSUPPORTED: ['blocked', 'assistant', 'This request is outside Ask’s permitted expense and financial-read operations. No money was moved.'],
+  ASSISTANT_PROPOSAL_REJECTED: ['blocked', 'assistant', 'Guard rejected an invalid assistant proposal. No financial changes were made.'],
+  ASSISTANT_SCOPE_REJECTED: ['blocked', 'assistant', 'Guard rejected a proposal outside your authorized groups or participants. No financial changes were made.'],
 });
 
 export async function recordGuardEvent(db, { actorUserId, groupId = null, expenseId = null, settlementId = null, reasonCode }) {

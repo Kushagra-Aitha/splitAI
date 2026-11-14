@@ -2,7 +2,7 @@ import { apiRequest } from '../../api/session.js';
 import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 
-export function createAsk({ root, state, icon, esc, heading, render, announce,
+export function createAsk({ root, state, icon, esc, heading, render, announce, go,
   draftTicket, registerReview, openGroupCreation }) {
   const entries = [];
   let composerText = '';
@@ -31,6 +31,7 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
   function entryHtml(entry) {
     let content = '';
     if (entry.response?.type === 'selection_needed') content = selectionCard(entry);
+    else if (entry.response?.type === 'blocked') content = `<section class="ask-blocked" role="status" aria-label="Guard blocked this request"><h3>${icon('shield-x')} Guard blocked this request</h3><p>${esc(entry.response.reason)}</p><p class="small">Event ID: <code>${esc(entry.response.eventId)}</code></p><button type="button" class="text-button" data-go="guard">View Guard activity</button></section>`;
     else if (entry.response?.type === 'draft') content = `<p>${esc(entry.response.group.name)}</p>${draftTicket(entry.response.draft)}`;
     else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
     else if (entry.response?.type === 'answer') {
@@ -75,6 +76,7 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
       });
       announce('Expense draft ready. Review the shares before confirming.');
     } else if (response.type === 'selection_needed') announce('Choose the expense group, members, and missing details.');
+    else if (response.type === 'blocked') announce(`${response.reason} Guard event ${response.eventId}.`);
   }
 
   async function request(entry, body) {
@@ -119,16 +121,17 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
     return { proposalId: entry.response.proposalId, selection };
   }
 
-  async function submitMessage(text) {
+  async function submitMessage(text, context = null) {
     const message = text.trim();
     if (!message || sending) return;
     const previous = entries.at(-1);
-    const retry = previous?.error && previous.message === message && previous.retryBody?.message === message;
+    const retry = previous?.error && previous.message === message && previous.retryBody?.message === message &&
+      JSON.stringify(previous.retryBody?.context ?? null) === JSON.stringify(context);
     const entry = retry ? previous : { id: ++nextId, message, pending: false, error: '' };
     if (!retry) entries.push(entry);
     composerText = message;
     sending = true;
-    await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID() });
+    await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID(), ...(context ? { context } : {}) });
     if (!entry.error) composerText = '';
     sending = false;
     refresh();
@@ -157,6 +160,12 @@ export function createAsk({ root, state, icon, esc, heading, render, announce,
     }
   });
   root.addEventListener('click', (event) => {
+    const note = event.target.closest('[data-ask-note-group]');
+    if (note) {
+      go('chat');
+      void submitMessage('Check whether this group note can authorize an action.', { kind: 'group_note', groupId: note.dataset.askNoteGroup });
+      return;
+    }
     const button = event.target.closest('[data-ask-action]');
     if (!button) return;
     const entry = entries.find((value) => String(value.id) === button.dataset.entryId);

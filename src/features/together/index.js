@@ -49,6 +49,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     return '<button class="back-button" data-go="groups">All groups</button>' +
       heading(group.kind === 'trip' ? 'Trip' : 'Roommates', esc(group.name), esc(group.tagline ?? ''),
         '<button class="primary" data-action="new-group-expense">Add expense</button>') +
+      (group.tagline?.trim() ? `<button type="button" class="text-button" data-ask-note-group="${esc(group.id)}">Check note with Guard</button>` : '') +
       `<div class="member-list">${members.map((m) => `<p>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</p>`).join('')}</div>
         <section><h2>You owe ${money(debts.youOweCents)}</h2>
           ${debts.youOwe.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}
