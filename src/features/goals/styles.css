@@ -393,3 +393,7 @@
   #split-common-ground .goal-form-fields select { font-size: 16px; }
   #split-common-ground .goal-amount { overflow-wrap: anywhere; }
 }
+#split-common-ground .goal-history { margin-top: 28px; border-top: 1px solid var(--sp-line); padding-top: 24px; }
+#split-common-ground .goal-history ul { padding: 0; list-style: none; }
+#split-common-ground .goal-history li { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--sp-line); }
+#split-common-ground .goal-history time { font-size: 12px; color: var(--sp-muted); }

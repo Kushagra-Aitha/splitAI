@@ -3,6 +3,7 @@ import { lockAccount, reserveFunds, getSpendableFunds, InsufficientFundsError, B
 import { accountIdForUser } from '../banking/overview.js';
 import { HttpError } from '../http.js';
 import { listGoals, goalColumns, goalFromRow, readCents, invalidGoalState } from './read.js';
+import { goalHistory } from './history.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const invalid = (message) => new HttpError(422, 'INVALID_GOAL_INPUT', message);
@@ -87,6 +88,7 @@ export function createGoalHandlers({ query, withTransaction }) {
   }
   return {
     'goals.list': ({ actor }) => listGoals({ query }, actor.userId),
+    'goals.history': ({ actor, params, query: filters }) => goalHistory({ query }, actor.userId, params.id, filters),
     'goals.create': ({ actor, body }) => {
       const { requestKey, ...input } = creationInput(body);
       const payloadHash = hash(input);

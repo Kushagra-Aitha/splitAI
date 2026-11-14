@@ -73,3 +73,20 @@ test('refresh failure after a successful write is reported as saved, without cha
   await assert.rejects(store.save('/api/goals', {}), /Saved on the server/);
   assert.equal(store.state.goals[0].saved, 10);
 });
+
+test('history ignores an invalidated response and retains earlier pages on a recoverable failure', async () => {
+  let finish;
+  const store = createGoalStore({ request: () => new Promise((resolve) => { finish = resolve; }) });
+  const pending = store.loadHistory('goal-1');
+  store.invalidate(); finish({ items: [], nextCursor: null }); await pending;
+  assert.equal(store.state.histories.has('goal-1'), false);
+  let fail = false;
+  const paged = createGoalStore({ request: async () => {
+    if (fail) throw new Error('Temporary read failure');
+    return { items: [{ id: 'm1', kind: 'contribution', cents: 40, createdAt: '2026-11-14T17:00:00Z' }], nextCursor: 'next' };
+  } });
+  await paged.loadHistory('goal-1'); fail = true;
+  await paged.loadHistory('goal-1', true);
+  assert.equal(paged.state.histories.get('goal-1').items[0].cents, 40);
+  assert.equal(paged.state.histories.get('goal-1').status, 'error');
+});

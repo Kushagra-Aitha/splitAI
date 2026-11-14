@@ -155,6 +155,10 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   );
 
   const funds = account.rows.length ? await getSpendableFunds(accountId, db) : null;
+  const { rows: goalReservations } = await db.query(`SELECT g.id, g.name, g.saved_cents AS "savedCents"
+    FROM goals g JOIN bank_accounts a ON a.id = g.account_id
+    WHERE a.id = $1 AND g.user_id = a.user_id AND g.saved_cents > 0
+    ORDER BY g.created_at, g.id`, [accountId]);
 
   const sumBy = (key) => {
     const m = new Map();
@@ -173,6 +177,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
         }
       : null,
     cards,
+    goalReservations,
     range: { from: range.from, to: range.to, bucket: range.bucket, timeZone: TIME_ZONE },
     totals: {
       earnedCents: rows.reduce((a, b) => a + b.earnedCents, 0),

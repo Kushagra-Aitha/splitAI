@@ -19,11 +19,13 @@ import { createLedgerHandlers } from './ledger/handlers.js';
 import { createRecurringSplits } from './ledger/recurring-splits.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
 import { createNotificationHandlers } from './notifications/handlers.js';
+import { createReminderHandlers } from './reminders/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
 const db = { query: (...args) => getPool().query(...args), withTransaction };
 const recurringSplits = createRecurringSplits(db);
+const reminders = createReminderHandlers(db);
 export const capitalService = createCapitalService({ ...db, generateRecurringSplits: recurringSplits.generate });
 
 export const handlers = Object.freeze({
@@ -31,12 +33,15 @@ export const handlers = Object.freeze({
   ...recurringSplits.handlers,
   ...createActivityHandlers({ withTransaction }),
   'ask.create': createAskWorkflow({
+    prepareReminder: reminders.prepare,
     parseIntent: createIntentParser({ generate }),
     query: (...args) => getPool().query(...args), withTransaction, answerFinancial,
   }),
   'insight.get': (context) => answerFinancial({ ...context, intent: 'spending_insight' }),
   ...bankingHandlers,
   ...createNotificationHandlers({ query: (...args) => getPool().query(...args) }),
+  'reminders.draft': reminders['reminders.draft'],
+  'reminders.confirm': reminders['reminders.confirm'],
   'guard.list': createGuardEventsHandler((...args) => getPool().query(...args)),
   ...createGuardSettings({ query: (...args) => getPool().query(...args), withTransaction }),
   ...createGoalHandlers({ query: (...args) => getPool().query(...args), withTransaction }),
