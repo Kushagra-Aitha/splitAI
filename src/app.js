@@ -1,3 +1,4 @@
+import { createRecurringSplits } from './features/recurring/index.js';
 import { PHB, PHN } from './icons/phosphor.js';
 import { createGoals } from './features/goals/index.js';
 import { createOverview } from './features/overview/index.js';
@@ -138,9 +139,11 @@ export function mountApp(root) {
   // Overview reuses A5's ticket; Together is created after it (it needs tx),
   // so these resolve at call time.
   const overview = createOverview({ ...context,
-    draftTicket: (draft) => together.draftTicket(draft),
+    draftTicket: (...args) => together.draftTicket(...args),
     registerReview: (draft, handlers) => together.registerReview(draft, handlers) });
   const together = createTogether({ ...context, tx: overview.tx });
+  const recurringSplits = createRecurringSplits({ ...context, draftTicket: together.draftTicket,
+    registerReview: together.registerReview, openGroup: together.openGroup });
   const guardFeature = createGuard({ ...context, openGroup: together.openGroup });
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
@@ -189,6 +192,7 @@ export function mountApp(root) {
     icons();
     overview.mountMoneyCharts();
     together.afterRender();
+    recurringSplits.afterRender();
     if (state.page === 'goals') goalsFeature.mountGoalScene();
   }
   root.addEventListener(
@@ -230,7 +234,7 @@ export function mountApp(root) {
 
   function handleForm(form) {
     const fd = new FormData(form);
-    if (goalsFeature.handleGoalForm(form, fd)) return;
+    if (goalsFeature.handleGoalForm(form, fd) || recurringSplits.handleForm(form, fd)) return;
     together.handleExpenseForm(form, fd);
     ask.handleAskForm(form, fd);
     overview.handleOverviewForm(form, fd);

@@ -16,10 +16,13 @@ export function createNotificationHandlers({ query }) {
           to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
           n.read_at AS "readAt", g.name AS "groupName", u.id AS "actorUserId", u.display_name AS "actorName",
           e.merchant, e.total_cents::text AS "totalCents", es.share_cents::text AS "yourShareCents",
+          recurring_operation.occurrence AS "recurringOccurrence", e.created_by = $1 AS "isExpensePayer",
           s.amount_cents::text AS "settlementCents", s.payer_user_id = $1 AS "isPayer",
           payee.display_name AS "payeeName"
         FROM notifications n LEFT JOIN groups g ON g.id = n.group_id
         LEFT JOIN expenses e ON e.id = n.expense_id AND e.group_id = n.group_id
+        LEFT JOIN recurring_split_expenses recurring ON recurring.expense_id = e.id
+        LEFT JOIN capital_operations recurring_operation ON recurring_operation.id = recurring.operation_id
         LEFT JOIN expense_shares es ON es.expense_id = e.id AND es.user_id = $1
         LEFT JOIN group_comments c ON n.kind IN ('comment_added', 'guard_flagged') AND c.id = n.source_id AND c.group_id = n.group_id
         LEFT JOIN settlements s ON n.kind IN ('settlement_sent', 'settlement_posted', 'settlement_failed')

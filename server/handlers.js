@@ -16,15 +16,19 @@ import { createGuardEventsHandler } from './guard/events.js';
 import { createGuardSettings } from './guard/settings.js';
 import { createSettlementConfirmation } from './ledger/confirm-settlement.js';
 import { createLedgerHandlers } from './ledger/handlers.js';
+import { createRecurringSplits } from './ledger/recurring-splits.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
 import { createNotificationHandlers } from './notifications/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
-export const capitalService = createCapitalService({ query: (...args) => getPool().query(...args), withTransaction });
+const db = { query: (...args) => getPool().query(...args), withTransaction };
+const recurringSplits = createRecurringSplits(db);
+export const capitalService = createCapitalService({ ...db, generateRecurringSplits: recurringSplits.generate });
 
 export const handlers = Object.freeze({
   ...createCapitalHandlers(capitalService),
+  ...recurringSplits.handlers,
   ...createActivityHandlers({ withTransaction }),
   'ask.create': createAskWorkflow({
     parseIntent: createIntentParser({ generate }),

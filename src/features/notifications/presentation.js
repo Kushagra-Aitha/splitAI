@@ -4,6 +4,11 @@ export function notificationMessage(item) {
   const actor = item.actorName || 'A group member';
   if (item.kind === 'guard_flagged') return `Guard flagged a suspicious comment from ${actor}`;
   if (item.kind === 'expense_added' && item.merchant && Number.isSafeInteger(item.totalCents)) {
+    if (item.recurringOccurrence && Number.isSafeInteger(item.yourShareCents)) {
+      const occurrence = new Date(`${item.recurringOccurrence.slice(0, 7)}-01T12:00:00Z`);
+      const month = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(occurrence);
+      return `${item.merchant} split for ${month} · ${item.isExpensePayer ? 'your share' : 'you owe'} ${formatUsdCents(item.yourShareCents)}`;
+    }
     return `${actor} added ${item.merchant} ${formatUsdCents(item.totalCents)}${Number.isSafeInteger(item.yourShareCents) ? ` · your share ${formatUsdCents(item.yourShareCents)}` : ''}`;
   }
   if (item.kind === 'comment_added') return `${actor} commented${item.merchant ? ` on ${item.merchant}` : item.groupName ? ` in ${item.groupName}` : ''}`;

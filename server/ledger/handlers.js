@@ -79,7 +79,7 @@ async function requirePurchase(db, userId, { accountId, providerKey }, cents) {
   if (!rowCount) throw invalid('Choose an imported purchase from your account with the same amount.');
 }
 
-function expenseShares(cents, participants, allocation) {
+export function expenseShares(cents, participants, allocation) {
   const mode = allocation?.mode ?? 'equal';
   if (mode === 'equal') {
     const base = Math.floor(cents / participants.length);
@@ -107,54 +107,55 @@ function expenseShares(cents, participants, allocation) {
   }));
 }
 
-export function createLedgerHandlers({ query, withTransaction }) {
-  async function createDraft(db, actor, body) {
-    const { groupId, cents } = body;
-    if (typeof groupId !== 'string' || !uuid.test(groupId)) throw invalid('Choose a valid group.');
-    if (!Number.isSafeInteger(cents) || cents < 1) throw invalid('Enter a positive amount in integer cents.');
-    const merchant = optionalText(body.merchant, 'merchant');
-    if (!merchant) throw invalid('Enter a merchant.');
-    const category = optionalText(body.category, 'category');
-    const participantIds = readIds(body.participantIds, 'participantIds');
-    if (!participantIds.length || new Set(participantIds).size !== participantIds.length) {
-      throw invalid('Choose a nonempty list of distinct participants.');
-    }
-    const bankRef = body.bankRef ?? null;
-    if (bankRef !== null && (typeof bankRef.accountId !== 'string' || !uuid.test(bankRef.accountId) ||
-        typeof bankRef.providerKey !== 'string' || !bankRef.providerKey.trim())) {
-      throw invalid('Choose a valid imported purchase.');
-    }
-
-    const group = await requireGroup(db, groupId, actor.userId);
-    if (bankRef !== null) await requirePurchase(db, actor.userId, bankRef, cents);
-    const { rows: participants } = await db.query(`
-      SELECT u.id AS "userId", u.display_name AS "displayName"
-      FROM group_members m JOIN users u ON u.id = m.user_id
-      WHERE m.group_id = $1 AND m.left_at IS NULL AND u.id = ANY($2::uuid[])
-      ORDER BY (u.id = $3) DESC, u.id
-    `, [group.id, participantIds, actor.userId]);
-    if (participants.length !== participantIds.length) {
-      throw invalid('Choose participants who belong to the group.');
-    }
-    const shares = expenseShares(cents, participants, body.allocation);
-    const { rows: [draft] } = await db.query(`
-      INSERT INTO expenses (group_id, created_by, merchant, category, total_cents, expires_at, bank_account_id, bank_provider_key)
-      VALUES ($1, $2, $3, $4, $5, now() + interval '15 minutes', $6, $7)
-      RETURNING id, status, created_at AS "createdAt", expires_at AS "expiresAt"
-    `, [group.id, actor.userId, merchant, category, cents, bankRef?.accountId ?? null, bankRef?.providerKey ?? null]);
-    await db.query(`
-      INSERT INTO expense_shares (expense_id, user_id, share_cents)
-      SELECT $1, user_id, share_cents
-      FROM unnest($2::uuid[], $3::bigint[]) AS shares(user_id, share_cents)
-    `, [draft.id, shares.map((share) => share.userId), shares.map((share) => share.cents)]);
-    return {
-      draft: {
-        ...draft, groupId: group.id, payerUserId: actor.userId, merchant, category,
-        totalCents: cents, shares, bankRef,
-      },
-    };
+export async function createExpenseDraft(db, actor, body, { recurring = false } = {}) {
+  const { groupId, cents } = body;
+  if (typeof groupId !== 'string' || !uuid.test(groupId)) throw invalid('Choose a valid group.');
+  if (!Number.isSafeInteger(cents) || cents < 1) throw invalid('Enter a positive amount in integer cents.');
+  const merchant = optionalText(body.merchant, 'merchant');
+  if (!merchant) throw invalid('Enter a merchant.');
+  const category = optionalText(body.category, 'category');
+  const participantIds = readIds(body.participantIds, 'participantIds');
+  if (!participantIds.length || new Set(participantIds).size !== participantIds.length) {
+    throw invalid('Choose a nonempty list of distinct participants.');
+  }
+  const bankRef = body.bankRef ?? null;
+  if (bankRef !== null && (typeof bankRef.accountId !== 'string' || !uuid.test(bankRef.accountId) ||
+      typeof bankRef.providerKey !== 'string' || !bankRef.providerKey.trim())) {
+    throw invalid('Choose a valid imported purchase.');
   }
 
+  const group = await requireGroup(db, groupId, actor.userId);
+  if (bankRef !== null) await requirePurchase(db, actor.userId, bankRef, cents);
+  const { rows: participants } = await db.query(`
+    SELECT u.id AS "userId", u.display_name AS "displayName"
+    FROM group_members m JOIN users u ON u.id = m.user_id
+    WHERE m.group_id = $1 AND m.left_at IS NULL AND u.id = ANY($2::uuid[])
+    ORDER BY (u.id = $3) DESC, u.id
+  `, [group.id, participantIds, actor.userId]);
+  if (participants.length !== participantIds.length) {
+    throw invalid('Choose participants who belong to the group.');
+  }
+  const shares = expenseShares(cents, participants, body.allocation);
+  const { rows: [draft] } = await db.query(`
+    INSERT INTO expenses (group_id, created_by, merchant, category, total_cents, expires_at, bank_account_id, bank_provider_key)
+    VALUES ($1, $2, $3, $4, $5, CASE WHEN $8 THEN NULL ELSE now() + interval '15 minutes' END, $6, $7)
+    RETURNING id, status, created_at AS "createdAt", expires_at AS "expiresAt"
+  `, [group.id, actor.userId, merchant, category, cents, bankRef?.accountId ?? null, bankRef?.providerKey ?? null, recurring]);
+  await db.query(`
+    INSERT INTO expense_shares (expense_id, user_id, share_cents)
+    SELECT $1, user_id, share_cents
+    FROM unnest($2::uuid[], $3::bigint[]) AS shares(user_id, share_cents)
+  `, [draft.id, shares.map((share) => share.userId), shares.map((share) => share.cents)]);
+  return {
+    draft: {
+      ...draft, groupId: group.id, payerUserId: actor.userId, merchant, category,
+      totalCents: cents, shares, bankRef,
+    },
+  };
+}
+
+
+export function createLedgerHandlers({ query, withTransaction }) {
   async function confirmDraft(db, actor, draftId) {
     const { rows: [row] } = await db.query(`
       SELECT e.id, e.group_id AS "groupId", e.status, e.total_cents AS "totalCents",
@@ -289,7 +290,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
 
     async 'expenseDrafts.create'({ actor, body }) {
       return withTransaction(async (db) => {
-        if (!Object.hasOwn(body, 'purchases')) return createDraft(db, actor, body);
+        if (!Object.hasOwn(body, 'purchases')) return createExpenseDraft(db, actor, body);
         const { purchases } = body;
         if (!Array.isArray(purchases) || !purchases.length || purchases.length > 25 ||
             purchases.some((purchase) => !purchase?.bankRef)) {
@@ -297,7 +298,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
         }
         const drafts = [];
         for (const purchase of purchases) {
-          const { draft } = await createDraft(db, actor, {
+          const { draft } = await createExpenseDraft(db, actor, {
             ...purchase, groupId: body.groupId, participantIds: body.participantIds,
           });
           drafts.push(draft);

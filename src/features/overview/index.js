@@ -516,7 +516,8 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   function txActions(t) {
     if (t.splitGroupName) {
       const owed = t.splitOwedCents > 0 ? ` · you’re owed ${money(t.splitOwedCents)}` : '';
-      return `<span class="tx-split-tag">${icon('users')}Split with ${esc(t.splitGroupName)}${owed}</span>`;
+      return `<span class="tx-split-tag">${icon('users')}Split with ${esc(t.splitGroupName)}${owed}</span>${state.page === 'transactions'
+        ? `<button type="button" class="text-button" data-recurring-action="create" data-transaction="${esc(t.id)}">Repeat this split</button>` : ''}`;
     }
     if (!splittable(t)) return '<span class="tx-split-tag is-empty" aria-hidden="true"></span>';
     return `<button type="button" class="tx-split cursor-interaction" data-action="split-tx" data-tx-id="${esc(t.id)}" aria-label="Split ${esc(t.merchantName || t.description)}, ${money(t.amountCents)}">Split</button>`;
@@ -726,7 +727,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
             .map((v) => `<button type="button" data-period="${v}" aria-pressed="${state.period === v}" class="cursor-interaction">${periodLabel(v, today)}</button>`)
             .join('')}</div>`
         : ''
-    }</div>${syncBar(d)}${
+    }</div>${syncBar(d)}${tab === 'recurring' ? '<section class="sp-card" data-recurring-host aria-label="Recurring splits"></section>' : ''}${
       !d
         ? store.errors[period]
           ? errorCard(period)

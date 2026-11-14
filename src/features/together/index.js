@@ -27,9 +27,9 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
   let navigationTarget;
 
-  function registerReview(draft, { onConfirmed, onDiscard, additionalDrafts = [] } = {}) {
+  function registerReview(draft, { onConfirmed, onDiscard, additionalDrafts = [], discardLabel = 'Discard' } = {}) {
     const existing = reviews.get(draft.id);
-    if (!existing?.pending) reviews.set(draft.id, { draft, onConfirmed, onDiscard, additionalDrafts, pending: false });
+    if (!existing?.pending) reviews.set(draft.id, { draft, onConfirmed, onDiscard, additionalDrafts, discardLabel, pending: false });
   }
 
   async function loadGroup(id) {
@@ -76,6 +76,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         '<button type="button" class="secondary" data-activity-action="chat">Chat <span id="sp-group-unread"></span></button> ' +
         '<details class="a12-menu"><summary aria-label="Group actions">⋯</summary><div>' +
         '<button type="button" data-action="new-group-expense">Add cash expense</button>' +
+        `<button type="button" data-recurring-action="create" data-group="${esc(group.id)}">Add recurring split</button>` +
         '<button type="button" data-action="add-group-member">Add member</button>' +
         '<button type="button" data-action="leave-group">Leave group</button></div></details>') +
       avatars(members.map((m) => m.initials)) +
@@ -91,7 +92,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
           const owed = debts.owedToYou.find((d) => d.userId === m.userId);
           return `<p><strong>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</strong><br>
             <span class="small muted">${owes ? `You pay ${money(owes.cents)}` : owed ? `Pays you ${money(owed.cents)}` : m.isYou ? 'Your group account' : 'All square with you'}</span></p>`;
-        }).join('')}</aside></div>`;
+        }).join('')}<section data-recurring-host="${esc(group.id)}" aria-label="Recurring splits"></section></aside></div>`;
   }
 
   function showGroup(id, target = {}) {
@@ -163,11 +164,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   function draftTicket(draft, additionalDrafts = []) {
-    const pending = reviews.get(draft.id)?.pending ?? false;
+    const review = reviews.get(draft.id);
+    const pending = review?.pending ?? false;
     const items = [draft, ...additionalDrafts].map((item) => `<section><h3>${esc(item.merchant)} · ${formatUsdCents(item.totalCents)}</h3>
       ${item.shares.map((share) => `<div class="math-line"><span>${esc(share.displayName)}</span><strong>${formatUsdCents(share.cents)}</strong></div>`).join('')}</section>`).join('');
     return `<div class="expense-ticket">${items}
-      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}" aria-label="Confirm shared expense" aria-describedby="sp-expense-error-${esc(draft.id)}" aria-busy="${pending}"><button id="sp-expense-confirm-${esc(draft.id)}" class="primary" type="submit" ${pending ? 'disabled' : ''}>Confirm ${additionalDrafts.length ? 'expenses' : 'expense'}</button><button id="sp-expense-discard-${esc(draft.id)}" class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}" ${pending ? 'disabled' : ''}>Discard</button><p role="status">${pending ? 'Saving expense…' : ''}</p><p id="sp-expense-error-${esc(draft.id)}" role="alert" aria-atomic="true"></p></form>`}
+      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}" aria-label="Confirm shared expense" aria-describedby="sp-expense-error-${esc(draft.id)}" aria-busy="${pending}"><button id="sp-expense-confirm-${esc(draft.id)}" class="primary" type="submit" ${pending ? 'disabled' : ''}>Confirm ${additionalDrafts.length ? 'expenses' : 'expense'}</button><button id="sp-expense-discard-${esc(draft.id)}" class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}" ${pending ? 'disabled' : ''}>${esc(review?.discardLabel ?? 'Discard')}</button><p role="status">${pending ? 'Saving expense…' : ''}</p><p id="sp-expense-error-${esc(draft.id)}" role="alert" aria-atomic="true"></p></form>`}
       <p class="small muted">Adds a shared expense. No money will be transferred.</p></div>`;
   }
 

@@ -12,11 +12,18 @@ const presets = Object.freeze([
   { payee: 'Uber', amountCents: 1800 }, { payee: 'Rent', amountCents: 160000 },
 ]);
 
-export function createCapitalService({ query, withTransaction, nessie = defaultNessie, now }) {
+export function createCapitalService({ query, withTransaction, nessie = defaultNessie, now, generateRecurringSplits }) {
   const dependencies = { query, withTransaction, nessie };
   const operations = createOperations(dependencies);
   const schedules = createSchedules({ ...dependencies, operations, now });
   const syncs = new Map();
+  const run = schedules.run;
+  schedules.run = async (...args) => {
+    const operation = await run(...args);
+    // Keep the accepted payment response even if draft generation needs a worker retry.
+    if (generateRecurringSplits) await generateRecurringSplits(operation.id).catch(() => {});
+    return operation;
+  };
 
   async function sync(userId) {
     if (syncs.has(userId)) return syncs.get(userId);
@@ -87,6 +94,7 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
       for (const row of rows) {
         try { await operations.process(row.id, row.userId); } catch { /* Retain durable operation for a later recovery. */ }
       }
+      await generateRecurringSplits?.();
     },
   };
 }
