@@ -193,10 +193,11 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
       if (answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });
     }
+    const criteria = existing ? existing.bankQuery : bankQuery(message, parsed.expense);
     return withTransaction(async (db) => {
       await db.query(`INSERT INTO assistant_proposals (actor_user_id, request_key, message_hash, extraction, bank_query)
         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb) ON CONFLICT (actor_user_id, request_key) DO NOTHING`,
-      [actor.userId, requestKey, messageHash, JSON.stringify(parsed.expense), JSON.stringify(bankQuery(message, parsed.expense))]);
+      [actor.userId, requestKey, messageHash, JSON.stringify(parsed.expense), criteria == null ? null : JSON.stringify(criteria)]);
       const { rows: [proposal] } = await db.query(`SELECT ${columns} FROM assistant_proposals
         WHERE actor_user_id = $1 AND request_key = $2 FOR UPDATE`, [actor.userId, requestKey]);
       if (proposal.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
