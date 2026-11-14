@@ -12,6 +12,7 @@ export const routes = Object.freeze([
   ['bank.schedules.run', 'POST', '/api/bank/schedules/:id/run'],
   ['groups.list', 'GET', '/api/groups'],
   ['groups.create', 'POST', '/api/groups'],
+  ['groups.update', 'POST', '/api/groups/:id/update'],
   ['groups.addMember', 'POST', '/api/groups/:id/members'],
   ['groups.leave', 'POST', '/api/groups/:id/leave'],
   ['groups.get', 'GET', '/api/groups/:id'],

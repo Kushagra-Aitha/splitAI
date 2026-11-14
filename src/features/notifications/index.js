@@ -94,7 +94,7 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
       void refresh();
       if (item.kind === 'guard_blocked') go('guard');
       else if (item.groupId) openGroup(item.groupId, {
-        expenseId: item.expenseId, settlementId: item.kind.startsWith('settlement_') ? item.sourceId : null,
+        expenseId: item.expenseId, settlementId: item.kind.startsWith('settlement_') ? item.sourceId : item.settlementId,
         commentId: ['comment_added', 'guard_flagged'].includes(item.kind) ? item.sourceId : null, focus: true,
       });
     } catch (failure) {
