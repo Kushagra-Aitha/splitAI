@@ -3,11 +3,17 @@ import { GROUPS } from '../../../server/db/demo-ids.js';
 import { formatUsdCents, usdToCents } from '../../lib/money.js';
 import { createActivity } from './activity.js';
 
+const groupTypes = { trip: 'Trip', roommates: 'Roommates', friends: 'Friends', couple: 'Couple', event: 'Event', work: 'Work' };
+const photos = import.meta.glob('./photos/*.webp', { eager: true, import: 'default' });
+const bannerUrl = (kind) => photos[`./photos/${kind}.webp`] ?? photos['./photos/roommates.webp'];
+const groupTabs = ['Activity', 'Balances', 'Recurring'];
+
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
   const activity = createActivity({ root, state, esc, money, announce });
   const avatars = (initials) => `<span class="avatar-stack" aria-hidden="true">${initials.slice(0, 5)
     .map((value) => `<span class="avatar">${esc(value)}</span>`).join('')}</span>`;
   let cached;
+  let tab = "Activity";
   const reviews = new Map();
   let groupCreated;
   let memberEmails = [];
@@ -48,55 +54,107 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     return renderGroups();
   }
 
+  function balanceLabel(group) {
+    if (!group.youOweCents && !group.owedToYouCents) return '<strong>All square</strong>';
+    return [group.youOweCents ? `<strong class="group-owe">You owe ${money(group.youOweCents)}</strong>` : '',
+      group.owedToYouCents ? `<strong class="group-credit">Owed to you ${money(group.owedToYouCents)}</strong>` : ''].filter(Boolean).join('');
+  }
+
+  function groupContext(group) {
+    if (group.paymentPending) return 'Payment pending';
+    if (group.lastExpense) {
+      const elapsed = Date.now() - new Date(group.lastExpense.at).getTime();
+      const hours = Math.max(0, Math.floor(elapsed / 3_600_000));
+      const when = hours === 0 ? 'just now' : hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+      return `${group.lastExpense.author} added ${group.lastExpense.merchant} · ${when}`;
+    }
+    return group.tagline || (group.startsOn ? `Starts ${new Date(group.startsOn + 'T12:00:00').toLocaleDateString()}` : 'No expenses yet');
+  }
+
   function renderGroups() {
     const id = state.group;
     void loadGroup(id);
     if (cached.error) return `<p role="alert">${esc(cached.error)}</p><button data-action="retry-groups">Retry</button>`;
     if (!cached.data) return '<p role="status">Loading groups…</p>';
     if (!id) {
-      return heading('Your groups', 'Together', '', '<button class="primary" data-action="new-group">New group</button>') +
-        `<div class="a12-grid">${cached.data.groups.map((g) => {
-          const net = g.owedToYouCents - g.youOweCents;
-          return `<article class="sp-card a12-group-card"><header><span class="group-picture">${icon(g.kind === 'trip' ? 'luggage' : 'house')}</span>
-            <div><h2>${esc(g.name)}</h2><p class="small muted">${g.memberCount} members</p></div></header>
-            ${avatars(g.memberInitials ?? [])}
-            <p class="${net < 0 ? 'a12-owe' : net > 0 ? 'a12-credit' : ''}">${net < 0 ? 'You owe' : net > 0 ? 'Owed to you' : 'All square'} ${net ? money(Math.abs(net)) : ''}</p>
-            <p class="small muted">Last activity ${esc(new Date(g.lastActivityAt).toLocaleDateString())}</p>
-            ${g.paymentPending ? '<span class="tag">Payment pending</span>' : ''}
-            <button type="button" class="secondary" data-group-id="${esc(g.id)}">Open group</button></article>`;
-        }).join('') || '<p>No groups yet.</p>'}</div>`;
+      return heading('Your groups', 'Together', '', '<button type="button" class="primary" data-action="new-group">New group</button>') +
+        `<div class="groups-grid">${cached.data.groups.map((group) => `
+          <article class="sp-card group-tile">
+            <button type="button" data-group-id="${esc(group.id)}" aria-label="Open ${esc(group.name)}">
+              <img class="group-tile-photo" src="${esc(bannerUrl(group.banner))}" alt="" width="960" height="360">
+              <span class="group-tile-body">
+                <span class="group-type">${esc(groupTypes[group.kind])}</span>
+                <span class="group-tile-name">${esc(group.name)}</span>
+                <span class="group-tile-balances">${balanceLabel(group)}</span>
+                <span class="group-tile-context small muted" title="${esc(groupContext(group))}">${esc(groupContext(group))}</span>
+                <span class="group-tile-members">${avatars(group.memberInitials ?? [])}<span class="small">${group.memberCount} ${group.memberCount === 1 ? 'member' : 'members'}</span></span>
+              </span>
+            </button>
+          </article>`).join('') || '<p>No groups yet.</p>'}</div>`;
     }
     const { group, members, debts, ledger } = cached.data;
-    const pending = new Map(ledger.filter((item) => item.type === 'settlement' && item.status === 'pending')
-      .map((item) => [`${item.payerUserId}:${item.payeeUserId}`, item.amountCents]));
     const me = members.find((member) => member.isYou)?.userId;
-    return '<button class="back-button" data-go="groups">All groups</button>' +
-      heading(group.kind === 'trip' ? 'Trip' : 'Roommates', esc(group.name), esc(group.tagline ?? ''),
-        '<button type="button" class="primary" data-page="transactions">Split a transaction</button> ' +
-        '<button type="button" class="secondary" data-activity-action="chat">Chat <span id="sp-group-unread"></span></button> ' +
-        '<details class="a12-menu"><summary aria-label="Group actions">⋯</summary><div>' +
-        '<button type="button" data-action="new-group-expense">Add cash expense</button>' +
-        `<button type="button" data-recurring-action="create" data-group="${esc(group.id)}">Add recurring split</button>` +
-        '<button type="button" data-action="add-group-member">Add member</button>' +
-        '<button type="button" data-action="leave-group">Leave group</button></div></details>') +
-      avatars(members.map((m) => m.initials)) +
-      (group.tagline?.trim() ? `<button type="button" class="text-button" data-ask-note-group="${esc(group.id)}">Check note with Guard</button>` : '') +
-      `<div class="a12-layout"><main><section class="sp-card a12-balance"><h2>Group balance</h2>
-        ${debts.youOwe.map((d) => `<p>You owe <strong>${esc(d.displayName)} ${money(d.cents)}</strong>
-          ${pending.has(`${me}:${d.userId}`) ? `<span class="tag">Payment pending · ${money(pending.get(`${me}:${d.userId}`))}</span>` :
-            `<button type="button" class="secondary" data-settle-with="${esc(d.userId)}">Settle up</button>`}</p>`).join('') || '<p>You have nothing to pay.</p>'}
-        <p>Owed to you <strong>${money(debts.owedToYouCents)}</strong></p></section>
-        <section id="sp-group-activity" aria-label="Group ledger"></section></main>
-        <aside class="sp-card member-list"><h2>Members</h2>${members.map((m) => {
-          const owes = debts.youOwe.find((d) => d.userId === m.userId);
-          const owed = debts.owedToYou.find((d) => d.userId === m.userId);
-          return `<p><strong>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</strong><br>
-            <span class="small muted">${owes ? `You pay ${money(owes.cents)}` : owed ? `Pays you ${money(owed.cents)}` : m.isYou ? 'Your group account' : 'All square with you'}</span></p>`;
-        }).join('')}<section data-recurring-host="${esc(group.id)}" aria-label="Recurring splits"></section></aside></div>`;
+    const pending = new Set(ledger.filter((item) => item.type === 'settlement' && item.status === 'pending' && item.payerUserId === me)
+      .map((item) => item.payeeUserId));
+    const payable = debts.youOwe.filter((debt) => !pending.has(debt.userId));
+    const balanceRows = [...debts.youOwe, ...debts.owedToYou].map((debt) => {
+      const owes = debts.youOwe.includes(debt);
+      return `<li><strong>${esc(debt.displayName)}</strong><span>${owes ? 'You owe' : 'Owes you'} ${money(debt.cents)}
+        ${owes && pending.has(debt.userId) ? ' · Payment pending' : ''}</span></li>`;
+    }).join('');
+    return `<div class="group-detail">
+      <button type="button" class="back-button" data-go="groups">All groups</button>
+      <header class="group-hero">
+        <img src="${esc(bannerUrl(group.banner))}" alt="" width="960" height="360">
+        <div class="group-hero-copy"><div class="group-type">${esc(groupTypes[group.kind])}</div>
+          <h1 tabindex="-1">${esc(group.name)}</h1>${group.tagline ? `<p>${esc(group.tagline)}</p>` : ''}</div>
+      </header>
+      <div class="group-actions" aria-label="Group actions">
+        <details class="group-menu"><summary class="primary">Add expense ▾</summary><div>
+          <button type="button" data-group-bank-expense>From a bank transaction</button>
+          <button type="button" data-action="new-group-expense">Cash expense</button>
+        </div></details>
+        <button type="button" class="secondary" data-action="choose-settlement" ${payable.length ? '' : 'disabled'}>Settle up</button>
+        <button type="button" class="secondary" data-activity-action="chat">${icon('chat-circle')} Chat <span id="sp-group-unread"></span></button>
+        <details class="group-menu"><summary class="secondary" aria-label="More group actions">⋯</summary><div>
+          <button type="button" data-action="edit-group">Edit group</button>
+          <button type="button" data-action="add-group-member">Add member</button>
+          <button type="button" data-action="leave-group">Leave group</button>
+          ${group.tagline?.trim() ? `<button type="button" data-ask-note-group="${esc(group.id)}">Check note with Guard</button>` : ''}
+        </div></details>
+      </div>
+      <section class="sp-card group-balance-card" aria-label="Group balance">
+        <div><h2>Group balance</h2><div class="group-tile-balances">${balanceLabel(debts)}</div></div>
+        <div class="group-tile-members">${avatars(members.map((member) => member.initials))}<span class="small">${members.length} ${members.length === 1 ? 'member' : 'members'}</span></div>
+      </section>
+      <div class="group-tabs" role="tablist" aria-label="Group sections">
+        ${groupTabs.map((label) => `<button type="button" role="tab" id="sp-group-tab-${label}" data-group-tab="${label}" aria-controls="sp-group-panel-${label}" aria-selected="${tab === label}" tabindex="${tab === label ? 0 : -1}">${label}</button>`).join('')}
+      </div>
+      <div id="sp-group-activity"></div>
+      <section id="sp-group-panel-Balances" role="tabpanel" aria-labelledby="sp-group-tab-Balances" ${tab === 'Balances' ? '' : 'hidden'}>
+        ${balanceRows ? `<ul class="sp-card group-balance-list">${balanceRows}</ul>` : '<p>All square with this group.</p>'}
+        <section class="sp-card group-members"><h2>Members</h2><ul>${members.map((member) => `<li>${esc(member.displayName)}${member.isYou ? ' (you)' : ''}</li>`).join('')}</ul></section>
+      </section>
+      <section id="sp-group-panel-Recurring" role="tabpanel" aria-labelledby="sp-group-tab-Recurring" ${tab === 'Recurring' ? '' : 'hidden'}>
+        ${tab === 'Recurring' ? `<div class="sp-card"><button type="button" class="secondary" data-recurring-action="create" data-group="${esc(group.id)}">Add recurring split</button>
+        <section data-recurring-host="${esc(group.id)}" aria-label="Recurring splits"></section></div>` : ''}
+      </section>
+    </div>`;
+  }
+
+  function chooseSettlement() {
+    const { debts, ledger, members } = cached.data;
+    const me = members.find((member) => member.isYou)?.userId;
+    const pending = new Set(ledger.filter((item) => item.type === 'settlement' && item.status === 'pending' && item.payerUserId === me)
+      .map((item) => item.payeeUserId));
+    openModal('Settle up', `<h2>Settle up</h2>${closeButton}
+      <ul class="group-balance-list">${debts.youOwe.filter((debt) => !pending.has(debt.userId)).map((debt) => `
+        <li><span>${esc(debt.displayName)}</span><button type="button" class="secondary" data-settle-with="${esc(debt.userId)}">Review ${money(debt.cents)}</button></li>`).join('')}</ul>`);
   }
 
   function showGroup(id, target = {}) {
     const fromView = root.querySelector('#sp-view').contains(root.ownerDocument.activeElement);
+    if (state.group !== id || target.focus) tab = 'Activity';
     cached = undefined;
     navigationTarget = target.focus || fromView ? { ...target, groupId: id } : null;
     state.page = 'groups';
@@ -105,18 +163,26 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     if (fromView) root.querySelector('#sp-view h1')?.focus({ preventScroll: true });
   }
 
-  function newGroup({ onCreated } = {}) {
+  function groupForm({ group, onCreated } = {}) {
     groupCreated = onCreated;
     memberEmails = [];
-    openModal('New group', `<h2>New group</h2>${closeButton}
-      <form id="sp-group-form" class="field-grid">
-      <label class="field">Name<input name="name" required></label>
-      <label class="field">Type<select name="kind"><option value="roommates">Roommates</option><option value="trip">Trip</option></select></label>
-      <label class="field">Starts on<input name="startsOn" type="date"></label>
-      <label class="field">Ends on<input name="endsOn" type="date"></label>
-      <label class="field">Member email (optional)<input type="email" name="emails" placeholder="sam@example.com"></label>
-      <button type="button" class="secondary" data-action="add-email-chip">Add email</button><div data-email-chips></div>
-      <button class="primary" type="submit">Create group</button><p role="alert"></p></form>`);
+    const title = group ? 'Edit group' : 'New group';
+    const options = Object.entries(groupTypes).map(([value, label]) =>
+      `<option value="${value}" ${value === (group?.kind ?? 'roommates') ? 'selected' : ''}>${label}</option>`).join('');
+    openModal(title, `<h2>${title}</h2>${closeButton}
+      <form id="sp-group-form" class="field-grid" data-edit-id="${esc(group?.id ?? '')}">
+      <label class="field">Name<input name="name" maxlength="100" value="${esc(group?.name ?? '')}" required></label>
+      <label class="field">Type<select name="kind">${options}</select></label>
+      <label class="field">Description<input name="tagline" maxlength="200" value="${esc(group?.tagline ?? '')}"></label>
+      <fieldset class="group-banner-picker"><legend>Banner photo</legend>
+        ${Object.entries(groupTypes).map(([key, label]) => `<label><input type="radio" name="banner" value="${key}" ${key === (group?.banner ?? 'roommates') ? 'checked' : ''}>
+          <img src="${esc(bannerUrl(key))}" alt="" width="960" height="360"><span>${label}</span></label>`).join('')}
+      </fieldset>
+      <label class="field">Starts on<input name="startsOn" type="date" value="${esc(group?.startsOn ?? '')}"></label>
+      <label class="field">Ends on<input name="endsOn" type="date" value="${esc(group?.endsOn ?? '')}"></label>
+      ${group ? '' : `<label class="field">Member email (optional)<input type="email" name="emails" placeholder="sam@example.com"></label>
+      <button type="button" class="secondary" data-action="add-email-chip">Add email</button><div data-email-chips></div>`}
+      <button class="primary" type="submit">${group ? 'Save group' : 'Create group'}</button><p role="alert"></p></form>`);
   }
 
   function manageMembership(leave) {
@@ -186,10 +252,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     try {
       if (form.id === 'sp-group-form') {
         const onCreated = groupCreated;
-        const { group } = await apiRequest('/api/groups', { method: 'POST', body: {
-          name: fd.get('name'), kind: fd.get('kind'), startsOn: fd.get('startsOn') || null, endsOn: fd.get('endsOn') || null,
-          memberEmails: [...memberEmails, String(fd.get('emails') ?? '').trim()].filter(Boolean),
-        } });
+        const editId = form.dataset.editId;
+        const body = { name: fd.get('name'), kind: fd.get('kind'), banner: fd.get('banner'), tagline: fd.get('tagline'),
+          startsOn: fd.get('startsOn') || null, endsOn: fd.get('endsOn') || null };
+        if (!editId) body.memberEmails = [...memberEmails, String(fd.get('emails') ?? '').trim()].filter(Boolean);
+        const { group } = await apiRequest(editId ? `/api/groups/${encodeURIComponent(editId)}/update` : '/api/groups',
+          { method: 'POST', body });
         if (form.isConnected) closeModal();
         if (onCreated) await onCreated(group);
         else showGroup(group.id);
@@ -247,6 +315,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     try {
       const { review } = await apiRequest('/api/settlement-reviews', { method: 'POST', body: { groupId, payeeUserId } });
       if (!button.isConnected) return;
+      if (button.closest('[role="dialog"]')) closeModal();
       openModal('Review sandbox settlement', `<h2>Review sandbox settlement</h2>${closeButton}
         <p>Pay ${esc(payee.displayName)} <strong>${money(review.amountCents)}</strong> in the Nessie sandbox.</p>
         <form id="sp-settlement-confirm" data-review-id="${esc(review.id)}">
@@ -283,9 +352,38 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   }
 
+  const selectTab = (label) => {
+    tab = label;
+    render();
+    root.querySelector(`#sp-group-tab-${label}`)?.focus();
+  };
+
+  root.addEventListener('keydown', (event) => {
+    if (!event.target.dataset.groupTab) return;
+    const index = groupTabs.indexOf(event.target.dataset.groupTab);
+    const next = { ArrowLeft: (index + 2) % 3, ArrowRight: (index + 1) % 3, Home: 0, End: 2 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    selectTab(groupTabs[next]);
+  });
+
+  root.addEventListener('change', ({ target }) => {
+    if (target.name === 'kind' && target.form?.id === 'sp-group-form' && !target.form.dataset.bannerChosen) {
+      target.form.elements.banner.value = target.value;
+    }
+    if (target.name === 'banner' && target.form?.id === 'sp-group-form') target.form.dataset.bannerChosen = 'true';
+  });
+
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    b.closest('details.group-menu')?.removeAttribute('open');
+    if (b.dataset.groupTab) { selectTab(b.dataset.groupTab); return; }
+    if (b.hasAttribute('data-group-bank-expense')) {
+      state.transactionGroupId = state.group;
+      go('transactions');
+      return;
+    }
     if (b.hasAttribute('data-remove-email')) {
       memberEmails.splice(Number(b.dataset.removeEmail), 1);
       const form = b.closest('form');
@@ -324,7 +422,13 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         break;
       }
       case 'new-group':
-        newGroup();
+        groupForm();
+        break;
+      case 'edit-group':
+        groupForm({ group: cached.data.group });
+        break;
+      case 'choose-settlement':
+        chooseSettlement();
         break;
       case 'discard-review': {
         const review = reviews.get(b.dataset.draftId);
@@ -351,11 +455,11 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
 
   }
 
-  return { groups, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: newGroup, handleExpenseForm,
+  return { groups, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: groupForm, handleExpenseForm,
     onNotifications: activity.onNotifications,
     afterRender() {
       if (state.page === 'groups' && state.group && cached?.data && !cached.error) {
-        activity.mount(state.group, navigationTarget);
+        activity.mount(state.group, navigationTarget, tab);
         navigationTarget = null;
       } else activity.detach();
     },

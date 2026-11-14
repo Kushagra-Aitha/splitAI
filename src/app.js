@@ -99,6 +99,7 @@ export function mountApp(root) {
     clearTimeout(toastTimer);
     root.querySelector('#sp-toast-root').replaceChildren();
     if (page === 'guard') guardFeature.invalidate();
+    if (page !== 'transactions') delete state.transactionGroupId;
     state.page = page;
     state.group = null;
     render();
