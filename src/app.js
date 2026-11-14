@@ -5,6 +5,9 @@ import { createTogether } from './features/together/index.js';
 import { createGuard } from './features/guard/index.js';
 import { createAsk } from './features/ask/index.js';
 import { createNotifications } from './features/notifications/index.js';
+import { avatarHtml, avatarStackHtml } from './lib/avatar.js';
+import { hashFor, PAGE_TITLES, parseHash } from './lib/routes.js';
+import { createShell } from './shell.js';
 
 /**
  * Mounts the Split app into the #split-common-ground element.
@@ -20,14 +23,14 @@ export function mountApp(root) {
       /[&<>"']/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
     );
+  // The URL decides the first page (B10): refresh keeps your place.
   const initial = {
-    page: 'goals',
     logged: false,
     settled: false,
     blocked: false,
     cap: null,
-    group: null,
     filter: 'all',
+    ...parseHash(window.location.hash),
   };
   const state = { ...initial };
   const demo = {
@@ -122,6 +125,7 @@ export function mountApp(root) {
 
   const context = {
     root, view, state, demo, icon, icons, money, dollarLabel, esc, heading, avatar, stack,
+    personAvatar: avatarHtml, avatarStack: avatarStackHtml,
     shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go,
   };
   const goalsFeature = createGoals(context);
@@ -136,9 +140,30 @@ export function mountApp(root) {
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
   createNotifications({ ...context, icons, openGroup: together.openGroup, onRefresh: together.onNotifications });
   const pages = {
-    home: overview.home, profile: overview.profile, groups: together.groups,
+    home: overview.home, transactions: overview.transactions, profile: overview.profile, groups: together.groups,
     guard: guardFeature.guard, goals: goalsFeature.goals, chat: ask.chat,
   };
+  createShell({ root, bankLabel: overview.bankLabel });
+
+  // Keep the URL in step with the page. A change made by the app (a nav click,
+  // opening a group) adds a history entry; the first render only normalizes.
+  let routed = false;
+  function syncHash() {
+    const want = hashFor(state);
+    if (window.location.hash !== want) {
+      window.history[routed ? 'pushState' : 'replaceState'](null, '', want);
+    }
+    routed = true;
+  }
+  window.addEventListener('hashchange', () => {
+    const next = parseHash(window.location.hash);
+    if (next.page === state.page && next.group === state.group) return;
+    closeModal();
+    if (next.page === 'guard') guardFeature.invalidate();
+    Object.assign(state, next);
+    render();
+    view.querySelector('h1')?.focus({ preventScroll: true });
+  });
 
   function render() {
     goalsFeature.beforeRender();
@@ -147,19 +172,11 @@ export function mountApp(root) {
       if (b.dataset.page === state.page) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
-    root.querySelector('#sp-breadcrumb').textContent =
-      {
-        home: 'Overview',
-        chat: 'Ask Split',
-        groups: 'Your groups',
-        goals: 'Goals',
-        profile: 'Profile',
-        guard: 'Guard log',
-      }[state.page] || 'Overview';
-    view.innerHTML = `<div class="content-enter">${(pages[state.page] || pages.home)()}</div>`;
-    // Overview and Profile carry no footer or marketing copy (B6).
-    const footer = root.querySelector('.page-footer');
-    if (footer) footer.style.display = ['home', 'profile'].includes(state.page) || !pages[state.page] ? 'none' : '';
+    if (!pages[state.page]) state.page = 'home';
+    root.dataset.page = state.page;
+    document.title = `${PAGE_TITLES[state.page]} · Split`;
+    view.innerHTML = `<div class="content-enter">${pages[state.page]()}</div>`;
+    syncHash();
     icons();
     overview.mountMoneyCharts();
     together.afterRender();

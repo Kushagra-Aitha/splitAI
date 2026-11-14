@@ -44,15 +44,15 @@ export function createDbAuthStore({ query }) {
 
     async findSession(tokenHash, now) {
       const { rows: [session] } = await query(
-        `SELECT ${userColumns}, s.csrf_token AS "csrfToken",
+        `SELECT ${userColumns}, u.email, s.csrf_token AS "csrfToken",
                 (extract(epoch FROM s.expires_at) * 1000)::bigint AS "expiresAt"
            FROM sessions s JOIN users u ON u.id = s.user_id
           WHERE s.token_hash = $1 AND s.expires_at > to_timestamp($2 / 1000.0)`,
         [tokenHash, now],
       );
       if (!session) return null;
-      const { userId, displayName, csrfToken, expiresAt } = session;
-      return { actor: { userId, displayName }, csrfToken, expiresAt: Number(expiresAt) };
+      const { userId, displayName, email, csrfToken, expiresAt } = session;
+      return { actor: { userId, displayName }, email: email ?? null, csrfToken, expiresAt: Number(expiresAt) };
     },
 
     async deleteSession(tokenHash) {
@@ -79,8 +79,8 @@ export function createMemoryAuthStore() {
       return { userId, displayName: fullName ?? displayName };
     },
     async createSession({ tokenHash, userId, csrfToken, expiresAt }) {
-      const user = [...users.values()].find((u) => u.userId === userId);
-      sessions.set(key(tokenHash), { actor: { userId, displayName: user.displayName }, csrfToken, expiresAt });
+      const [email, user] = [...users.entries()].find(([, u]) => u.userId === userId);
+      sessions.set(key(tokenHash), { actor: { userId, displayName: user.displayName }, email, csrfToken, expiresAt });
     },
     async findSession(tokenHash, now) {
       const session = sessions.get(key(tokenHash));

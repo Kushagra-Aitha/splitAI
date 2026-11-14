@@ -33,7 +33,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   function groups() {
-    return `<button type="button" class="guard-pill" data-go="guard">${icon('shield-check')}Guard is on</button>` + renderGroups();
+    return renderGroups();
   }
 
   function renderGroups() {

@@ -12,8 +12,13 @@ function apply(theme, button) {
   document.documentElement.dataset.theme = theme;
   if (button) {
     const next = theme === 'dark' ? 'light' : 'dark';
-    button.setAttribute('aria-label', `Switch to ${next} mode`);
-    button.title = `Switch to ${next} mode`;
+    // In the account menu the visible text names the mode you switch to.
+    const label = button.querySelector('[data-theme-label]');
+    if (label) label.textContent = `${next === 'dark' ? 'Dark' : 'Light'} mode`;
+    else {
+      button.setAttribute('aria-label', `Switch to ${next} mode`);
+      button.title = `Switch to ${next} mode`;
+    }
   }
 }
 
