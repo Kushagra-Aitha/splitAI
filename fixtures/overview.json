@@ -8,7 +8,10 @@
       "mask": "0421",
       "balanceCents": 124800,
       "availableCents": 124800,
-      "balanceAsOf": "2026-11-14T11:58:00-05:00"
+      "balanceAsOf": "2026-11-14T11:58:00-05:00",
+      "goalHoldsCents": 20000,
+      "settlementHoldsCents": 0,
+      "spendableCents": 104800
     },
     "range": { "from": "2026-11-01", "to": "2026-11-13", "bucket": "day", "timeZone": "America/New_York" },
     "totals": { "earnedCents": 102000, "spentCents": 109200 },

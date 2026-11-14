@@ -7,6 +7,9 @@
 //   - buckets are in the app's local time zone, zero-filled across the whole
 //     requested range, and every number reconciles to bank_transactions rows
 //     (recent entries carry the bucket they fall in).
+//   - account.spendableCents is B4's figure: available after goal and
+//     pending settlement holds. That is the number users see as available.
+import { getSpendableFunds } from './funds.js';
 
 export const TIME_ZONE = 'America/New_York';
 const BUCKETS = { day: '1 day', week: '1 week', month: '1 month' };
@@ -119,6 +122,8 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
     params.slice(0, 3),
   );
 
+  const funds = account.rows.length ? await getSpendableFunds(accountId, db) : null;
+
   const sumBy = (key) => {
     const m = new Map();
     for (const r of merchants.rows) m.set(r[key], (m.get(r[key]) ?? 0) + r.cents);
@@ -127,7 +132,14 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
 
   const rows = buckets.rows;
   return {
-    account: account.rows[0] ?? null,
+    account: account.rows[0]
+      ? {
+          ...account.rows[0],
+          goalHoldsCents: funds.goalHoldsCents,
+          settlementHoldsCents: funds.settlementHoldsCents,
+          spendableCents: funds.spendableCents,
+        }
+      : null,
     range: { from: range.from, to: range.to, bucket: range.bucket, timeZone: TIME_ZONE },
     totals: {
       earnedCents: rows.reduce((a, b) => a + b.earnedCents, 0),

@@ -51,6 +51,30 @@ To start your schema over: `DROP SCHEMA split_x CASCADE;`, then `npm run db:setu
 - Sync writes run under `SELECT … FOR UPDATE` on the `bank_accounts` row, the
   same lock B4 uses for funds.
 
+## Funds (B4): how A7 and C5 reserve money
+
+`server/banking/funds.js` owns the lock and the arithmetic:
+`spendable = available − sum(goals.saved_cents) − sum(settlements.hold_cents)`.
+
+```js
+import { withTransaction } from '../db/pool.js';
+import { reserveFunds } from '../banking/funds.js';
+
+await withTransaction(async (tx) => {
+  await reserveFunds(tx, accountId, cents);  // takes the account lock; throws if it doesn't fit
+  // ...persist YOUR hold in the same transaction, before it commits:
+  // C5: UPDATE goals SET saved_cents = saved_cents + $cents ...
+  // A7: UPDATE settlements SET status = 'pending', hold_cents = $cents ...
+});
+```
+
+- Any other change to holds (goal withdrawal, settlement release on
+  posted/failed) also runs in a transaction that calls `lockAccount(tx, accountId)` first.
+- Errors carry `status` and `code`: `INSUFFICIENT_FUNDS` (409),
+  `BALANCE_UNKNOWN` (409, never synced), `INVALID_AMOUNT` (422). Map them to `HttpError`.
+- Releasing a settlement hold = setting `hold_cents = 0` (A8).
+- `npm run banking:funds-check` races a $40 goal against a $30 settlement on $50 (SEC4 reruns it with the real code).
+
 ## Stable demo IDs
 
 Import from `server/db/demo-ids.js`. Never change them.

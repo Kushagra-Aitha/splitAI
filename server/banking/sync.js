@@ -7,6 +7,7 @@
 // the DB transaction; the DB writes run under the account row lock that B4
 // also uses for funds, so a balance refresh never interleaves with a reserve.
 import { withTransaction } from '../db/pool.js';
+import { lockAccount } from './funds.js';
 import {
   getMappedAccountForUser,
   listMappedAccounts,
@@ -20,12 +21,6 @@ const PAYMENT_METHOD = {
   transfer: 'Bank transfer',
   withdrawal: 'Cash',
 };
-
-/** Locks one bank_accounts row for the rest of the DB transaction. */
-export async function lockAccount(db, accountId) {
-  const { rows } = await db.query('SELECT id FROM bank_accounts WHERE id = $1 FOR UPDATE', [accountId]);
-  if (!rows.length) throw new Error(`bank account ${accountId} not found`);
-}
 
 /**
  * Writes one account's provider snapshot. `activity` is the result of
