@@ -3,7 +3,13 @@
 import { HttpError } from '../http.js';
 import { getPool } from '../db/pool.js';
 import { NessieError } from '../lib/nessie.js';
+import { RangeError422, TIME_ZONE, accountIdForUser, getOverview, parseRange } from './overview.js';
 import { syncForUser } from './sync.js';
+
+/** Today's date in the app time zone, as YYYY-MM-DD. */
+function localToday(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(now);
+}
 
 function providerUnavailable() {
   return new HttpError(
@@ -41,5 +47,30 @@ export const bankingHandlers = {
       updated: result.updated,
       unchanged: result.unchanged,
     };
+  },
+
+  /**
+   * GET /api/overview?from=YYYY-MM-DD&to=YYYY-MM-DD[&bucket=day|week|month]
+   * Defaults to the current month so far.
+   */
+  'overview.get': async ({ actor, query }) => {
+    const today = localToday();
+    let range;
+    try {
+      range = parseRange({
+        from: query.get('from') ?? `${today.slice(0, 8)}01`,
+        to: query.get('to') ?? today,
+        bucket: query.get('bucket') ?? undefined,
+      });
+    } catch (err) {
+      if (err instanceof RangeError422) throw new HttpError(422, 'INVALID_RANGE', err.message);
+      throw err;
+    }
+    const db = getPool();
+    const accountId = await accountIdForUser(db, actor.userId);
+    if (!accountId) {
+      throw new HttpError(409, 'NO_LINKED_ACCOUNT', 'Your demo bank account isn’t connected yet.');
+    }
+    return getOverview(db, accountId, range);
   },
 };

@@ -1,31 +1,31 @@
 {
   "request": { "method": "GET", "path": "/api/overview?from=2026-11-01&to=2026-11-13&bucket=day" },
-  "note": "B3/B5. Buckets are per-period totals (not cumulative), zero-filled, purchases only for spending (transfers excluded). The UI accumulates for the running line.",
+  "note": "B3/B5. from/to are local dates (America/New_York); bucket defaults to day up to 62 days, else month. Buckets are per-period totals (not cumulative), zero-filled, clipped to the range. Spending = purchases only, earnings = deposits only; transfers and declined/cancelled rows never count (countsAs: null). recent[].bucketStart ties a row to its bucket. Bad input is 422 INVALID_RANGE.",
   "response": {
     "account": {
       "id": "20000000-0000-4000-8000-000000000001",
       "nickname": "Maya’s demo account",
       "mask": "0421",
       "balanceCents": 124800,
-      "availableCents": 104800,
+      "availableCents": 124800,
       "balanceAsOf": "2026-11-14T11:58:00-05:00"
     },
-    "range": { "from": "2026-11-01", "to": "2026-11-13", "bucket": "day" },
+    "range": { "from": "2026-11-01", "to": "2026-11-13", "bucket": "day", "timeZone": "America/New_York" },
     "totals": { "earnedCents": 102000, "spentCents": 109200 },
     "buckets": [
-      { "start": "2026-11-01", "earnedCents": 28000, "spentCents": 16000 },
-      { "start": "2026-11-02", "earnedCents": 0, "spentCents": 4000 },
-      { "start": "2026-11-03", "earnedCents": 0, "spentCents": 7000 },
-      { "start": "2026-11-04", "earnedCents": 0, "spentCents": 5000 },
-      { "start": "2026-11-05", "earnedCents": 27000, "spentCents": 3000 },
-      { "start": "2026-11-06", "earnedCents": 0, "spentCents": 6000 },
-      { "start": "2026-11-07", "earnedCents": 0, "spentCents": 6000 },
-      { "start": "2026-11-08", "earnedCents": 47000, "spentCents": 10000 },
-      { "start": "2026-11-09", "earnedCents": 0, "spentCents": 20000 },
-      { "start": "2026-11-10", "earnedCents": 0, "spentCents": 7000 },
-      { "start": "2026-11-11", "earnedCents": 0, "spentCents": 6000 },
-      { "start": "2026-11-12", "earnedCents": 0, "spentCents": 9000 },
-      { "start": "2026-11-13", "earnedCents": 0, "spentCents": 10200 }
+      { "start": "2026-11-01", "end": "2026-11-01", "earnedCents": 28000, "spentCents": 16000, "transactionCount": 3 },
+      { "start": "2026-11-02", "end": "2026-11-02", "earnedCents": 0, "spentCents": 4000, "transactionCount": 2 },
+      { "start": "2026-11-03", "end": "2026-11-03", "earnedCents": 0, "spentCents": 7000, "transactionCount": 3 },
+      { "start": "2026-11-04", "end": "2026-11-04", "earnedCents": 0, "spentCents": 5000, "transactionCount": 2 },
+      { "start": "2026-11-05", "end": "2026-11-05", "earnedCents": 27000, "spentCents": 3000, "transactionCount": 2 },
+      { "start": "2026-11-06", "end": "2026-11-06", "earnedCents": 0, "spentCents": 6000, "transactionCount": 3 },
+      { "start": "2026-11-07", "end": "2026-11-07", "earnedCents": 0, "spentCents": 6000, "transactionCount": 2 },
+      { "start": "2026-11-08", "end": "2026-11-08", "earnedCents": 47000, "spentCents": 10000, "transactionCount": 4 },
+      { "start": "2026-11-09", "end": "2026-11-09", "earnedCents": 0, "spentCents": 20000, "transactionCount": 3 },
+      { "start": "2026-11-10", "end": "2026-11-10", "earnedCents": 0, "spentCents": 7000, "transactionCount": 3 },
+      { "start": "2026-11-11", "end": "2026-11-11", "earnedCents": 0, "spentCents": 6000, "transactionCount": 2 },
+      { "start": "2026-11-12", "end": "2026-11-12", "earnedCents": 0, "spentCents": 9000, "transactionCount": 3 },
+      { "start": "2026-11-13", "end": "2026-11-13", "earnedCents": 0, "spentCents": 10200, "transactionCount": 4 }
     ],
     "recent": [
       {
@@ -34,21 +34,75 @@
         "kind": "purchase",
         "direction": "debit",
         "amountCents": 450,
-        "description": "Campus café",
-        "occurredAt": "2026-11-13T08:40:00-05:00",
-        "status": "completed"
+        "description": "Campus Café",
+        "merchantName": "Campus Café",
+        "category": "Food & drink",
+        "paymentMethod": "Card",
+        "status": "completed",
+        "source": "nessie",
+        "occurredAt": "2026-11-13T13:40:00.000Z",
+        "bucketStart": "2026-11-13",
+        "countsAs": "spent"
+      },
+      {
+        "id": "80000000-0000-4000-8000-000000000003",
+        "providerTransactionId": "txn_fixture_0003",
+        "kind": "transfer",
+        "direction": "credit",
+        "amountCents": 500,
+        "description": "Coffee money",
+        "merchantName": null,
+        "category": null,
+        "paymentMethod": "Bank transfer",
+        "status": "completed",
+        "source": "nessie",
+        "occurredAt": "2026-11-12T22:10:00.000Z",
+        "bucketStart": "2026-11-12",
+        "countsAs": null
       },
       {
         "id": "80000000-0000-4000-8000-000000000002",
-        "providerTransactionId": "txn_fixture_0002",
+        "providerTransactionId": "demo:2026-11:paycheck:2",
         "kind": "deposit",
         "direction": "credit",
         "amountCents": 47000,
-        "description": "Paycheck",
-        "occurredAt": "2026-11-08T09:00:00-05:00",
-        "status": "completed"
+        "description": "Paycheck · Campus job",
+        "merchantName": null,
+        "category": "Income",
+        "paymentMethod": "Direct deposit",
+        "status": "completed",
+        "source": "demo",
+        "occurredAt": "2026-11-08T17:00:00.000Z",
+        "bucketStart": "2026-11-08",
+        "countsAs": "earned"
       }
     ],
-    "sync": { "lastSyncedAt": "2026-11-14T11:58:00-05:00", "status": "ok" }
+    "breakdown": {
+      "categories": [
+        { "category": "Home & bills", "cents": 61800 },
+        { "category": "Food & drink", "cents": 23400 },
+        { "category": "Other", "cents": 10000 },
+        { "category": "Just for fun", "cents": 9200 },
+        { "category": "Getting around", "cents": 4800 }
+      ],
+      "paymentMethods": [
+        { "paymentMethod": "Bank transfer", "cents": 61800 },
+        { "paymentMethod": "Card", "cents": 40600 },
+        { "paymentMethod": "Contactless", "cents": 4800 },
+        { "paymentMethod": "Cash", "cents": 2000 }
+      ],
+      "merchants": [
+        { "name": "Rent · Puffton Village", "category": "Home & bills", "paymentMethod": "Bank transfer", "cents": 60000, "count": 1 },
+        { "name": "DoorDash", "category": "Food & drink", "paymentMethod": "Card", "cents": 14000, "count": 5 },
+        { "name": "Concert tickets", "category": "Just for fun", "paymentMethod": "Card", "cents": 9200, "count": 1 },
+        { "name": "Class supplies", "category": "Other", "paymentMethod": "Card", "cents": 8000, "count": 2 },
+        { "name": "Campus café", "category": "Food & drink", "paymentMethod": "Card", "cents": 5400, "count": 12 },
+        { "name": "Transit", "category": "Getting around", "paymentMethod": "Contactless", "cents": 4800, "count": 8 },
+        { "name": "Trader Joe’s", "category": "Food & drink", "paymentMethod": "Card", "cents": 4000, "count": 3 },
+        { "name": "Laundry", "category": "Other", "paymentMethod": "Cash", "cents": 2000, "count": 4 },
+        { "name": "Utilities", "category": "Home & bills", "paymentMethod": "Bank transfer", "cents": 1800, "count": 1 }
+      ]
+    },
+    "sync": { "lastSyncedAt": "2026-11-14T11:58:00-05:00" }
   }
 }
