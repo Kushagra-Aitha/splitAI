@@ -1,0 +1,19 @@
+#split-common-ground .ask-selection {
+  padding: 18px;
+  border: 1px solid var(--sp-line);
+  border-radius: 14px;
+  background: var(--sp-paper);
+}
+#split-common-ground .ask-selection fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+#split-common-ground .ask-selection legend { margin-block: 12px 6px; font-weight: 600; }
+#split-common-ground .ask-selection-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+#split-common-ground .agent-message [role='alert'] { color: var(--sp-red); margin-top: 12px; }
+#split-common-ground .expense-ticket > h3,
+#split-common-ground .expense-ticket > .math-line,
+#split-common-ground .expense-ticket > form,
+#split-common-ground .expense-ticket > p { margin: 12px 18px; }
+#split-common-ground .expense-ticket form > button { margin: 4px 8px 4px 0; }
+#split-common-ground .ask-selection .check-label { overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  #split-common-ground .ask-selection .field-grid { grid-template-columns: 1fr; gap: 0; }
+}

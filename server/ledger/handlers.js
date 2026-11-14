@@ -240,7 +240,8 @@ export function createLedgerHandlers({ query, withTransaction }) {
       if (!uuid.test(params.id)) throw invalid('Enter a valid group ID.');
       const group = await requireGroup({ query }, params.id, actor.userId);
       const { rows: members } = await query(`
-        SELECT u.id AS "userId", u.display_name AS "displayName", u.initials, u.id = $2 AS "isYou"
+        SELECT u.id AS "userId", u.display_name AS "displayName", u.full_name AS "fullName",
+          u.handle, u.initials, u.id = $2 AS "isYou"
         FROM group_members m JOIN users u ON u.id = m.user_id
         WHERE m.group_id = $1
         ORDER BY "isYou" DESC, m.joined_at, u.id

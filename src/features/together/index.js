@@ -1,5 +1,6 @@
 import { apiRequest } from '../../api/session.js';
 import { GROUPS, USERS } from '../../../server/db/demo-ids.js';
+import { formatUsdCents, usdToCents } from '../../lib/money.js';
 
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
   function ticket() {
@@ -8,7 +9,13 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     return `<div class="expense-ticket"><div class="ticket-top"><div class="ticket-kicker"><span class="eyebrow">Ready when you are</span><span class="pending-label">Not saved yet</span></div><div class="ticket-amount display money">${money(demo.draft.cents)}</div><h3>${esc(demo.draft.merchant)}</h3><span class="small muted">${esc(demo.draft.category)} · Paid by you</span></div><div class="ticket-middle"><div class="math-line small"><span class="muted">Split equally in</span><strong>Puffton 4</strong></div><div class="split-equation"><div class="split-people">${names.map((n, i) => `<div class="split-person">${avatar(n)}<span>${n === 'Maya' ? 'You' : n}</span><strong class="money">${money(share + (i === 0 ? demo.draft.cents - share * names.length : 0))}</strong></div>`).join('')}</div><button type="button" class="text-button cursor-interaction" data-action="edit-split">Edit</button></div><div class="ticket-actions"><button type="button" class="primary cursor-interaction" data-action="confirm-expense">${icon('check')}Confirm expense</button><button type="button" class="secondary cursor-interaction" data-action="discard">Discard</button></div></div><div class="ticket-foot">${icon('shield-check')}Adds a shared expense. No money will be transferred.</div></div>`;
   }
   let cached;
-  let review;
+  const reviews = new Map();
+  let groupCreated;
+
+  function registerReview(draft, { onConfirmed, onDiscard } = {}) {
+    const existing = reviews.get(draft.id);
+    if (!existing?.pending) reviews.set(draft.id, { draft, onConfirmed, onDiscard, pending: false });
+  }
 
   async function loadGroup(id) {
     if (cached?.id === id) return;
@@ -55,7 +62,8 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     render();
   }
 
-  function newGroup() {
+  function newGroup({ onCreated } = {}) {
+    groupCreated = onCreated;
     openModal('New group', `<h2>New group</h2>${closeButton}
       <form id="sp-group-form" class="field-grid">
       <label class="field">Name<input name="name" required></label>
@@ -78,9 +86,10 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   function draftTicket(draft) {
-    return `<div class="expense-ticket"><h3>${esc(draft.merchant)} · ${money(draft.totalCents)}</h3>
-      ${draft.shares.map((s) => `<div class="math-line"><span>${esc(s.displayName)}</span><strong>${money(s.cents)}</strong></div>`).join('')}
-      <form id="sp-group-confirm-form"><button class="primary" type="submit">Confirm expense</button><p role="alert"></p></form></div>`;
+    return `<div class="expense-ticket"><h3>${esc(draft.merchant)} · ${formatUsdCents(draft.totalCents)}</h3>
+      ${draft.shares.map((s) => `<div class="math-line"><span>${esc(s.displayName)}</span><strong>${formatUsdCents(s.cents)}</strong></div>`).join('')}
+      ${draft.status === 'confirmed' ? '<p class="success-stamp">Saved.</p>' : `<form data-expense-confirm data-draft-id="${esc(draft.id)}"><button class="primary" type="submit">Confirm expense</button><button class="secondary" type="button" data-action="discard-review" data-draft-id="${esc(draft.id)}">Discard</button><p role="alert"></p></form>`}
+      <p class="small muted">Adds a shared expense. No money will be transferred.</p></div>`;
   }
 
   async function submitGroupForm(form, fd) {
@@ -89,24 +98,38 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     button.disabled = true;
     try {
       if (form.id === 'sp-group-form') {
+        const onCreated = groupCreated;
         const { group } = await apiRequest('/api/groups', { method: 'POST', body: {
           name: fd.get('name'), kind: fd.get('kind'), startsOn: fd.get('startsOn') || null, endsOn: fd.get('endsOn') || null,
           memberIds: fd.getAll('member'),
         } });
-        closeModal();
-        showGroup(group.id);
+        if (form.isConnected) closeModal();
+        if (onCreated) await onCreated(group);
+        else showGroup(group.id);
       } else if (form.id === 'sp-group-expense-form') {
         const { draft } = await apiRequest('/api/expense-drafts', { method: 'POST', body: {
-          groupId: state.group, merchant: fd.get('merchant'), cents: Math.round(Number(fd.get('amount')) * 100),
+          groupId: state.group, merchant: fd.get('merchant'), cents: usdToCents(String(fd.get('amount')).trim()),
           participantIds: fd.getAll('participant'),
         } });
         if (!form.isConnected) return;
-        review = draft;
+        registerReview(draft);
         openModal('Review split', `<h2>Review split</h2>${closeButton}${draftTicket(draft)}`);
       } else {
-        await apiRequest(`/api/expense-drafts/${encodeURIComponent(review.id)}/confirm`, { method: 'POST', body: {} });
-        closeModal();
-        showGroup(review.groupId);
+        const review = reviews.get(form.dataset.draftId);
+        if (!review) throw new Error('Open this expense review again before confirming.');
+        if (review.pending) return;
+        review.pending = true;
+        let expense;
+        try {
+          ({ expense } = await apiRequest(`/api/expense-drafts/${encodeURIComponent(review.draft.id)}/confirm`, { method: 'POST', body: {} }));
+        } finally {
+          review.pending = false;
+        }
+        cached = undefined;
+        if (form.isConnected && form.closest('[role="dialog"]')) closeModal();
+        reviews.delete(review.draft.id);
+        if (review.onConfirmed) await review.onConfirmed(expense);
+        else showGroup(review.draft.groupId);
         toast('Expense saved.');
       }
     } catch (error) {
@@ -161,6 +184,14 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       case 'new-group':
         newGroup();
         break;
+      case 'discard-review': {
+        const review = reviews.get(b.dataset.draftId);
+        if (!review || review.pending) break;
+        reviews.delete(b.dataset.draftId);
+        if (b.closest('[role="dialog"]')) closeModal();
+        review.onDiscard?.();
+        break;
+      }
       case 'new-group-expense':
         newExpense();
         break;
@@ -199,7 +230,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   });
   function handleExpenseForm(form, fd) {
-    if (['sp-group-form', 'sp-group-expense-form', 'sp-group-confirm-form'].includes(form.id)) {
+    if (['sp-group-form', 'sp-group-expense-form'].includes(form.id) || form.hasAttribute('data-expense-confirm')) {
       void submitGroupForm(form, fd);
       return;
     }
@@ -230,5 +261,5 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       announce('Expense preview updated. Not saved yet.');
   }
 
-  return { groups, ticket, draftTicket, handleExpenseForm };
+  return { groups, ticket, draftTicket, registerReview, openGroupCreation: newGroup, handleExpenseForm };
 }

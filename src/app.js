@@ -127,7 +127,8 @@ export function mountApp(root) {
   const overview = createOverview(context);
   const together = createTogether({ ...context, tx: overview.tx });
   const guardFeature = createGuard(context);
-  const ask = createAsk({ ...context, ticket: together.ticket, blockCard: guardFeature.blockCard });
+  const ask = createAsk({ ...context, draftTicket: together.draftTicket,
+    registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
   const pages = {
     home: overview.home, profile: overview.profile, groups: together.groups,
     guard: guardFeature.guard, goals: goalsFeature.goals, chat: ask.chat,
