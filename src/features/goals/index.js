@@ -4,6 +4,12 @@ import { usdToCents, formatUsdCents } from '../../lib/money.js';
 import { createGoalStore, goalPercent } from './store.js';
 import { preserveFocus } from '../../lib/focus.js';
 
+const starters = [
+  { name: 'Emergency fund', type: 'savings', target: '1000.00', icon: 'shield-check' },
+  { name: 'Next adventure', type: 'trip', target: '500.00', icon: 'luggage' },
+  { name: 'New wheels', type: 'car', target: '5000.00', icon: 'car-front' },
+];
+
 export function createGoals({ root, state, icon, icons, heading, money, dollarLabel, esc, render, persist, openModal, closeModal, closeButton, toast, announce }) {
   const prefs = { motion: true };
   state.goals = [];
@@ -141,11 +147,11 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
   function goals() {
     if (store.state.status === 'idle' && !store.state.busy) void store.load();
     const header = heading('Your goals', 'Give the future a little shape.',
-      'Big plans grow from the little bits you set aside.',
-      `<div class="goal-header-actions"><button id="sp-goal-refresh" type="button" class="secondary" data-action="refresh-goals">Refresh goals</button><button id="sp-goal-new" type="button" class="primary cursor-interaction" data-action="new-goal">${icon('plus')}New goal</button></div>`);
+      'Goal savings are set aside within your balance.',
+      `<div class="goal-header-actions"><button id="sp-goal-new" type="button" class="primary cursor-interaction" data-action="new-goal">${icon('plus')}New goal</button></div>`);
     const status = store.state.status === 'loading' ? '<p role="status">Loading your saved goals…</p>'
       : store.state.error ? `<p role="alert">${esc(store.state.error)} ${state.goals.length ? 'Showing the last confirmed progress.' : ''} <button type="button" class="text-button" data-action="refresh-goals">Try again</button></p>` : '';
-    if (!state.goals.length) return header + status + (store.state.status === 'ready' ? '<section class="data-state"><p>No goals yet. Create one to start setting money aside.</p></section>' : '');
+    if (!state.goals.length) return header + status + (store.state.status === 'ready' ? `<section class="sp-empty"><h2>What are you saving for?</h2><p>Start with an idea, then choose your own target.</p><div class="goal-starters">${starters.map((starter, index) => `<button type="button" class="sp-card" data-goal-starter="${index}">${icon(starter.icon)}<strong>${esc(starter.name)}</strong><span class="small muted">Choose your target →</span></button>`).join('')}</div></section>` : '');
     const g = activeGoal(),
       t = goalTypes[g.type],
       pct = scenePercent(),
@@ -234,7 +240,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     }
     goalPlayFrame = requestAnimationFrame(tick);
   }
-  function goalForm() {
+  function goalForm(starter) {
     openModal('New savings goal', `<div class="modal-header"><div><div class="eyebrow">Something worth saving for</div><h2>What’s on your horizon?</h2></div>${closeButton}</div>
       <form id="sp-goal-form"><fieldset class="goal-form-fields"><label class="field">Goal type<select name="type">${Object.entries(goalTypes).map(([key, value]) => `<option value="${key}">${value.label}</option>`).join('')}</select></label>
       <label class="field">Give it a name<input name="name" required maxlength="45" placeholder="Emergency savings"></label>
@@ -243,6 +249,11 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       <label class="field">Target date (optional)<input name="date" type="date"></label>
       <p>Initial savings reserve money from your spendable funds. Savings may exceed the target.</p>
       <p role="alert"></p><p role="status" data-goal-save-status></p><div class="modal-actions"><button type="button" class="secondary" data-action="close">Cancel</button><button type="submit" class="primary">Create goal</button></div></fieldset></form>`);
+    if (starter) {
+      const form = root.querySelector('#sp-goal-form');
+      form.elements.type.value = starter.type; form.elements.name.value = starter.name; form.elements.target.value = starter.target;
+      form.elements.target.focus();
+    }
   }
   function savingsForm(kind) {
     const g = activeGoal();
@@ -263,6 +274,11 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.goalStarter !== undefined) {
+      const starter = starters[Number(b.dataset.goalStarter)];
+      if (starter) goalForm(starter);
+      return;
+    }
     if (b.dataset.goal) {
       stopGoalPlay();
       state.activeGoal = b.dataset.goal;
@@ -1528,5 +1544,8 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     contributionTransition = null;
   }
 
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.page === 'goals' && !store.state.busy) store.invalidate();
+  });
   return { goals, beforeRender, mountGoalScene, handleGoalForm, motionAllowed };
 }

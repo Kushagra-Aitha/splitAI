@@ -1,18 +1,29 @@
-import { apiRequest } from '../../api/session.js';
+import { apiRequest, getSession } from '../../api/session.js';
 import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { preserveFocus } from '../../lib/focus.js';
+import { createAskPanel } from './panel.js';
 
-export function createAsk({ root, state, icon, esc, heading, render, announce, go,
+export function createAsk({ root, state, icon, icons, esc, heading, render, announce, go,
   draftTicket, registerReview, openGroupCreation }) {
   const entries = [];
   let composerText = '';
   let sending = false;
   let nextId = 0;
+  let epoch = 0;
+  const controllers = new Set();
+  const actorId = getSession()?.actor.userId;
+  const owned = () => !!actorId && getSession()?.actor.userId === actorId;
+  const prompts = ["Split last night's Domino's with Flat 7", 'What do I owe?', 'Food spending this month'];
+  const panel = createAskPanel({ root, icon, icons, renderChat: () => chat(true) });
   const label = '<div class="agent-label"><span class="agent-mark">s.</span>Split<span class="tag">AI assistant</span></div>';
-  const refresh = () => { if (state.page === 'chat') preserveFocus(root, render); };
+  const refresh = () => {
+    if (!owned()) return;
+    if (panel.isOpen()) panel.refresh();
+    else if (state.page === 'chat') preserveFocus(root, render);
+  };
   function focusResponse(entry) {
-    if (state.page !== 'chat') return;
+    if (!panel.isOpen() && state.page !== 'chat') return;
     const doc = root.ownerDocument;
     if (doc.activeElement !== doc.body) return;
     root.querySelector(`#sp-ask-${entry.error ? 'error' : 'result'}-${entry.id}`)?.focus({ preventScroll: true });
@@ -58,10 +69,10 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
       ${entry.error && entry.retryBody ? `<button id="sp-ask-retry-${entry.id}" type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}</div>`;
   }
 
-  function chat() {
-    return heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.') +
+  function chat(compact = false) {
+    return (compact ? '' : heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.')) +
       `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message">${label}<p>Tell me what you spent and who to split it with.</p></div>`}</div>
-      <div class="composer-area"><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
+      <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(prompt)}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
       <input id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" value="${esc(composerText)}" ${sending ? 'disabled' : ''} required>
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
       <p id="sp-chat-help" class="chat-footnote">Only your confirmation saves an expense. No money is transferred.</p></div>`;
@@ -91,7 +102,8 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
   }
 
   async function request(entry, body) {
-    if (entry.pending) return;
+    if (entry.pending || !owned()) return;
+    const generation = epoch, controller = new AbortController(); controllers.add(controller);
     entry.pending = true;
     entry.error = '';
     entry.retryBody = body;
@@ -99,14 +111,20 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     refresh();
     announce('Working on your request.');
     try {
-      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000 });
+      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000, signal: controller.signal });
+      if (generation !== epoch || !owned()) return;
       if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
       receive(entry, response);
     } catch (error) {
+      if (generation !== epoch || controller.signal.aborted) return;
+      if (!owned() || error.status === 401) { reset(); return; }
       entry.error = error.name === 'TimeoutError' ? 'The request took too long. Try again when you are ready.'
         : error.message || 'The request could not finish. Try again.';
       announce(entry.error);
-    } finally { entry.pending = false; refresh(); if (!sending) focusResponse(entry); }
+    } finally {
+      controllers.delete(controller);
+      if (generation === epoch && owned()) { entry.pending = false; refresh(); if (!sending) focusResponse(entry); }
+    }
   }
 
   subscribeFinancialChanges(() => {
@@ -147,6 +165,7 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     composerText = message;
     sending = true;
     await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID(), ...(context ? { context } : {}) });
+    if (!owned()) return;
     if (!entry.error) composerText = '';
     sending = false;
     refresh();
@@ -184,6 +203,8 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
     }
   });
   root.addEventListener('click', (event) => {
+    const prompt = event.target.closest('[data-ask-prompt]');
+    if (prompt && !sending) { composerText = prompts[Number(prompt.dataset.askPrompt)] || ''; refresh(); root.querySelector('#sp-chat-input')?.focus(); return; }
     const note = event.target.closest('[data-ask-note-group]');
     if (note) {
       go('chat');
@@ -207,5 +228,11 @@ export function createAsk({ root, state, icon, esc, heading, render, announce, g
       }) });
     }
   });
-  return { chat, handleAskForm };
+  function reset() {
+    epoch++; for (const controller of controllers) controller.abort(); controllers.clear();
+    entries.length = 0; composerText = ''; sending = false; panel.clear();
+  }
+  root.addEventListener('click', (event) => { if (event.target.closest('#sp-logout')) reset(); }, true);
+  window.addEventListener('pagehide', reset, { once: true });
+  return { chat, handleAskForm, open() { if (owned()) panel.open(); else reset(); }, close: panel.close, isOpen: panel.isOpen };
 }

@@ -1,11 +1,8 @@
 import { apiRequest, getSession } from '../../api/session.js';
 import { preserveFocus } from '../../lib/focus.js';
+import { avatarHtml } from '../../lib/avatar.js';
+import { notificationMessage, relativeTime } from './presentation.js';
 
-const labels = Object.freeze({
-  expense_added: 'A shared expense was added.', settlement_sent: 'A settlement was submitted.',
-  settlement_posted: 'A settlement posted.', settlement_failed: 'A settlement failed.',
-  guard_blocked: 'Guard blocked a request.', comment_added: 'A new comment was added.',
-});
 const INTERVAL = 15_000;
 
 export function createNotifications({ root, icon, icons, esc, announce, go, openGroup, onRefresh }) {
@@ -19,14 +16,15 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
   function render() {
     preserveFocus(host, () => {
       host.innerHTML = `<button type="button" id="sp-notification-bell" class="icon-button notification-bell" aria-label="Notifications, ${unreadCount} unread" aria-expanded="${open}" aria-controls="sp-notification-panel">${icon('bell')}${unreadCount ? `<span class="notification-badge" aria-hidden="true">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}</button>
-        ${open ? `<section id="sp-notification-panel" class="notification-panel" aria-label="Notifications"><h2>Notifications</h2>
+        ${open ? `<section id="sp-notification-panel" class="notification-panel" aria-label="Notifications"><div class="notification-heading"><h2>Notifications</h2><button type="button" id="sp-notification-read-all" class="text-button" data-notification-action="read-all" ${reading || !unreadCount ? 'disabled' : ''}>Mark all read</button></div>
         ${error ? `<p role="alert">${esc(error)}</p><button type="button" class="text-button" data-notification-action="retry">Retry</button>` : ''}
         ${loading ? '<p role="status">Checking notifications…</p>' : ''}
         ${reading ? '<p role="status">Opening notification…</p>' : ''}
         <ul>${items.map((item) => `<li><button type="button" id="sp-notification-${esc(item.id)}" class="notification-item ${item.readAt ? '' : 'is-unread'}" data-notification-id="${esc(item.id)}" ${reading ? 'disabled' : ''}>
-          <span>${esc(labels[item.kind] || 'New activity.')}${item.readAt ? '' : '<span class="notification-unread"> · Unread</span>'}</span>
+          ${item.actorUserId ? avatarHtml({ userId: item.actorUserId, displayName: item.actorName }, { size: 'sm', label: false }) : ''}
+          <span>${esc(notificationMessage(item))}${item.readAt ? '' : '<span class="notification-unread"> · Unread</span>'}</span>
           ${item.groupName ? `<span class="small muted">${esc(item.groupName)}</span>` : ''}
-          <time class="small muted" datetime="${esc(item.createdAt)}">${esc(new Date(item.createdAt).toLocaleString())}</time></button></li>`).join('')}</ul>
+          <time class="small muted" datetime="${esc(item.createdAt)}" title="${esc(new Date(item.createdAt).toLocaleString())}">${esc(relativeTime(item.createdAt))}</time></button></li>`).join('')}</ul>
         ${!items.length && !loading && !error ? '<p>No notifications.</p>' : ''}
         <div class="notification-pages">${before ? '<button type="button" class="text-button" data-notification-action="latest">Latest</button>' : ''}${nextCursor ? `<button type="button" class="text-button" data-notification-action="older" ${loading ? 'disabled' : ''}>Older</button>` : ''}</div></section>` : ''}`;
       icons();
@@ -91,6 +89,20 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
       if (token === epoch && !stopped) { reading = false; readController = null; render(); }
     }
   }
+  async function markAllRead() {
+    if (reading || stopped || !owned()) return;
+    reading = true; error = ''; const token = epoch;
+    const controller = new AbortController(); readController = controller; render();
+    try {
+      await apiRequest('/api/notifications/read', { method: 'POST', body: { all: true }, signal: controller.signal });
+      if (token !== epoch || stopped || !owned()) return;
+      cancelPoll(); announce('Notifications marked read.'); void refresh();
+    } catch (failure) {
+      if (token !== epoch || controller.signal.aborted) return;
+      if (!owned() || failure.status === 401) { stop(); return; }
+      error = 'Notifications could not be marked read. Try again.';
+    } finally { if (token === epoch && !stopped) { reading = false; readController = null; render(); } }
+  }
   host.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
@@ -101,6 +113,7 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
       const item = items.find((value) => value.id === button.dataset.notificationId);
       if (item) void openItem(item);
     } else if (button.dataset.notificationAction) {
+      if (button.dataset.notificationAction === 'read-all') { void markAllRead(); return; }
       if (button.dataset.notificationAction === 'older') before = nextCursor;
       if (button.dataset.notificationAction === 'latest') before = null;
       cancelPoll(); void refresh();
