@@ -34,6 +34,14 @@ export function createSettlementConfirmation({ withTransaction, lockAccount, res
         throw new HttpError(409, 'REVIEW_EXPIRED', 'Create a new settlement review.');
       }
 
+      await db.query('SELECT id FROM groups WHERE id = $1 FOR UPDATE', [review.groupId]);
+      const { rows: members } = await db.query(`
+        SELECT user_id FROM group_members WHERE group_id = $1 AND left_at IS NULL
+          AND user_id IN ($2, $3)
+      `, [review.groupId, actor.userId, review.payeeUserId]);
+      if (members.length !== 2) {
+        throw new HttpError(409, 'GROUP_MEMBERSHIP_CHANGED', 'Both people must still belong to the group.');
+      }
       const debts = await readDebts(db, [review.groupId], actor.userId);
       const currentDebt = debts.find((debt) => debt.userId === review.payeeUserId)?.cents ?? 0;
       const { rows: [pending] } = await db.query(`

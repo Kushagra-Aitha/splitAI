@@ -1,3 +1,4 @@
+import { normalizeEmail } from '../session.js';
 import { recordGuardEvent } from '../guard/events.js';
 import { getMappedAccountForUser } from '../banking/provider.js';
 import { readDebts, readLedger, summarizeDebts } from './debts.js';
@@ -37,10 +38,30 @@ async function requireGroup(db, id, userId) {
   const { rows: [group] } = await db.query(`
     SELECT ${groupColumns}
     FROM groups g JOIN group_members m ON m.group_id = g.id
-    WHERE g.id = $1 AND m.user_id = $2
+    WHERE g.id = $1 AND m.user_id = $2 AND m.left_at IS NULL
   `, [id, userId]);
   if (!group) throw new HttpError(404, 'GROUP_NOT_FOUND', 'Group not found.');
   return group;
+}
+
+async function resolveMemberEmails(db, values) {
+  if (!Array.isArray(values)) throw invalid('Enter member email addresses.');
+  const emails = [...new Set(values.map(normalizeEmail))];
+  if (emails.includes(null)) throw invalid('Enter valid member email addresses.');
+  if (!emails.length) return [];
+  const { rows } = await db.query(
+    'SELECT id FROM users WHERE email = ANY($1::text[])', [emails],
+  );
+  if (rows.length !== emails.length) {
+    throw new HttpError(422, 'MEMBER_EMAIL_NOT_FOUND', 'No Split account for that email.');
+  }
+  return rows.map(({ id }) => id);
+}
+
+async function lockGroupMembership(db, id, userId) {
+  if (typeof id !== 'string' || !uuid.test(id)) throw invalid('Choose a valid group.');
+  await db.query('SELECT id FROM groups WHERE id = $1 FOR UPDATE', [id]);
+  return requireGroup(db, id, userId);
 }
 
 async function requirePurchase(db, userId, { accountId, providerKey }, cents) {
@@ -64,7 +85,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
         FROM group_members mine
         JOIN groups g ON g.id = mine.group_id
         JOIN group_members m ON m.group_id = g.id
-        WHERE mine.user_id = $1
+        WHERE mine.user_id = $1 AND mine.left_at IS NULL AND m.left_at IS NULL
         GROUP BY g.id
         ORDER BY g.created_at, g.id
       `, [actor.userId]);
@@ -84,11 +105,10 @@ export function createLedgerHandlers({ query, withTransaction }) {
       const startsOn = readDate(body.startsOn, 'startsOn');
       const endsOn = readDate(body.endsOn, 'endsOn');
       if (startsOn && endsOn && endsOn < startsOn) throw invalid('The end date must follow the start date.');
-      const memberIds = [...new Set([actor.userId, ...readIds(body.memberIds ?? [], 'memberIds')])];
+      if (Object.hasOwn(body, 'memberIds')) throw invalid('Add members by email address.');
 
       return withTransaction(async (db) => {
-        const { rowCount } = await db.query('SELECT id FROM users WHERE id = ANY($1::uuid[])', [memberIds]);
-        if (rowCount !== memberIds.length) throw invalid('Choose existing users as group members.');
+        const memberIds = [...new Set([actor.userId, ...await resolveMemberEmails(db, body.memberEmails ?? [])])];
         const { rows: [group] } = await db.query(`
           INSERT INTO groups AS g (kind, name, tagline, starts_on, ends_on, created_by)
           VALUES ($1, $2, $3, $4, $5, $6)
@@ -99,6 +119,36 @@ export function createLedgerHandlers({ query, withTransaction }) {
           SELECT $1, user_id FROM unnest($2::uuid[]) AS members(user_id)
         `, [group.id, memberIds]);
         return { group };
+      });
+    },
+
+    async 'groups.addMember'({ actor, body, params }) {
+      return withTransaction(async (db) => {
+        const group = await lockGroupMembership(db, params.id, actor.userId);
+        const [memberId] = await resolveMemberEmails(db, [body.email]);
+        await db.query(`
+          INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)
+          ON CONFLICT (group_id, user_id) DO UPDATE SET left_at = NULL, joined_at = now()
+          WHERE group_members.left_at IS NOT NULL
+        `, [group.id, memberId]);
+        return { groupId: group.id, userId: memberId };
+      });
+    },
+
+    async 'groups.leave'({ actor, params }) {
+      return withTransaction(async (db) => {
+        const group = await lockGroupMembership(db, params.id, actor.userId);
+        const debts = await readDebts(db, [group.id], actor.userId);
+        const { rows: [pending] } = await db.query(`
+          SELECT EXISTS (SELECT 1 FROM settlements WHERE group_id = $1 AND status = 'pending'
+            AND (payer_user_id = $2 OR payee_user_id = $2)) AS pending
+        `, [group.id, actor.userId]);
+        if (debts.length || pending.pending) {
+          throw new HttpError(409, 'GROUP_BALANCE_OUTSTANDING', 'Settle outstanding balances and wait for pending payments before leaving.');
+        }
+        await db.query('UPDATE group_members SET left_at = now() WHERE group_id = $1 AND user_id = $2',
+          [group.id, actor.userId]);
+        return { groupId: group.id, left: true };
       });
     },
 
@@ -125,7 +175,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
         const { rows: participants } = await db.query(`
           SELECT u.id AS "userId", u.display_name AS "displayName"
           FROM group_members m JOIN users u ON u.id = m.user_id
-          WHERE m.group_id = $1 AND u.id = ANY($2::uuid[])
+          WHERE m.group_id = $1 AND m.left_at IS NULL AND u.id = ANY($2::uuid[])
           ORDER BY (u.id = $3) DESC, u.id
         `, [group.id, participantIds, actor.userId]);
         if (participants.length !== participantIds.length) {
@@ -171,6 +221,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
           const { id, groupId, totalCents, status, confirmedAt, expired, accountId, providerKey } = row;
           if (status === 'confirmed') return { expense: { id, groupId, totalCents, status, confirmedAt } };
           if (status !== 'draft' || expired) throw new HttpError(409, 'DRAFT_EXPIRED', 'Create a new expense draft.');
+          await lockGroupMembership(db, groupId, actor.userId);
           // Include every share, even zero-cent shares, and keep those
           // membership keys locked until this confirmation transaction commits.
           // A concurrent removal must finish before this check or wait for it.
@@ -181,7 +232,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
             ), current_members AS MATERIALIZED (
               SELECT m.user_id FROM group_members m
               JOIN participants p ON p.user_id = m.user_id
-              WHERE m.group_id = $2
+              WHERE m.group_id = $2 AND m.left_at IS NULL
               ORDER BY m.user_id
               FOR KEY SHARE OF m
             )
@@ -246,7 +297,7 @@ export function createLedgerHandlers({ query, withTransaction }) {
         SELECT u.id AS "userId", u.display_name AS "displayName", u.full_name AS "fullName",
           u.handle, u.initials, u.id = $2 AS "isYou"
         FROM group_members m JOIN users u ON u.id = m.user_id
-        WHERE m.group_id = $1
+        WHERE m.group_id = $1 AND m.left_at IS NULL
         ORDER BY "isYou" DESC, m.joined_at, u.id
       `, [group.id, actor.userId]);
       const [debts, ledger] = await Promise.all([

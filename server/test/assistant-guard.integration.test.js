@@ -31,6 +31,9 @@ test('live database: assistant Guard records real rejections with zero transfers
   owned = true;
   await migrate({ log: () => {} });
   await seed({ log: () => {} });
+  for (const handle of ['sam', 'priya', 'alex']) {
+    await db.query('UPDATE users SET email = $2 WHERE handle = $1', [handle, `${handle}@split.test`]);
+  }
   const actor = { userId: USERS.maya };
   const query = (...args) => db.query(...args);
   const ledger = createLedgerHandlers({ query, withTransaction });
@@ -142,7 +145,7 @@ test('live database: assistant Guard records real rejections with zero transfers
 
   await t.test('foreign group contexts are rejected without linking an unauthorized group', async () => {
     const { group } = await ledger['groups.create']({ actor: { userId: USERS.sam }, body: {
-      name: 'Other synthetic group', kind: 'roommates', memberIds: [USERS.alex], tagline: poison,
+      name: 'Other synthetic group', kind: 'roommates', memberEmails: ['alex@split.test'], tagline: poison,
     } });
     const result = await post(request({ context: { kind: 'group_note', groupId: group.id } }));
     assert.equal(result.data.reasonCode, 'ASSISTANT_SCOPE_REJECTED');

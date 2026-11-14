@@ -41,7 +41,7 @@ export async function readFinancialFacts({ withTransaction, actorId, query, now 
     const { rows: groups } = await db.query(`
       SELECT g.id, g.name, g.kind, g.created_at AS "createdAt"
       FROM groups g JOIN group_members m ON m.group_id = g.id
-      WHERE m.user_id = $1 ORDER BY g.created_at, g.id`, [actorId]);
+      WHERE m.user_id = $1 AND m.left_at IS NULL ORDER BY g.created_at, g.id`, [actorId]);
     const debts = await readDebts(db, groups.map((group) => group.id), actorId);
     const funds = await getSpendableFunds(accountId, db);
     // Hold-backed payments are already reserved in B4's spendable figure.

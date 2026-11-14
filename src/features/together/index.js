@@ -1,5 +1,5 @@
 import { apiRequest } from '../../api/session.js';
-import { GROUPS, USERS } from '../../../server/db/demo-ids.js';
+import { GROUPS } from '../../../server/db/demo-ids.js';
 import { formatUsdCents, usdToCents } from '../../lib/money.js';
 
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
@@ -48,7 +48,9 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     const { group, members, debts, ledger } = cached.data;
     return '<button class="back-button" data-go="groups">All groups</button>' +
       heading(group.kind === 'trip' ? 'Trip' : 'Roommates', esc(group.name), esc(group.tagline ?? ''),
-        '<button class="primary" data-action="new-group-expense">Add expense</button>') +
+        '<button class="primary" data-action="new-group-expense">Add expense</button> ' +
+        '<button class="secondary" data-action="add-group-member">Add member</button> ' +
+        '<button class="secondary" data-action="leave-group">Leave group</button>') +
       (group.tagline?.trim() ? `<button type="button" class="text-button" data-ask-note-group="${esc(group.id)}">Check note with Guard</button>` : '') +
       `<div class="member-list">${members.map((m) => `<p>${esc(m.displayName)}${m.isYou ? ' (you)' : ''}</p>`).join('')}</div>
         <section><h2>You owe ${money(debts.youOweCents)}</h2>
@@ -78,9 +80,43 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       <label class="field">Type<select name="kind"><option value="roommates">Roommates</option><option value="trip">Trip</option></select></label>
       <label class="field">Starts on<input name="startsOn" type="date"></label>
       <label class="field">Ends on<input name="endsOn" type="date"></label>
-      <fieldset><legend>Demo members</legend>${Object.entries(USERS).map(([name, id]) =>
-        `<label><input type="checkbox" name="member" value="${id}"> ${name[0].toUpperCase() + name.slice(1)}</label> `).join('')}</fieldset>
+      <label class="field">Member emails (optional)<input type="email" name="emails" multiple
+        placeholder="sam@example.com, priya@example.com"></label>
       <button class="primary" type="submit">Create group</button><p role="alert"></p></form>`);
+  }
+
+  function manageMembership(leave) {
+    const title = leave ? 'Leave group' : 'Add member';
+    openModal(title, `<h2>${title}</h2>${closeButton}
+      <form id="sp-group-membership-form" data-group-id="${esc(state.group)}" data-leave="${leave}">
+        ${leave ? '<p>Leave this group? Your past expenses stay in its ledger.</p>' :
+          '<label class="field">Member email<input type="email" name="email" required></label>'}
+        <button class="primary" type="submit">${title}</button><p role="alert"></p>
+      </form>`);
+  }
+
+  async function submitMembership(form, fd) {
+    const button = form.querySelector('[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true;
+    const id = form.dataset.groupId;
+    const leave = form.dataset.leave === 'true';
+    try {
+      await apiRequest(`/api/groups/${encodeURIComponent(id)}/${leave ? 'leave' : 'members'}`, {
+        method: 'POST', body: leave ? {} : { email: fd.get('email') },
+      });
+      if (form.isConnected) {
+        closeModal();
+        showGroup(leave ? null : id);
+      } else {
+        cached = undefined;
+        if (state.page === 'groups') render();
+      }
+    } catch (error) {
+      if (form.isConnected) form.querySelector('[role="alert"]').textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function newExpense() {
@@ -116,7 +152,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         const onCreated = groupCreated;
         const { group } = await apiRequest('/api/groups', { method: 'POST', body: {
           name: fd.get('name'), kind: fd.get('kind'), startsOn: fd.get('startsOn') || null, endsOn: fd.get('endsOn') || null,
-          memberIds: fd.getAll('member'),
+          memberEmails: String(fd.get('emails') ?? '').split(',').map((email) => email.trim()).filter(Boolean),
         } });
         if (form.isConnected) closeModal();
         if (onCreated) await onCreated(group);
@@ -234,6 +270,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       case 'retry-groups':
         showGroup(state.group);
         break;
+      case 'add-group-member':
+        manageMembership(false);
+        break;
+      case 'leave-group':
+        manageMembership(true);
+        break;
       case 'new-group':
         newGroup();
         break;
@@ -269,6 +311,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   });
   function handleExpenseForm(form, fd) {
+    if (form.id === 'sp-group-membership-form') { void submitMembership(form, fd); return; }
     if (form.id === 'sp-settlement-confirm') { void confirmSettlement(form); return; }
     if (['sp-group-form', 'sp-group-expense-form'].includes(form.id) || form.hasAttribute('data-expense-confirm')) {
       void submitGroupForm(form, fd);
