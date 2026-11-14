@@ -1,6 +1,6 @@
 # Split AI API foundation
 
-F3 supplies the HTTP server, restricted demo session, route mounts, same-origin
+F3 supplies the HTTP server, session boundary, route mounts, same-origin
 frontend serving, and a live Gemini connectivity check. C1 adds the validated
 Ask intent parser and API handler; see [assistant/README.md](assistant/README.md).
 The Ask handler does not write financial records or submit payments.
@@ -10,7 +10,8 @@ manifest; it does not change the frontend lockfile. Its one dependency is `pg`.
 
 Database (F2): Tiger Cloud connection, migrations, stable demo IDs and seed,
 plus the Nessie smoke check are documented in [db/README.md](db/README.md).
-`DEMO_ACTOR_ID` must be the seeded Maya ID, `10000000-0000-4000-8000-000000000001`.
+B8 replaced the shared demo access code with email/password accounts stored
+in Tiger Data (`users.email`, `users.password_hash`, `sessions`).
 
 ## Run locally
 
@@ -18,13 +19,12 @@ From the repository root:
 
 ```sh
 cp server/.env.example server/.env
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Put the generated value in `DEMO_ACCESS_CODE` in `server/.env`. Coordinate
-`DEMO_ACTOR_ID` with Member B's stable seed; the example UUID is a placeholder
-and does not prove database or account authorization. Use the seeded Maya actor
-while the scaffold still displays Maya's demo content. Configure Gemini locally
+Set `DEMO_PASSWORD` (8+ characters) in `server/.env`, then run
+`npm --prefix server run db:setup`. The seed gives `maya@split.test`,
+`sam@split.test`, `priya@split.test` and `alex@split.test` that password.
+Anyone else creates an account on the Sign up screen. Configure Gemini locally
 for the live check. Never commit credentials or use `VITE_` provider variables.
 
 ```sh
@@ -32,8 +32,7 @@ npm run build
 npm --prefix server start
 ```
 
-Open **http://localhost:3001**, the exact `APP_ORIGIN`, and sign in with the demo
-access code. The Node server serves both `dist/` and `/api/` on that origin.
+Open **http://localhost:3001**, the exact `APP_ORIGIN`, and log in or sign up. The Node server serves both `dist/` and `/api/` on that origin.
 Rebuild after frontend edits. For hot reload, use two terminals instead:
 
 ```sh
@@ -55,23 +54,32 @@ in Vite mode it remains `http://localhost:5173`.
 
 - `GET /health` (also HEAD) returns `200 {"status":"ok"}` without authentication.
   This is liveness only; it does not probe the database, Nessie, or Gemini.
-- `POST /api/session`, JSON `{"accessCode":"..."}`, requires the exact
-  `Origin: APP_ORIGIN`. It issues a random, HttpOnly, SameSite=Strict cookie and
-  returns `{actor: {userId, displayName}, csrfToken, expiresAt}`. `expiresAt` is
-  Unix time in milliseconds. The actor always comes from server configuration;
-  body `userId`, payer, and account fields cannot select it.
+- `POST /api/auth/signup` `{name, email, password}` and `POST /api/auth/login`
+  `{email, password}` require the exact `Origin: APP_ORIGIN`. Each issues a
+  random, HttpOnly, SameSite=Strict cookie and returns
+  `{actor: {userId, displayName}, csrfToken, expiresAt}` (`expiresAt` is Unix
+  time in milliseconds). The actor is the account that signed in; body
+  `userId`, payer, and account fields are ignored. Emails are lowercased;
+  passwords need 8+ characters and are stored as salted scrypt hashes.
+  Sign-up returns `409 EMAIL_TAKEN` for a registered email. A wrong password and
+  an unknown email both return the same `401 INVALID_CREDENTIALS`.
+- `POST /api/auth/logout` (also `DELETE /api/session`) requires origin and, when
+  a session exists, its CSRF token; it deletes the session and clears the cookie.
 - `GET /api/session` returns the current session or 401. The frontend initializes
   through it; `src/api/session.js` exports `getSession()` and `apiRequest()` for
   feature integrations. No credentials or session state are put in localStorage.
 - Every mounted feature route requires a valid session. Every mutation also
   requires the exact origin, a JSON object, and `X-CSRF-Token` from that session.
   Mutations with no fields send `{}`. Request bodies are limited to 16 KiB.
-- `DELETE /api/session` requires origin and CSRF, invalidates the session, and
-  clears its cookie. Sessions expire after eight hours and reset on restart.
-  F3's store is bounded, in memory, and intended for one API process. A shared
-  session store is needed before running multiple replicas. Login attempts are
-  limited by socket IP; forwarding headers cannot bypass the limit. Behind a
-  proxy the limit is shared; B7 should add an edge limit if needed.
+- Sessions last seven days and live in the `sessions` table, keyed by the
+  SHA-256 of the cookie token, so they survive restarts and multiple processes.
+  Sign-in and sign-up attempts are limited to 10 per minute per socket IP
+  (forwarding headers cannot bypass this), and 5 wrong passwords lock that
+  email for 15 minutes. Behind a proxy the IP limit is shared; B7 should add an
+  edge limit if needed.
+- `createApp({ config, handlers, authStore })` requires an auth store:
+  `createDbAuthStore` in the server, `createMemoryAuthStore` in tests
+  (`test/support/auth.js` has `memoryAuth()` and `loginAs()`).
 - Production requires an HTTPS `APP_ORIGIN`. HTTPS enables a `__Host-` cookie,
   Secure, and HSTS. Terminate HTTPS at B7's reverse proxy and forward to this
   listener; the app does not trust forwarded headers. Keep the listener private.
@@ -80,10 +88,10 @@ in Vite mode it remains `http://localhost:5173`.
   session 401, scope/origin/CSRF failures 403, invalid JSON 422, oversized bodies
   413, and unsupported content types 415. Feature input validation and 409 money
   conflicts will be supplied by their owners.
-- The access code is a shared sandbox entry gate, not individual authentication.
-  Only the configured actor is available; this is not a real bank login. Feature
-  owners must still authorize groups, goals, drafts, reviews, and accounts
-  against `context.actor` and enforce immutable reviewed payment terms.
+- Each person signs in as themselves; `context.actor` is that account. This is a
+  sandbox login, not a real bank login. Feature owners must authorize groups,
+  goals, drafts, reviews, and accounts against `context.actor` and enforce
+  immutable reviewed payment terms.
 
 ## Feature integration seam
 

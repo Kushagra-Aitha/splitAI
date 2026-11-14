@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import test from 'node:test';
+import { loginAs, memoryAuth } from './support/auth.js';
 import { createGoalHandlers } from '../goals/handlers.js';
 import { lockAccount, reserveFunds, getSpendableFunds } from '../banking/funds.js';
 import { readFinancialFacts } from '../assistant/facts.js';
@@ -148,18 +149,16 @@ test('live database: atomic repeat-safe goal lifecycle uses the shared funds loc
 
   await t.test('HTTP goals use the real session/CSRF boundary and return durable retry receipts', async (t) => {
     const origin = 'http://localhost:3001';
-    const accessCode = 'synthetic-c5-http-test-access-code-only';
-    const server = createApp({ handlers: api, config: loadConfig({ NODE_ENV: 'test', APP_ORIGIN: origin,
-      DEMO_ACTOR_ID: USERS.maya, DEMO_ACCESS_CODE: accessCode }) });
+    const authStore = await memoryAuth([{ userId: USERS.maya, email: 'maya@split.test', displayName: 'Maya Chen' }]);
+    const server = createApp({ handlers: api, authStore, config: loadConfig({ NODE_ENV: 'test', APP_ORIGIN: origin }) });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     t.after(async () => { const closed = once(server, 'close'); server.close(); server.closeAllConnections(); await closed; });
     const base = `http://127.0.0.1:${server.address().port}`;
     assert.equal((await fetch(`${base}/api/goals`)).status, 401);
-    const login = await fetch(`${base}/api/session`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ accessCode }) });
+    const login = await loginAs(base, origin, 'maya@split.test');
     assert.equal(login.status, 200);
-    const session = await login.json();
-    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const { session, cookie } = login;
     const post = (path, data, csrf = session.csrfToken) => fetch(base + path, { method: 'POST',
       headers: { Origin: origin, Cookie: cookie, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const input = body(100);

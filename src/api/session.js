@@ -45,23 +45,82 @@ function rememberSession(value) {
   return session;
 }
 
+const LOGIN_MESSAGES = {
+  401: 'That email and password don’t match.',
+  429: 'Too many sign-in attempts. Try again in a few minutes.',
+};
+
+function failureMessage(failure) {
+  if (failure instanceof ApiError) {
+    if (LOGIN_MESSAGES[failure.status]) return LOGIN_MESSAGES[failure.status];
+    if ([409, 422].includes(failure.status)) return failure.message;
+  }
+  return 'Unable to reach Split. Check your connection and try again.';
+}
+
+/** Ends this browser's session and returns to the login screen. */
+export async function logout() {
+  try {
+    await apiRequest('/api/auth/logout', { method: 'POST', body: {} });
+  } finally {
+    session = null;
+    window.location.reload();
+  }
+}
+
+// Put the signed-in person's name on the shell (textContent only) and wire
+// Log out. The static markup ships with neutral placeholders.
+function personalize(root) {
+  const name = session.actor.displayName;
+  const first = name.split(' ')[0];
+  const initials = name.split(/\s+/).filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+  const account = root.querySelector('.book-account');
+  if (account) {
+    account.setAttribute('aria-label', `${name}’s profile`);
+    account.querySelector('.avatar').textContent = initials;
+    account.querySelector('[data-account-name]').textContent = `${first}’s`;
+  }
+  root.querySelector('#sp-logout')?.addEventListener('click', (event) => {
+    event.currentTarget.disabled = true;
+    void logout();
+  });
+}
+
 export async function initializeSession(root) {
   root.hidden = true;
   const gate = document.createElement('section');
   gate.className = 'session-gate';
-  gate.setAttribute('aria-label', 'Split AI demo sign in');
+  gate.setAttribute('aria-label', 'Log in to Split');
   // Static markup only. Server and user values are assigned through textContent.
-  gate.innerHTML = `<div class="session-card"><p class="session-brand">split.</p><h1>Welcome to the demo.</h1><p>Use your demo access code to open the shared sandbox.</p><form><label for="demo-access-code">Demo access code</label><input id="demo-access-code" name="accessCode" type="password" autocomplete="current-password" maxlength="256" required><p class="session-error" role="alert"></p><button type="submit">Open Split</button></form><p class="session-status" role="status">Connecting…</p></div>`;
+  gate.innerHTML = `<div class="session-card"><p class="session-brand">split.</p>
+    <form data-mode="login" aria-labelledby="sp-login-title"><h1 id="sp-login-title">Welcome back.</h1><p>Log in to see your money and your groups.</p>
+      <label for="sp-login-email">Email</label><input id="sp-login-email" name="email" type="email" autocomplete="username" maxlength="254" required>
+      <label for="sp-login-password">Password</label><input id="sp-login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+      <p class="session-error" role="alert"></p><button type="submit">Log in</button>
+      <p class="session-switch">New to Split? <button type="button" class="session-link" data-switch="signup">Create an account</button></p></form>
+    <form data-mode="signup" aria-labelledby="sp-signup-title" hidden><h1 id="sp-signup-title">Create your account.</h1><p>Split costs with the people you live and travel with.</p>
+      <label for="sp-signup-name">Your name</label><input id="sp-signup-name" name="name" autocomplete="name" maxlength="80" required>
+      <label for="sp-signup-email">Email</label><input id="sp-signup-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+      <label for="sp-signup-password">Password</label><input id="sp-signup-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="256" required aria-describedby="sp-password-hint">
+      <p id="sp-password-hint" class="session-hint">At least 8 characters.</p>
+      <p class="session-error" role="alert"></p><button type="submit">Create account</button>
+      <p class="session-switch">Already have an account? <button type="button" class="session-link" data-switch="login">Log in</button></p></form>
+    <p class="session-status" role="status">Connecting…</p></div>`;
   root.before(gate);
-  const form = gate.querySelector('form');
-  const input = gate.querySelector('input');
-  const button = gate.querySelector('button');
-  const error = gate.querySelector('.session-error');
+  const forms = [...gate.querySelectorAll('form')];
   const status = gate.querySelector('.session-status');
-  form.hidden = true;
+  forms.forEach((form) => { form.hidden = true; });
   function openApp() {
     gate.remove();
     root.hidden = false;
+    personalize(root);
+  }
+  function show(mode) {
+    for (const form of forms) {
+      form.hidden = form.dataset.mode !== mode;
+      form.querySelector('.session-error').textContent = '';
+    }
+    gate.querySelector(`form[data-mode="${mode}"] input`).focus();
   }
   try {
     rememberSession(await apiRequest('/api/session'));
@@ -69,34 +128,39 @@ export async function initializeSession(root) {
     return session;
   } catch (failure) {
     status.textContent = '';
-    form.hidden = false;
+    show('login');
     if (!(failure instanceof ApiError && failure.status === 401)) {
-      error.textContent = 'Unable to connect to Split. Check your connection and try again.';
+      forms[0].querySelector('.session-error').textContent = 'Unable to connect to Split. Check your connection and try again.';
     }
   }
-  input.focus();
+  gate.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-switch]');
+    if (target) show(target.dataset.switch);
+  });
   return new Promise((resolve) => {
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (button.disabled) return;
-      button.disabled = true;
-      error.textContent = '';
-      status.textContent = 'Signing in…';
-      try {
-        rememberSession(await apiRequest('/api/session', { method: 'POST', body: { accessCode: input.value } }));
-        input.value = '';
-        openApp();
-        resolve(session);
-      } catch (failure) {
-        error.textContent = failure instanceof ApiError && failure.status === 401
-          ? 'The demo access code is incorrect.'
-          : failure instanceof ApiError && failure.status === 429
-            ? 'Too many sign-in attempts. Try again in a minute.'
-            : 'Unable to open Split. Check your connection and try again.';
-        status.textContent = '';
-        button.disabled = false;
-        input.focus();
-      }
-    });
+    for (const form of forms) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = form.querySelector('[type="submit"]');
+        const error = form.querySelector('.session-error');
+        if (button.disabled) return;
+        button.disabled = true;
+        error.textContent = '';
+        status.textContent = form.dataset.mode === 'signup' ? 'Creating your account…' : 'Logging in…';
+        const fields = Object.fromEntries(new FormData(form));
+        try {
+          rememberSession(await apiRequest(`/api/auth/${form.dataset.mode}`, { method: 'POST', body: fields }));
+          form.reset();
+          openApp();
+          resolve(session);
+        } catch (failure) {
+          error.textContent = failureMessage(failure);
+          status.textContent = '';
+          button.disabled = false;
+          form.querySelector('input[type="password"]').value = '';
+          form.querySelector(failure instanceof ApiError && failure.status === 401 ? 'input[type="password"]' : 'input').focus();
+        }
+      });
+    }
   });
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { loginAs, memoryAuth } from './support/auth.js';
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { createAssistantHandlers } from '../assistant/ask.js';
@@ -154,12 +155,12 @@ test('provider concurrency and request limits are bounded and recover after thei
 
 test('POST /api/ask enforces the real session boundary and invalid model output reaches no financial handler', async (t) => {
   const origin = 'http://localhost:3001';
-  const accessCode = 'assistant-test-only-access-code-123456789';
-  const config = loadConfig({ NODE_ENV: 'test', APP_ORIGIN: origin, DEMO_ACTOR_ID: '10000000-0000-4000-8000-000000000001', DEMO_ACCESS_CODE: accessCode });
+  const config = loadConfig({ NODE_ENV: 'test', APP_ORIGIN: origin });
+  const authStore = await memoryAuth([{ userId: '10000000-0000-4000-8000-000000000001', email: 'maya@split.test', displayName: 'Maya Chen' }]);
   let output = fixture.antonios.modelOutput;
   let modelCalls = 0;
   let writes = 0;
-  const server = createApp({ config, handlers: {
+  const server = createApp({ config, authStore, handlers: {
     ...createAssistantHandlers({ ...options, fetchImpl: async () => { modelCalls++; return responseFor(output); } }),
     'expenseDrafts.create': async () => { writes++; return {}; },
     'expenseDrafts.confirm': async () => { writes++; return {}; },
@@ -173,11 +174,7 @@ test('POST /api/ask enforces the real session boundary and invalid model output 
     await closed;
   });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const login = await fetch(base + '/api/session', {
-    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ accessCode }),
-  });
-  const cookie = login.headers.get('set-cookie').split(';', 1)[0];
-  const { csrfToken } = await login.json();
+  const { cookie, session: { csrfToken } } = await loginAs(base, origin, 'maya@split.test');
   const request = (headers = {}) => ({ method: 'POST',
     headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, ...headers },
     body: JSON.stringify({ ...fixture.antonios.request, userId: 'attacker', payerUserId: 'attacker', accountId: 'outside' }),

@@ -8,17 +8,18 @@ import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { HttpError } from '../http.js';
 import { routes } from '../routes.js';
+import { SESSION_TTL_MS } from '../session.js';
 import { createStaticFiles } from '../static.js';
+import { memoryAuth, TEST_PASSWORD } from './support/auth.js';
 
 const ACTOR_ID = '00000000-0000-4000-8000-000000000001';
-const ACCESS_CODE = 'test-only-access-code-with-32-characters';
+const EMAIL = 'maya@split.test';
 const ORIGIN = 'http://localhost:3001';
-const env = {
-  NODE_ENV: 'test', APP_ORIGIN: ORIGIN, DEMO_ACTOR_ID: ACTOR_ID, DEMO_ACCESS_CODE: ACCESS_CODE,
-};
+const env = { NODE_ENV: 'test', APP_ORIGIN: ORIGIN };
 
 async function start(t, options = {}) {
-  const server = createApp({ config: loadConfig(env), ...options });
+  const authStore = options.authStore ?? await memoryAuth([{ userId: ACTOR_ID, email: EMAIL, displayName: 'Maya Chen' }]);
+  const server = createApp({ config: loadConfig(env), ...options, authStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
@@ -31,9 +32,9 @@ async function start(t, options = {}) {
 }
 
 async function login(request, body = {}) {
-  const response = await request('/api/session', {
+  const response = await request('/api/auth/login', {
     method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accessCode: ACCESS_CODE, ...body }),
+    body: JSON.stringify({ email: EMAIL, password: TEST_PASSWORD, ...body }),
   });
   assert.equal(response.status, 200);
   return { cookie: response.headers.get('set-cookie').split(';', 1)[0], data: await response.json(), response };
@@ -47,10 +48,10 @@ function mutation(auth, body = {}) {
   };
 }
 
-test('configuration fails closed for missing identity, credentials, and unsafe origins', () => {
+test('configuration fails closed for unsafe origins and ports; no fixed demo identity is configured', () => {
+  assert.equal('actor' in loadConfig(env), false);
+  assert.throws(() => createApp({ config: loadConfig(env) }), /authStore/);
   for (const invalid of [
-    { DEMO_ACTOR_ID: undefined }, { DEMO_ACTOR_ID: 'not-a-uuid' },
-    { DEMO_ACCESS_CODE: '' }, { DEMO_ACCESS_CODE: 'short' },
     { APP_ORIGIN: 'https://example.com/' }, { APP_ORIGIN: 'http://example.com' },
     { NODE_ENV: 'production', APP_ORIGIN: ORIGIN }, { PORT: '0' }, { PORT: 'not-a-port' },
   ]) assert.throws(() => loadConfig({ ...env, ...invalid }));
@@ -70,7 +71,7 @@ test('health is public and does not disclose identity or configuration', async (
   assert.equal((await request('/health', { method: 'POST' })).status, 405);
 });
 
-test('the app receives the configured actor; client identity and account fields cannot override it', async (t) => {
+test('the app receives the logged-in actor; client identity and account fields cannot override it', async (t) => {
   let observed;
   const request = await start(t, {
     handlers: {
@@ -132,9 +133,9 @@ test('cross-origin, missing-origin, and forged-CSRF mutations never reach handle
     assert.equal((await request('/api/goals', options)).status, 403);
   }
   assert.equal(calls, 0);
-  const crossOriginLogin = mutation(auth, { accessCode: ACCESS_CODE });
+  const crossOriginLogin = mutation(auth, { email: EMAIL, password: TEST_PASSWORD });
   crossOriginLogin.headers.Origin = 'https://attacker.example';
-  const response = await request('/api/session', crossOriginLogin);
+  const response = await request('/api/auth/login', crossOriginLogin);
   assert.equal(response.status, 403);
   assert.equal(response.headers.get('access-control-allow-origin'), null);
 });
@@ -145,30 +146,30 @@ test('expired, forged, and logged-out sessions fail; login rotates the cookie', 
   const auth = await login(request);
   const wrongCookie = auth.cookie.slice(0, -1) + (auth.cookie.endsWith('0') ? '1' : '0');
   assert.equal((await request('/api/session', { headers: { Cookie: wrongCookie } })).status, 401);
-  const rotated = await request('/api/session', mutation(auth, { accessCode: ACCESS_CODE }));
+  const rotated = await request('/api/auth/login', mutation(auth, { email: EMAIL, password: TEST_PASSWORD }));
   const cookie = rotated.headers.get('set-cookie').split(';', 1)[0];
   const data = await rotated.json();
   assert.notEqual(cookie, auth.cookie);
   assert.equal((await request('/api/session', { headers: { Cookie: auth.cookie } })).status, 401);
-  const logout = await request('/api/session', { ...mutation({ cookie, data }), method: 'DELETE' });
+  const logout = await request('/api/auth/logout', mutation({ cookie, data }));
   assert.equal(logout.status, 204);
   assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
   assert.equal((await request('/api/session', { headers: { Cookie: cookie } })).status, 401);
   const expiring = await login(request);
-  time += 8 * 60 * 60 * 1000;
+  time += SESSION_TTL_MS;
   assert.equal((await request('/api/session', { headers: { Cookie: expiring.cookie } })).status, 401);
 });
 
 test('HTTPS configuration uses a Secure host-only cookie independent of forwarded headers', async (t) => {
   const origin = 'https://split.example';
   const request = await start(t, { config: loadConfig({ ...env, NODE_ENV: 'production', APP_ORIGIN: origin }) });
-  const response = await request('/api/session', {
+  const response = await request('/api/auth/login', {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Forwarded-Proto': 'http', 'X-User-Id': 'attacker' },
-    body: JSON.stringify({ accessCode: ACCESS_CODE }),
+    body: JSON.stringify({ email: EMAIL, password: TEST_PASSWORD }),
   });
   assert.equal(response.status, 200);
-  assert.match(response.headers.get('set-cookie'), /^__Host-split-session=.*; Path=\/; HttpOnly; SameSite=Strict; Max-Age=28800; Secure$/);
+  assert.match(response.headers.get('set-cookie'), /^__Host-split-session=.*; Path=\/; HttpOnly; SameSite=Strict; Max-Age=604800; Secure$/);
   assert.equal(response.headers.get('strict-transport-security'), 'max-age=31536000');
   assert.equal((await response.json()).actor.userId, ACTOR_ID);
 });
@@ -197,14 +198,14 @@ test('malformed, non-object, non-JSON, and excessive bodies are rejected before 
 test('login rate limits cannot be bypassed using spoofed forwarding headers', async (t) => {
   const request = await start(t);
   for (let i = 0; i < 10; i++) {
-    const response = await request('/api/session', {
+    const response = await request('/api/auth/login', {
       method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json', 'X-Forwarded-For': `192.0.2.${i}` },
-      body: JSON.stringify({ accessCode: 'wrong' }),
+      body: JSON.stringify({ email: `nobody${i}@split.test`, password: 'wrong-password' }),
     });
     assert.equal(response.status, 401);
   }
-  const response = await request('/api/session', {
-    method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' }, body: JSON.stringify({ accessCode: ACCESS_CODE }),
+  const response = await request('/api/auth/login', {
+    method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: TEST_PASSWORD }),
   });
   assert.equal(response.status, 429);
   assert.ok(Number(response.headers.get('retry-after')) > 0);
