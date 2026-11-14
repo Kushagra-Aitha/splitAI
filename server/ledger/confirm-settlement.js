@@ -1,3 +1,4 @@
+import { recordGuardEvent } from '../guard/events.js';
 import { HttpError } from '../http.js';
 import { nessie, NessieError } from '../lib/nessie.js';
 import { readDebts } from './debts.js';
@@ -63,6 +64,8 @@ export function createSettlementConfirmation({ withTransaction, lockAccount, res
           claimed_at = clock_timestamp(), updated_at = clock_timestamp()
         WHERE id = $1
       `, [id]);
+      await recordGuardEvent(db, { actorUserId: actor.userId, groupId: review.groupId, settlementId: id,
+        reasonCode: 'SETTLEMENT_APPROVED' });
       return { settlement: { ...settlement, status: 'pending' }, payer, payee };
     });
 

@@ -1,3 +1,4 @@
+import { recordGuardEvent } from '../guard/events.js';
 import { getMappedAccountForUser } from '../banking/provider.js';
 import { readDebts, readLedger, summarizeDebts } from './debts.js';
 import { HttpError } from '../http.js';
@@ -198,6 +199,8 @@ export function createLedgerHandlers({ query, withTransaction }) {
             WHERE id = $1
             RETURNING status, confirmed_at AS "confirmedAt"
           `, [id]);
+          await recordGuardEvent(db, { actorUserId: actor.userId, groupId, expenseId: id,
+            reasonCode: 'EXPENSE_CONFIRMED' });
           return { expense: { id, groupId, totalCents, ...confirmed } };
         });
       } catch (error) {
