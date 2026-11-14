@@ -1,3 +1,4 @@
+import { getMappedAccountForUser } from '../banking/provider.js';
 import { readDebts, readLedger, summarizeDebts } from './debts.js';
 import { HttpError } from '../http.js';
 
@@ -185,6 +186,33 @@ export function createLedgerHandlers({ query, withTransaction }) {
       }
     },
 
+    async 'settlementReviews.create'({ actor, body }) {
+      const { groupId, payeeUserId } = body;
+      if (typeof groupId !== 'string' || !uuid.test(groupId) ||
+          typeof payeeUserId !== 'string' || !uuid.test(payeeUserId)) {
+        throw invalid('Choose a valid group and recipient.');
+      }
+      const payerUserId = actor.userId;
+      return withTransaction(async (db) => {
+        const group = await requireGroup(db, groupId, payerUserId);
+        await requireGroup(db, groupId, payeeUserId);
+        const debts = await readDebts(db, [group.id], payerUserId);
+        const debt = debts.find(({ userId, cents }) => userId === payeeUserId.toLowerCase() && cents > 0);
+        if (!debt) throw new HttpError(409, 'NO_OUTSTANDING_DEBT', 'There is no outstanding debt to this member.');
+        const payer = await getMappedAccountForUser(db, payerUserId);
+        const payee = await getMappedAccountForUser(db, debt.userId);
+        if (!payer || !payee) throw new HttpError(409, 'NO_LINKED_ACCOUNT', 'Both members need a connected sandbox account.');
+        const { rows: [review] } = await db.query(`
+          INSERT INTO settlements (group_id, created_by, payer_user_id, payee_user_id,
+            payer_account_id, payee_account_id, amount_cents, review_expires_at)
+          VALUES ($1, $2, $2, $3, $4, $5, $6, now() + interval '15 minutes')
+          RETURNING id, group_id AS "groupId", payer_user_id AS "payerUserId",
+            payee_user_id AS "payeeUserId", amount_cents AS "amountCents",
+            status, review_expires_at AS "expiresAt"
+        `, [group.id, payerUserId, debt.userId, payer.id, payee.id, debt.cents]);
+        return { review };
+      });
+    },
 
     async 'groups.get'({ actor, params }) {
       if (!uuid.test(params.id)) throw invalid('Enter a valid group ID.');
