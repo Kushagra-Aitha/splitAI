@@ -20,6 +20,10 @@ export async function notify(db, { kind, sourceId }) {
       FROM settlements s CROSS JOIN LATERAL (VALUES (s.payer_user_id), (s.payee_user_id)) p(user_id)
       JOIN group_members m ON m.group_id = s.group_id AND m.user_id = p.user_id AND m.left_at IS NULL
       WHERE s.id = $1 AND ${settlementConditions[kind]}`;
+  } else if (kind === 'comment_added') {
+    targets = `SELECT m.user_id AS recipient, c.group_id, c.expense_id
+      FROM group_comments c JOIN group_members m ON m.group_id = c.group_id AND m.left_at IS NULL
+      WHERE c.id = $1 AND m.user_id <> c.author_user_id`;
   } else if (kind === 'guard_blocked') {
     targets = `SELECT actor_user_id AS recipient, NULL::uuid AS group_id, NULL::uuid AS expense_id
       FROM guard_events WHERE id = $1 AND decision = 'blocked'`;

@@ -1,5 +1,6 @@
 // Feature handler registry: one line per slice. createApp() rejects any name
 // that is not in routes.js. Keep imports alphabetical to avoid merge conflicts.
+import { createActivityHandlers } from './activity/handlers.js';
 import { createFactExplainer, createFinancialAnswers } from './assistant/answers.js';
 import { createIntentParser } from './assistant/gemini-intent.js';
 import { createGeminiClient } from './assistant/gemini-json.js';
@@ -19,6 +20,7 @@ const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model:
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
 
 export const handlers = Object.freeze({
+  ...createActivityHandlers({ withTransaction }),
   'ask.create': createAskWorkflow({
     parseIntent: createIntentParser({ generate }),
     query: (...args) => getPool().query(...args), withTransaction, answerFinancial,

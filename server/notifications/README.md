@@ -20,7 +20,8 @@ is `(recipient_user_id, kind, source_id)`, so retries do not duplicate alerts.
 Expense recipients are active share participants other than the creator,
 including zero-cent shares. Settlement recipients are the active payer and
 payee. Guard blocks are private to the actor, without group/context payloads.
-The comment kind is reserved for C9's comment transaction.
+Comments notify every current group member except the author from C9's
+comment transaction; only comment/group/optional expense references are stored.
 
 No raw comments, merchant descriptions, Guard reasons, account data, emails
 or provider payloads are copied into notification storage. Every page,

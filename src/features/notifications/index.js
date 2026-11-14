@@ -8,7 +8,7 @@ const labels = Object.freeze({
 });
 const INTERVAL = 15_000;
 
-export function createNotifications({ root, icon, icons, esc, announce, go, openGroup }) {
+export function createNotifications({ root, icon, icons, esc, announce, go, openGroup, onRefresh }) {
   const host = root.querySelector('#sp-notifications');
   const actorId = getSession()?.actor.userId;
   let items = [], unreadCount = 0, nextCursor = null, before = null;
@@ -56,6 +56,7 @@ export function createNotifications({ root, icon, icons, esc, announce, go, open
       if (token !== pollId || stopped) return;
       if (!owned()) { stop(); return; }
       items = data.items; unreadCount = data.unreadCount; nextCursor = data.nextCursor;
+      onRefresh?.(items);
     } catch (failure) {
       if (token !== pollId || controller.signal.aborted) return;
       if (!owned() || failure.status === 401) { stop(); return; }

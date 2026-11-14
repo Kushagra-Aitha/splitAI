@@ -1,8 +1,10 @@
 import { apiRequest } from '../../api/session.js';
 import { GROUPS } from '../../../server/db/demo-ids.js';
 import { formatUsdCents, usdToCents } from '../../lib/money.js';
+import { createActivity } from './activity.js';
 
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
+  const activity = createActivity({ root, state, esc, money, announce });
   function ticket() {
     const names = demo.draft.people;
     let share = Math.floor(demo.draft.cents / names.length);
@@ -12,20 +14,6 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   const reviews = new Map();
   let groupCreated;
   let navigationTarget;
-
-  function focusNotificationTarget() {
-    if (!navigationTarget || state.page !== 'groups' || state.group !== navigationTarget.groupId) return;
-    const id = navigationTarget.expenseId || navigationTarget.settlementId || navigationTarget.commentId;
-    const entry = id && root.querySelector(`[data-ledger-entry="${id}"]`);
-    const node = entry || root.querySelector('#sp-view h1, #sp-view [role="alert"]');
-    if (node) {
-      node.setAttribute('tabindex', '-1');
-      if (entry) entry.classList.add('is-notification-target');
-      node.focus({ preventScroll: true });
-      if (entry) node.scrollIntoView({ block: 'center' });
-      navigationTarget = null;
-    }
-  }
 
   function registerReview(draft, { onConfirmed, onDiscard } = {}) {
     const existing = reviews.get(draft.id);
@@ -41,7 +29,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     } catch (error) {
       pending.error = error.message;
     }
-    if (cached === pending && state.page === 'groups' && state.group === id) { render(); focusNotificationTarget(); }
+    if (cached === pending && state.page === 'groups' && state.group === id) render();
   }
 
   function groups() {
@@ -60,7 +48,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
           <p>You owe ${money(g.youOweCents)} · Owed to you ${money(g.owedToYouCents)}</p>
           <button class="secondary" data-group-id="${esc(g.id)}">Open group</button></section>`).join('') || '<p>No groups yet.</p>'}</div>`;
     }
-    const { group, members, debts, ledger } = cached.data;
+    const { group, members, debts } = cached.data;
     return '<button class="back-button" data-go="groups">All groups</button>' +
       heading(group.kind === 'trip' ? 'Trip' : 'Roommates', esc(group.name), esc(group.tagline ?? ''),
         '<button class="primary" data-action="new-group-expense">Add expense</button> ' +
@@ -73,9 +61,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
             <button type="button" class="secondary" data-settle-with="${esc(d.userId)}">Settle up</button></p>`).join('')}
         <h2>Owed to you ${money(debts.owedToYouCents)}</h2>
           ${debts.owedToYou.map((d) => `<p>${esc(d.displayName)} · ${money(d.cents)}</p>`).join('')}</section>
-        <section><h2>Recent shared costs</h2>${ledger.map((entry) => `<div data-ledger-entry="${esc(entry.id)}">` + (entry.type === 'expense'
-          ? tx(esc(entry.merchant), 'Your share', money(entry.yourShareCents), 'receipt')
-          : tx('Settlement', esc(entry.status), money(entry.amountCents), 'users')) + '</div>').join('') || '<p>No shared activity yet.</p>'}</section>`;
+        <section id="sp-group-activity" aria-label="Group activity"></section>`;
   }
 
   function showGroup(id, target = {}) {
@@ -327,6 +313,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   });
   function handleExpenseForm(form, fd) {
+    if (activity.handleForm(form)) return;
     if (form.id === 'sp-group-membership-form') { void submitMembership(form, fd); return; }
     if (form.id === 'sp-settlement-confirm') { void confirmSettlement(form); return; }
     if (['sp-group-form', 'sp-group-expense-form'].includes(form.id) || form.hasAttribute('data-expense-confirm')) {
@@ -360,5 +347,13 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
       announce('Expense preview updated. Not saved yet.');
   }
 
-  return { groups, ticket, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: newGroup, handleExpenseForm };
+  return { groups, ticket, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: newGroup, handleExpenseForm,
+    onNotifications: activity.onNotifications,
+    afterRender() {
+      if (state.page === 'groups' && state.group && cached?.data && !cached.error) {
+        activity.mount(state.group, navigationTarget);
+        navigationTarget = null;
+      } else activity.detach();
+    },
+  };
 }

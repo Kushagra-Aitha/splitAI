@@ -134,7 +134,7 @@ export function mountApp(root) {
   const guardFeature = createGuard(context);
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
-  createNotifications({ ...context, icons, openGroup: together.openGroup });
+  createNotifications({ ...context, icons, openGroup: together.openGroup, onRefresh: together.onNotifications });
   const pages = {
     home: overview.home, profile: overview.profile, groups: together.groups,
     guard: guardFeature.guard, goals: goalsFeature.goals, chat: ask.chat,
@@ -162,6 +162,7 @@ export function mountApp(root) {
     if (footer) footer.style.display = ['home', 'profile'].includes(state.page) || !pages[state.page] ? 'none' : '';
     icons();
     overview.mountMoneyCharts();
+    together.afterRender();
     if (state.page === 'goals') goalsFeature.mountGoalScene();
   }
   root.addEventListener(
