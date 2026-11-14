@@ -68,6 +68,8 @@ test('sign up, log out, and log back in; identity comes only from the account', 
   assert.match(signup.data.csrfToken, /^[a-f0-9]{64}$/);
   assert.match(signup.headers.get('set-cookie'), /HttpOnly; SameSite=Strict; Max-Age=604800/);
   assert.deepEqual((await get('/api/session', signup.cookie)).data.actor, signup.data.actor);
+  assert.equal(signup.data.email, 'jordan@example.com');
+  assert.equal((await get('/api/session', signup.cookie)).data.email, 'jordan@example.com');
 
   const logout = await post('/api/auth/logout', {}, { Cookie: signup.cookie, 'X-CSRF-Token': signup.data.csrfToken });
   assert.equal(logout.status, 204);

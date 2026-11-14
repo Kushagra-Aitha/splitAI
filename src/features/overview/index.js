@@ -67,7 +67,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     connecting: false,
     connectError: null,
   };
-  const visible = () => state.page === 'home' || state.page === 'profile';
+  const visible = () => ['home', 'profile', 'transactions'].includes(state.page);
   const refresh = () => {
     if (visible() && !root.querySelector('#sp-modal-root').children.length) render();
   };
@@ -383,6 +383,35 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     );
   }
 
+  // ── Transactions (B10 interim; A11 replaces this page) ───────────────
+  // This month's latest activity from the overview response, by day.
+  function transactions() {
+    const today = todayLocal();
+    const d = need('month');
+    const head = heading('Transactions', 'Your transactions', 'This month’s latest activity from Capital Two.');
+    if (!d) return head + syncBar(null) + (store.errors.month ? errorCard('month') : `<div class="sp-card" role="status" aria-label="Loading transactions">${'<div class="sp-skeleton-row"><span class="sp-skeleton sp-skeleton-dot"></span><span class="sp-skeleton sp-skeleton-line"></span><span class="sp-skeleton sp-skeleton-amount"></span></div>'.repeat(5)}</div>`);
+    if (!d.recent.length) {
+      return head + syncBar(d) + `<div class="sp-empty">${icon('receipt')}<h2>No transactions yet this month</h2><p>Purchases and payments from Capital Two show up here once they sync.</p></div>`;
+    }
+    const days = new Map();
+    for (const t of d.recent) {
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt));
+      if (!days.has(day)) days.set(day, []);
+      days.get(day).push(t);
+    }
+    return head + syncBar(d) + [...days].map(([day, list]) => {
+      const net = list.reduce((sum, t) => sum + (t.direction === 'credit' ? t.amountCents : -t.amountCents), 0);
+      const label = day === today ? 'Today' : day === addDays(today, -1) ? 'Yesterday' : fmtDay(day, { weekday: 'short', month: 'short', day: 'numeric' });
+      return `<section class="sp-card tx-day" aria-label="${esc(label)}"><div class="tx-day-head"><h2>${esc(label)}</h2><span class="money muted">${net >= 0 ? '+ ' : '− '}${money(Math.abs(net))}</span></div>${list.map((t) => txRow(t, today)).join('')}</section>`;
+    }).join('');
+  }
+
+  /** "••1234" for the account menu, once Overview has loaded the account. */
+  function bankLabel() {
+    const mask = Object.values(store.data).find((d) => d?.account)?.account?.mask;
+    return mask ? `••${mask}` : null;
+  }
+
   const billsWithin = (bills, today, days) =>
     bills.filter((b) => b.nextDueOn >= today && b.nextDueOn <= addDays(today, days - 1));
   const sumCents = (list, key = 'amountCents') => list.reduce((a, b) => a + b[key], 0);
@@ -489,7 +518,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const tab = state.profileTab;
     const period = tab === 'spending' ? state.period : 'month';
     const d = need(period);
-    return `<div class="profile-head"><span class="avatar profile-avatar">${esc(initials)}</span><div><div class="eyebrow muted" style="margin-bottom:6px">Your profile</div><h1>${esc(name)}</h1></div><span class="tag">${icon('calendar-days')}${fmtDay(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div class="profile-toolbar"><div class="profile-nav" aria-label="Profile detail sections">${[
+    return `<div class="profile-head"><span class="avatar profile-avatar">${esc(initials)}</span><div><div class="eyebrow muted" style="margin-bottom:6px">Insights</div><h1>${esc(name)}</h1></div><span class="tag">${icon('calendar-days')}${fmtDay(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div class="profile-toolbar"><div class="profile-nav" aria-label="Profile detail sections">${[
       ['spending', 'Spending'],
       ['recurring', 'Recurring'],
       ['upcoming', 'Coming up'],
@@ -803,5 +832,5 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     chartRegistry = {};
   }
 
-  return { home, profile, mountMoneyCharts, resetCharts, observe, handleOverviewForm, tx };
+  return { home, profile, transactions, bankLabel, mountMoneyCharts, resetCharts, observe, handleOverviewForm, tx };
 }

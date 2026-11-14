@@ -112,7 +112,7 @@ export function createSessions(config, { store, now = Date.now, onSignup }) {
     bucket.count++;
   }
 
-  async function issue(req, res, actor) {
+  async function issue(req, res, actor, email) {
     const oldToken = tokenFrom(req);
     if (oldToken) await store.deleteSession(sha256(oldToken));
     const time = now();
@@ -123,6 +123,7 @@ export function createSessions(config, { store, now = Date.now, onSignup }) {
     const token = randomBytes(32).toString('hex');
     const session = Object.freeze({
       actor: Object.freeze({ userId: actor.userId, displayName: actor.displayName }),
+      email,
       csrfToken: randomBytes(32).toString('hex'),
       expiresAt: time + SESSION_TTL_MS,
     });
@@ -145,7 +146,7 @@ export function createSessions(config, { store, now = Date.now, onSignup }) {
         email, displayName: first, fullName: name, initials: initialsFor(name), passwordHash: await hashPassword(password),
       });
       if (!user) throw new HttpError(409, 'EMAIL_TAKEN', 'An account with that email already exists. Log in instead.');
-      const session = await issue(req, res, user);
+      const session = await issue(req, res, user, email);
       if (onSignup) {
         // A failure here never fails sign-up; the app offers a retry instead.
         let timer;
@@ -169,7 +170,7 @@ export function createSessions(config, { store, now = Date.now, onSignup }) {
         throw invalidCredentials();
       }
       emailBuckets.delete(email);
-      return issue(req, res, user);
+      return issue(req, res, user, email);
     },
 
     async require(req) {

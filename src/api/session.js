@@ -68,36 +68,22 @@ export async function logout() {
   }
 }
 
-// Put the signed-in person's name on the shell (textContent only) and wire
-// Log out. The static markup ships with neutral placeholders.
-function personalize(root) {
-  const name = session.actor.displayName;
-  const first = name.split(' ')[0];
-  const initials = name.split(/\s+/).filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
-  const account = root.querySelector('.book-account');
-  if (account) {
-    account.setAttribute('aria-label', `${name}’s profile`);
-    account.querySelector('.avatar').textContent = initials;
-    account.querySelector('[data-account-name]').textContent = `${first}’s`;
-  }
-  root.querySelector('#sp-logout')?.addEventListener('click', (event) => {
-    event.currentTarget.disabled = true;
-    void logout();
-  });
-}
-
 export async function initializeSession(root) {
   root.hidden = true;
   const gate = document.createElement('section');
   gate.className = 'session-gate';
   gate.setAttribute('aria-label', 'Log in to Split');
   // Static markup only. Server and user values are assigned through textContent.
-  gate.innerHTML = `<div class="session-card"><p class="session-brand">split.</p>
+  gate.innerHTML = `<div class="session-shell"><aside class="session-aside" aria-hidden="true"><p class="session-brand">split<span>.</span></p>
+    <p class="session-pitch">Split shared costs straight from your bank.</p>
+    <ul><li>Your Capital Two purchases sync automatically</li><li>Pick a transaction, choose a group, done</li><li>Guard flags shady payment requests</li></ul></aside>
+    <div class="session-card"><p class="session-brand session-brand-inline">split<span>.</span></p>
     <form data-mode="login" aria-labelledby="sp-login-title"><h1 id="sp-login-title">Welcome back.</h1><p>Log in to see your money and your groups.</p>
       <label for="sp-login-email">Email</label><input id="sp-login-email" name="email" type="email" autocomplete="username" maxlength="254" required>
       <label for="sp-login-password">Password</label><input id="sp-login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
       <p class="session-error" role="alert"></p><button type="submit">Log in</button>
-      <p class="session-switch">New to Split? <button type="button" class="session-link" data-switch="signup">Create an account</button></p></form>
+      <p class="session-switch">New to Split? <button type="button" class="session-link" data-switch="signup">Create an account</button></p>
+      <p class="session-demo">Demo account: <strong>maya@split.test</strong></p></form>
     <form data-mode="signup" aria-labelledby="sp-signup-title" hidden><h1 id="sp-signup-title">Create your account.</h1><p>Split costs with the people you live and travel with.</p>
       <label for="sp-signup-name">Your name</label><input id="sp-signup-name" name="name" autocomplete="name" maxlength="80" required>
       <label for="sp-signup-email">Email</label><input id="sp-signup-email" name="email" type="email" autocomplete="email" maxlength="254" required>
@@ -105,7 +91,7 @@ export async function initializeSession(root) {
       <p id="sp-password-hint" class="session-hint">At least 8 characters.</p>
       <p class="session-error" role="alert"></p><button type="submit">Create account</button>
       <p class="session-switch">Already have an account? <button type="button" class="session-link" data-switch="login">Log in</button></p></form>
-    <p class="session-status" role="status">Connecting…</p></div>`;
+    <p class="session-status" role="status">Connecting…</p></div></div>`;
   root.before(gate);
   const forms = [...gate.querySelectorAll('form')];
   const status = gate.querySelector('.session-status');
@@ -113,7 +99,6 @@ export async function initializeSession(root) {
   function openApp() {
     gate.remove();
     root.hidden = false;
-    personalize(root);
   }
   function show(mode) {
     for (const form of forms) {
