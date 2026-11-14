@@ -6,7 +6,7 @@ import { lockAccount } from '../banking/funds.js';
 import { normalizeTransaction } from '../banking/provider.js';
 import { persistTransactions } from '../banking/sync.js';
 
-export const operationColumns = `id, account_id AS "accountId", kind, payee, amount_cents AS "amountCents",
+export const operationColumns = `id, account_id AS "accountId", kind, payee, category, amount_cents AS "amountCents",
   status, schedule_id AS "scheduleId", occurrence, failure_code AS "failureCode", created_at AS "createdAt", updated_at AS "updatedAt"`;
 const terminal = new Set(['completed', 'declined', 'cancelled']);
 const definitive = (error) => error instanceof NessieError && [400, 401, 403, 404, 422, 429].includes(error.status);
@@ -55,9 +55,10 @@ export function createOperations({ query, withTransaction, nessie }) {
   async function capture(operation, transaction, source, destination) {
     if (!matches(transaction, operation, source.reference, destination) || typeof transaction.id !== 'string' || !transaction.id ||
         !['pending', 'completed', 'declined', 'cancelled'].includes(transaction.status)) throw new Error('Invalid bank transaction.');
-    const names = new Map(transaction.merchant_id ? [[transaction.merchant_id, { name: operation.payee, category: operation.payee === 'Rent' ? 'Housing' : 'Other' }]] : []);
+    const names = new Map(transaction.merchant_id ? [[transaction.merchant_id, { name: operation.payee, category: operation.category }]] : []);
     const receipt = normalizeTransaction(transaction, source.reference, names);
     if (!receipt) throw new Error('Invalid bank receipt.');
+    receipt.category = operation.category;
     await withTransaction(async (db) => {
       await lockAccount(db, source.id);
       const updated = await db.query(`UPDATE capital_operations SET provider_reference = $3, status = $4,
@@ -75,6 +76,7 @@ export function createOperations({ query, withTransaction, nessie }) {
     let operation = await read(id, userId);
     if (terminal.has(operation.status)) return publicOperation(operation);
     const source = await ownedAccount({ query }, userId, operation.accountId);
+    if (operation.kind === 'deposit' && source.kind !== 'checking') throw new HttpError(409, 'CHECKING_REQUIRED', 'Direct deposit requires checking.');
     let destination = null;
     if (operation.kind === 'card_payment') {
       const { rows: [card] } = await query(`SELECT provider_account_id AS reference FROM bank_accounts
@@ -138,7 +140,7 @@ export function createOperations({ query, withTransaction, nessie }) {
         await db.query('SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE', [userId]);
         const { rows: [replay] } = await db.query(`SELECT ${operationColumns} FROM capital_operations WHERE user_id = $1 AND request_key = $2`, [userId, input.requestKey]);
         const checkReplay = (existing) => {
-          if (existing.accountId !== input.accountId || existing.kind !== input.kind || existing.payee !== input.payee || existing.amountCents !== input.amountCents) {
+          if (existing.accountId !== input.accountId || existing.kind !== input.kind || existing.payee !== input.payee || existing.amountCents !== input.amountCents || existing.category !== input.category) {
             throw new HttpError(409, 'BANK_KEY_REUSED', 'This retry key belongs to a different payment.');
           }
           return existing;
@@ -155,9 +157,9 @@ export function createOperations({ query, withTransaction, nessie }) {
             AND status IN ('queued', 'submitting', 'unknown', 'pending') LIMIT 100) unresolved) AS unresolved`, [userId]);
         if (quota.recent >= 30 || quota.unresolved >= 100) throw new HttpError(429, 'BANK_RATE_LIMITED', 'Please wait before creating more payments. Existing payments can still be recovered.');
         const { rows: [inserted] } = await db.query(`INSERT INTO capital_operations
-          (user_id, account_id, kind, payee, amount_cents, request_key) VALUES ($1, $2, $3, $4, $5, $6)
+          (user_id, account_id, kind, payee, amount_cents, request_key, category) VALUES ($1, $2, $3, $4, $5, $6, $7)
           ON CONFLICT (user_id, request_key) DO NOTHING RETURNING ${operationColumns}`,
-        [userId, input.accountId, input.kind, input.payee, input.amountCents, input.requestKey]);
+        [userId, input.accountId, input.kind, input.payee, input.amountCents, input.requestKey, input.category]);
         const existing = inserted ?? (await db.query(`SELECT ${operationColumns} FROM capital_operations
           WHERE user_id = $1 AND request_key = $2`, [userId, input.requestKey])).rows[0];
         return checkReplay(existing);

@@ -71,6 +71,14 @@ export async function persistTransactions(db, accountId, accountKind, transactio
     else unchanged++;
   }
 
+  // Bank-authored categories survive merchant refreshes. B15's user overrides
+  // belong in a separate field/read projection and take precedence over these.
+  const metadata = await db.query(`UPDATE bank_transactions t SET category = o.category
+    FROM capital_operations o WHERE o.account_id = $1 AND t.account_id = o.account_id
+      AND t.provider_transaction_id = o.provider_reference
+      AND o.provider_reference = ANY($2::text[])
+      AND t.category IS DISTINCT FROM o.category`, [accountId, transactions.map((t) => t.providerTransactionId)]);
+  updated += metadata.rowCount;
   return { inserted, updated, unchanged };
 }
 

@@ -5,11 +5,12 @@ import { persistActivity } from '../banking/sync.js';
 import { ensureAccounts } from './accounts.js';
 import { createOperations, operationColumns } from './operations.js';
 import { createSchedules, scheduleColumns } from './schedules.js';
+import { PURCHASE_CATEGORIES } from './categories.js';
 
 const presets = Object.freeze([
-  { payee: "Domino's", amountCents: 2400 }, { payee: 'Amazon', amountCents: 4600 },
-  { payee: 'Delta flight', amountCents: 38900 }, { payee: 'Whole Foods', amountCents: 6200 },
-  { payee: 'Uber', amountCents: 1800 }, { payee: 'Rent', amountCents: 160000 },
+  { payee: "Domino's", category: 'Food & drink' }, { payee: 'Amazon', category: 'Shopping' },
+  { payee: 'Delta flight', category: 'Travel' }, { payee: 'Whole Foods', category: 'Groceries' },
+  { payee: 'Uber', category: 'Transport' }, { payee: 'Rent', category: 'Housing' },
 ]);
 
 export function createCapitalService({ query, withTransaction, nessie = defaultNessie, now, generateRecurringSplits }) {
@@ -71,12 +72,16 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
           AND account_type IN ('Checking', 'Credit Card') ORDER BY account_type`, [userId]),
         query(`SELECT ${scheduleColumns} FROM capital_schedules WHERE user_id = $1 AND status <> 'deleted' ORDER BY next_due_on, id LIMIT 100`, [userId]),
         query(`SELECT ${operationColumns} FROM capital_operations WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 30`, [userId]),
-        query(`SELECT t.id, t.account_id AS "accountId", t.kind, t.direction, t.amount_cents AS "amountCents", t.status,
+        query(`SELECT t.id, t.account_id AS "accountId", t.kind, t.direction, t.amount_cents AS "amountCents", t.status, t.category,
+          o.kind = 'deposit' AND o.category = 'Salary' AS "isSalary",
+          (s.day_of_month IS NOT NULL OR s.kind = 'salary') AS "isRecurring",
           t.merchant_name AS merchant, regexp_replace(t.description, ' \\[[0-9a-f-]{36}\\]$', '') AS description, t.occurred_at AS "occurredAt"
           FROM bank_transactions t JOIN bank_accounts a ON a.id = t.account_id
+          LEFT JOIN capital_operations o ON o.account_id = a.id AND o.provider_reference = t.provider_transaction_id
+          LEFT JOIN capital_schedules s ON s.id = o.schedule_id
           WHERE a.user_id = $1 AND t.source = 'nessie' ORDER BY t.occurred_at DESC, t.id DESC LIMIT 40`, [userId]),
       ]);
-      const data = { accounts: results[0].rows, schedules: results[1].rows, operations: results[2].rows, transactions: results[3].rows, presets };
+      const data = { accounts: results[0].rows, schedules: results[1].rows, operations: results[2].rows, transactions: results[3].rows, presets, categories: PURCHASE_CATEGORIES };
       // Reject unsafe integers before exposing balances or amounts to the UI.
       const validate = (value, key = '') => {
         if (Array.isArray(value)) return value.forEach((item) => validate(item, key));

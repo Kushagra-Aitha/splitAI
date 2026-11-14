@@ -1,4 +1,10 @@
 import { HttpError } from '../http.js';
+import { PURCHASE_CATEGORIES } from './categories.js';
+
+export function category(value) {
+  if (!PURCHASE_CATEGORIES.includes(value)) throw invalid('Choose a purchase category.');
+  return value;
+}
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 export const invalid = (message = 'Choose valid bank payment details.') => new HttpError(422, 'INVALID_BANK_INPUT', message);
@@ -36,18 +42,44 @@ export function nextMonthly(date, day, inclusive = false) {
   return (inclusive ? current >= date : current > date) ? current : monthDate(year, month, day);
 }
 export function operationInput(body) {
-  fields(body, ['accountId', 'kind', 'payee', 'amountCents', 'requestKey']);
+  fields(body, ['accountId', 'kind', 'payee', 'amountCents', 'requestKey', 'category']);
   if (!['purchase', 'withdrawal', 'card_payment'].includes(body.kind)) throw invalid();
   return { accountId: uuid(body.accountId), kind: body.kind,
     payee: body.kind === 'card_payment' ? 'Capital Two card payment' : body.kind === 'withdrawal' ? 'ATM withdrawal' : payeeText(body.payee),
-    amountCents: cents(body.amountCents), requestKey: uuid(body.requestKey) };
+    amountCents: cents(body.amountCents), requestKey: uuid(body.requestKey),
+    category: body.kind === 'purchase' ? category(body.category) : 'Other' };
 }
 export function scheduleInput(body, date = today()) {
-  fields(body, ['accountId', 'payee', 'amountCents', 'requestKey', 'dayOfMonth', 'dueOn']);
+  fields(body, ['accountId', 'payee', 'amountCents', 'requestKey', 'dayOfMonth', 'dueOn', 'category', 'kind', 'frequency']);
+  if (body.kind != null && !['purchase', 'salary'].includes(body.kind)) throw invalid();
+  if (body.kind === 'salary') {
+    if (!['monthly', 'biweekly'].includes(body.frequency) || body.dayOfMonth != null) throw invalid();
+    const dueOn = dateOnly(body.dueOn);
+    if (Number(dueOn.slice(0, 4)) > Number(date.slice(0, 4)) + 5) throw invalid('Choose a date within the next five years.');
+    return { accountId: uuid(body.accountId), payee: payeeText(body.payee), amountCents: cents(body.amountCents),
+      requestKey: uuid(body.requestKey), dayOfMonth: body.frequency === 'monthly' ? Number(dueOn.slice(8)) : null,
+      dueOn, kind: 'salary', frequency: body.frequency, category: 'Salary' };
+  }
+  if (body.frequency != null) throw invalid();
   const recurring = body.dayOfMonth != null;
   if (recurring && (!Number.isInteger(body.dayOfMonth) || body.dayOfMonth < 1 || body.dayOfMonth > 31 || body.dueOn != null)) throw invalid();
   const dueOn = recurring ? nextMonthly(date, body.dayOfMonth, true) : dateOnly(body.dueOn);
   if (Number(dueOn.slice(0, 4)) > Number(date.slice(0, 4)) + 5) throw invalid('Choose a date within the next five years.');
   return { accountId: uuid(body.accountId), payee: payeeText(body.payee), amountCents: cents(body.amountCents),
-    requestKey: uuid(body.requestKey), dayOfMonth: recurring ? body.dayOfMonth : null, dueOn };
+    requestKey: uuid(body.requestKey), dayOfMonth: recurring ? body.dayOfMonth : null, dueOn,
+    kind: 'purchase', frequency: 'monthly', category: category(body.category ?? 'Other') };
+}
+
+const daysBetween = (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86_400_000);
+export const addDays = (date, days) => new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
+export function salaryPeriod(schedule, date) {
+  if (schedule.frequency === 'biweekly') return addDays(schedule.firstDueOn,
+    Math.max(0, Math.floor(daysBetween(schedule.firstDueOn, date) / 14)) * 14);
+  const [year, month] = date.split('-').map(Number);
+  return date.slice(0, 7) < schedule.firstDueOn.slice(0, 7) ? schedule.firstDueOn : monthDate(year, month - 1, schedule.dayOfMonth);
+}
+export function nextSalary(schedule, occurrence, date) {
+  if (schedule.frequency === 'biweekly') return addDays(occurrence,
+    Math.max(1, Math.floor(daysBetween(occurrence, date) / 14) + 1) * 14);
+  return nextMonthly(occurrence > date ? occurrence : date, schedule.dayOfMonth);
 }

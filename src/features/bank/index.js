@@ -22,12 +22,32 @@ export function mountBank(root) {
   const message = (text, operation = null) => {
     const host = root.querySelector('#bank-status'); host.textContent = text;
     if (operation?.kind === 'purchase' && operation.sharedWithSplit && operation.transactionId && ['pending', 'completed'].includes(operation.status)) {
-      const link = root.ownerDocument.createElement('a'); link.textContent = 'Split now →';
+      const link = root.ownerDocument.createElement('a'); link.textContent = 'View in Split →';
       link.href = `/?split=${encodeURIComponent(operation.transactionId)}#/transactions`; link.className = 'bank-split-now'; host.append(link);
     }
   };
-  function accountOptions() {
-    return data.accounts.filter((account) => account.connected).map((account) => `<option value="${esc(account.id)}">${esc(account.type)} ••${esc(account.mask || '••••')}</option>`).join('');
+  function showReceipt(operation) {
+    const accepted = ['pending', 'completed'].includes(operation.status);
+    message(`${operation.payee} · ${money(operation.amountCents)} · ${statusText[operation.status] || 'Verifying with bank'}${accepted && !operation.sharedWithSplit ? ' · Connect this account in Split to share it.' : ''}`, operation);
+    if (accepted) {
+      const detail = root.ownerDocument.createElement('p'); detail.className = 'bank-receipt-detail';
+      detail.textContent = `${operation.category} · ${operation.status === 'pending' ? 'Bank posting pending.' : 'Posted by the bank.'}`;
+      root.querySelector('#bank-status').append(detail);
+    }
+  }
+  async function animatePayment(accountId) {
+    const card = root.querySelector(`[data-bank-card="${accountId}"]`);
+    if (!card || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    card.classList.add('is-swiping');
+    // Animation is presentation only; the receipt was already committed.
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 650);
+      card.addEventListener('animationend', () => { clearTimeout(timer); resolve(); }, { once: true });
+    });
+    card.classList.remove('is-swiping');
+  }
+  function accountOptions(checkingOnly = false) {
+    return data.accounts.filter((account) => account.connected && (!checkingOnly || account.kind === 'checking')).map((account) => `<option value="${esc(account.id)}">${esc(account.type)} ••${esc(account.mask || '••••')}</option>`).join('');
   }
   function card(account) {
     const credit = account.type === 'Credit Card';
@@ -45,20 +65,20 @@ export function mountBank(root) {
       const connected = data.accounts.filter((account) => account.connected);
       const credit = connected.find((account) => account.type === 'Credit Card');
       dashboard.innerHTML = `${error ? `<p class="bank-error" role="alert">${esc(error)}</p>` : ''}${loading ? '<p role="status">Refreshing your bank…</p>' : ''}
-        <section class="bank-accounts" aria-label="Your accounts">${connected.map(card).join('')}
+        <h2 class="bank-section-title">Cards</h2><section class="bank-accounts" aria-label="Your accounts">${connected.map(card).join('')}
         ${!credit ? `<div class="bank-connect"><h2>Your bank, ready to try.</h2><p>Open checking and a Capital Two credit card with a $2,000 sandbox limit. Share them through Split's Connect screen when you choose.</p><button type="button" data-bank-action="connect" ${busy ? 'disabled' : ''}>${connected.length ? 'Open credit card' : 'Open your bank'}</button></div>` : ''}</section>
-        <div class="bank-columns"><section class="bank-panel"><h2>Buy something</h2><p>Choose a purchase, then review how you’ll pay.</p><div class="bank-presets">${data.presets.map((preset, index) => `<button type="button" data-bank-preset="${index}" ${busy || !connected.length ? 'disabled' : ''}><strong>${esc(preset.payee)}</strong><span>${money(preset.amountCents)}</span></button>`).join('')}</div>
+        <div class="bank-columns"><section class="bank-panel"><h2>Pay &amp; buy</h2><p>Pick a merchant, enter your amount, then choose a card.</p><div class="bank-presets">${data.presets.map((preset, index) => `<button type="button" data-bank-preset="${index}" ${busy || !connected.length ? 'disabled' : ''}><strong>${esc(preset.payee)}</strong><span>${esc(preset.category)}</span></button>`).join('')}</div>
           <div class="bank-actions"><button type="button" data-bank-action="purchase" ${!connected.length ? 'disabled' : ''}>Custom purchase</button><button type="button" data-bank-action="withdrawal" ${!connected.length ? 'disabled' : ''}>Withdraw cash</button></div></section>
-        <section class="bank-panel"><h2>Payments, on your terms</h2><p>Pay a business now, schedule it for later, or repeat it monthly.</p><div class="bank-payment-options">
+        <section class="bank-panel"><h2>Payments</h2><p>Pay a business now, schedule it for later, or repeat it monthly.</p><div class="bank-payment-options">
           <button type="button" data-bank-action="payment" ${!connected.length ? 'disabled' : ''}>One-time payment <span>Now or on a date →</span></button>
           <button type="button" data-bank-action="recurring" ${!connected.length ? 'disabled' : ''}>Recurring payment <span>A fixed amount each month →</span></button>
           <button type="button" data-bank-action="card_payment" ${!credit || !credit.balanceCents || credit.balanceCents < 0 ? 'disabled' : ''}>Pay card balance <span>${money(credit?.balanceCents)} owed →</span></button></div></section></div>
-        <section class="bank-panel"><h2>Scheduled & recurring</h2><p class="bank-note">Payments use America/New_York time. Days 29–31 use the last day of shorter months. Run now pays this month once. Pausing stops future unsent payments.</p>
-          ${data.schedules.length ? `<ul class="bank-list">${data.schedules.map((schedule) => `<li><div><strong>${esc(schedule.payee)}</strong><p>${money(schedule.amountCents)} · ${schedule.dayOfMonth ? `Monthly, day ${schedule.dayOfMonth}` : 'One time'} · ${esc(schedule.status)}</p><p>Next date ${esc(schedule.nextDueOn)}</p></div><div class="bank-row-actions">
+        <section class="bank-panel"><h2>Scheduled</h2><div class="bank-actions"><button type="button" data-bank-action="salary">Set up direct deposit</button></div><p class="bank-note">Direct deposit credits your checking account. Card autopay is not enabled; use Pay card balance for a manual repayment.</p><p class="bank-note">Payments use America/New_York time. Days 29–31 use the last day of shorter months. Run now pays each current occurrence once. Pausing stops future unsent payments.</p>
+          ${data.schedules.length ? `<ul class="bank-list">${data.schedules.map((schedule) => `<li><div><strong>${esc(schedule.payee)}</strong><p>${money(schedule.amountCents)} · ${schedule.kind === 'salary' ? `Salary · ${schedule.frequency === 'biweekly' ? 'Every two weeks' : 'Monthly'}` : schedule.dayOfMonth ? `Recurring · Monthly, day ${schedule.dayOfMonth}` : 'One time'} · ${esc(schedule.status)}</p><p>Next date ${esc(schedule.nextDueOn)}</p></div><div class="bank-row-actions">
           ${schedule.status === 'active' ? `<button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="run" ${busy ? 'disabled' : ''}>Run now</button><button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="pause" ${busy ? 'disabled' : ''}>Pause</button>` : schedule.status === 'paused' ? `<button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="resume" ${busy ? 'disabled' : ''}>Resume</button>` : ''}
           <button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="delete" ${busy ? 'disabled' : ''}>Delete</button></div></li>`).join('')}</ul>` : '<p>No scheduled payments yet.</p>'}</section>
-        <div class="bank-columns"><section class="bank-panel"><h2>Payment activity</h2><ul class="bank-list">${data.operations.map((operation) => `<li><div><strong>${esc(operation.payee)}</strong><p>${esc(statusText[operation.status] || operation.status)}${operation.status === 'unknown' ? ' · No automatic resend' : ''}</p></div><strong>${money(operation.amountCents)}</strong></li>`).join('') || '<li>Your next payment starts here.</li>'}</ul></section>
-        <section class="bank-panel"><h2>Recent transactions</h2><ul class="bank-list">${data.transactions.map((transaction) => `<li><div><strong>${esc(transaction.merchant || transaction.description || transaction.kind)}</strong><p>${esc(transaction.status)} · ${esc(new Date(transaction.occurredAt).toLocaleString())}</p></div><strong>${transaction.direction === 'credit' ? '+' : '−'}${money(transaction.amountCents)}</strong></li>`).join('') || '<li>No bank transactions yet.</li>'}</ul></section></div>`;
+        <div class="bank-columns"><section class="bank-panel"><h2>Activity</h2><ul class="bank-list">${data.operations.map((operation) => `<li><div><strong>${esc(operation.payee)}</strong>${operation.kind === 'deposit' ? ' <span class="bank-badge">Salary</span>' : operation.scheduleId ? ' <span class="bank-badge">Scheduled</span>' : ''}<p>${esc(statusText[operation.status] || operation.status)}${operation.status === 'unknown' ? ' · No automatic resend' : ''}</p></div><strong>${money(operation.amountCents)}</strong></li>`).join('') || '<li>Your next payment starts here.</li>'}</ul></section>
+        <section class="bank-panel"><h2>Recent transactions</h2><ul class="bank-list">${data.transactions.map((transaction) => `<li><div><strong>${esc(transaction.merchant || transaction.description || transaction.kind)}</strong>${transaction.isSalary ? ' <span class="bank-badge">Salary</span>' : transaction.isRecurring ? ' <span class="bank-badge">Recurring</span>' : ''}<p>${esc(transaction.category || 'Other')} · ${esc(transaction.status)} · ${esc(new Date(transaction.occurredAt).toLocaleString())}</p></div><strong>${transaction.direction === 'credit' ? '+' : '−'}${money(transaction.amountCents)}</strong></li>`).join('') || '<li>No bank transactions yet.</li>'}</ul></section></div>`;
     });
   }
   function stop() {
@@ -89,20 +109,20 @@ export function mountBank(root) {
   }
   function openForm(kind, preset = {}) {
     if (busy) return;
-    const recurring = kind === 'recurring', payment = kind === 'payment';
+    const recurring = kind === 'recurring', payment = kind === 'payment', salary = kind === 'salary';
     const credit = data.accounts.find((account) => account.type === 'Credit Card');
     activeForm = { kind, requestKey: crypto.randomUUID(), signature: '' };
-    root.querySelector('#bank-dialog-content').innerHTML = `<div class="bank-dialog-heading"><h2 id="bank-dialog-title">${({ recurring: 'New recurring payment', payment: 'One-time payment', card_payment: 'Pay card balance', withdrawal: 'Withdraw cash', purchase: 'Review purchase' })[kind]}</h2><button type="button" data-bank-action="close" aria-label="Close payment form">×</button></div>
-      <form id="bank-payment-form"><label>Pay from<select name="accountId" required>${accountOptions()}</select></label>
-      ${['card_payment', 'withdrawal'].includes(kind) ? '' : `<label>Merchant / business<input name="payee" required maxlength="80" value="${esc(preset.payee)}" autocomplete="off"></label>`}
-      <label>Amount (USD)<input name="amount" inputmode="decimal" required pattern="[0-9]+(\\.[0-9]{1,2})?" value="${preset.amountCents ? centsToUsdText(preset.amountCents) : kind === 'card_payment' && credit?.balanceCents > 0 ? centsToUsdText(credit.balanceCents) : ''}"></label>
+    const categories = data.categories || [];
+    root.querySelector('#bank-dialog-content').innerHTML = `<div class="bank-dialog-heading"><h2 id="bank-dialog-title">${({ salary: 'Set up direct deposit', recurring: 'New recurring payment', payment: 'One-time payment', card_payment: 'Pay card balance', withdrawal: 'Withdraw cash', purchase: preset.payee || 'Custom purchase' })[kind]}</h2><button type="button" data-bank-action="close" aria-label="Close payment form">×</button></div>
+      <form id="bank-payment-form">
+      ${['card_payment', 'withdrawal'].includes(kind) ? '' : `<label>${salary ? 'Employer' : 'Merchant / business'}<input name="payee" required maxlength="80" value="${esc(preset.payee)}" autocomplete="off"></label>`}
+      <label>Amount (USD)<input name="amount" inputmode="decimal" required pattern="[0-9]+(\\.[0-9]{1,2})?" value="${kind === 'card_payment' && credit?.balanceCents > 0 ? centsToUsdText(credit.balanceCents) : ''}" placeholder="Enter your amount"></label>
+      ${salary || ['card_payment', 'withdrawal'].includes(kind) ? '' : `<label>Category<select name="category" required><option value="">Choose a category</option>${categories.map((category) => `<option ${category === preset.category ? 'selected' : ''}>${esc(category)}</option>`).join('')}</select></label>`}
+      <label>${salary ? 'Deposit into' : 'Pay from'}<select name="accountId" required>${accountOptions(salary || kind === 'card_payment')}</select></label>
+      ${salary ? '<label>Frequency<select name="frequency"><option value="biweekly">Every two weeks</option><option value="monthly">Monthly</option></select></label><label>Next deposit date<input name="dueOn" type="date" required></label>' : ''}
       ${payment ? '<label>When<select name="timing"><option value="now">Pay now</option><option value="date">On a date</option></select></label><label data-bank-date hidden>Payment date<input name="dueOn" type="date"></label>' : ''}
       ${recurring ? '<label>Day of month<input name="dayOfMonth" type="number" min="1" max="31" required value="1"></label>' : ''}
-      <p class="bank-form-error" role="alert"></p><button type="submit">${recurring ? 'Save recurring payment' : 'Confirm payment'}</button></form>`;
-    if (kind === 'card_payment') {
-      const select = dialog.querySelector('select');
-      for (const option of select.options) if (data.accounts.find((account) => account.id === option.value)?.type !== 'Checking') option.remove();
-    }
+      <p class="bank-form-error" role="alert"></p><button type="submit">${salary ? 'Save direct deposit' : recurring ? 'Save recurring payment' : 'Pay'}</button></form>`;
     dialog.showModal();
   }
   async function submit(form) {
@@ -112,10 +132,11 @@ export function mountBank(root) {
     try {
       const amountCents = usdToCents(String(values.get('amount')));
       if (amountCents > 100_000_000) throw new Error('Enter an amount up to $1,000,000.');
-      body = { accountId: values.get('accountId'), payee: values.get('payee') || undefined, amountCents };
-      if (current.kind === 'recurring' || (current.kind === 'payment' && values.get('timing') === 'date')) {
+      body = { accountId: values.get('accountId'), payee: values.get('payee') || undefined, amountCents, ...(values.get('category') ? { category: values.get('category') } : {}) };
+      if (current.kind === 'salary' || current.kind === 'recurring' || (current.kind === 'payment' && values.get('timing') === 'date')) {
         path = '/api/bank/schedules';
-        if (current.kind === 'recurring') body.dayOfMonth = Number(values.get('dayOfMonth'));
+        if (current.kind === 'salary') { body.kind = 'salary'; body.frequency = values.get('frequency'); body.dueOn = values.get('dueOn'); }
+        else if (current.kind === 'recurring') body.dayOfMonth = Number(values.get('dayOfMonth'));
         else body.dueOn = values.get('dueOn');
       } else { path = '/api/bank/operations'; body.kind = current.kind === 'payment' ? 'purchase' : current.kind; }
       const signature = JSON.stringify({ path, body });
@@ -131,21 +152,14 @@ export function mountBank(root) {
         form.querySelector('[role="alert"]').textContent = 'The bank declined or cancelled this payment. Check your balance and details. Editing starts a new payment.';
       } else {
         dialog.close(); activeForm = null;
-        const shared = result.operation?.sharedWithSplit;
-        message(result.schedule ? 'Payment schedule saved.' : status === 'completed'
-          ? shared ? 'Done · Split will sync' : 'Done · Connect this account in Split to sync'
-          : status === 'pending' ? result.operation.kind === 'purchase' && shared
-            ? 'Purchase ready to split · bank posting pending.'
-            : shared ? 'Payment received · bank posting pending.' : 'Payment received · connect this account in Split to share it.'
-          : 'The bank is verifying this payment. No automatic resend.', result.operation);
-      }
-      void refresh().then(() => {
-        if (['pending', 'completed'].includes(status) && owned() && !stopped) {
-          const card = root.querySelector(`[data-bank-card="${body.accountId}"]`);
-          card?.classList.add('is-swiping');
-          card?.addEventListener('animationend', () => card.classList.remove('is-swiping'), { once: true });
+        if (result.schedule) message('Schedule saved. Use Run now to run its current occurrence once.');
+        else {
+          await animatePayment(body.accountId);
+          if (!owned() || stopped) return;
+          showReceipt(result.operation);
         }
-      });
+      }
+      void refresh();
     } catch (failure) {
       if (!owned()) { stop(); return; }
       if (form.isConnected) form.querySelector('[role="alert"]').textContent = 'Could not confirm the outcome. Retry these same details to recover this payment safely.';
@@ -175,7 +189,7 @@ export function mountBank(root) {
     if (button.dataset.bankPreset != null) { openForm('purchase', data.presets[Number(button.dataset.bankPreset)]); return; }
     const action = button.dataset.bankAction;
     if (action === 'refresh') { void refresh(); return; }
-    if (['purchase', 'payment', 'recurring', 'card_payment', 'withdrawal'].includes(action)) { openForm(action); return; }
+    if (['purchase', 'payment', 'recurring', 'salary', 'card_payment', 'withdrawal'].includes(action)) { openForm(action); return; }
     if (action === 'connect' || button.dataset.bankSchedule) {
       busy = true; button.disabled = true; error = '';
       try {
@@ -184,7 +198,7 @@ export function mountBank(root) {
         else {
           const command = button.dataset.bankCommand, path = `/api/bank/schedules/${encodeURIComponent(button.dataset.bankSchedule)}`;
           result = await apiRequest(`${path}${command === 'run' ? '/run' : ''}`, { method: 'POST', body: command === 'run' ? {} : { action: command }, timeoutMs: 30_000 });
-          if (result.operation) message(result.operation.status === 'completed' ? 'Done · Split will sync' : `Payment ${statusText[result.operation.status]?.toLowerCase() || 'is being verified'}.`, result.operation);
+          if (result.operation && owned() && !stopped) showReceipt(result.operation);
           else message('Payment schedule updated.');
         }
         if (!owned() || stopped) return;
