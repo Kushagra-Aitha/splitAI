@@ -9,6 +9,7 @@ import { createFactExplainer, createFinancialAnswers } from './assistant/answers
 import { createIntentParser } from './assistant/gemini-intent.js';
 import { createGeminiClient } from './assistant/gemini-json.js';
 import { createAskWorkflow } from './assistant/workflow.js';
+import { createConversationalReads, createGroundedResponder } from './assistant/conversation.js';
 import { lockAccount, reserveFunds } from './banking/funds.js';
 import { bankingHandlers } from './banking/handlers.js';
 import { createCapitalService } from './capital-two/service.js';
@@ -37,6 +38,7 @@ const db = { query: (...args) => getPool().query(...args), withTransaction };
 const recurringSplits = createRecurringSplits(db);
 const reminders = createReminderHandlers(db);
 const chargeExplanation = createChargeExplanation({ withTransaction, explain: createFactExplainer({ generate }) });
+const conversationalReads = createConversationalReads({ withTransaction, respond: createGroundedResponder({ generate }) });
 export const capitalService = createCapitalService({ ...db, generateRecurringSplits: recurringSplits.generate });
 
 export const handlers = Object.freeze({
@@ -58,7 +60,8 @@ export const handlers = Object.freeze({
   'ask.create': createAskWorkflow({
     prepareReminder: reminders.prepare,
     parseIntent: createIntentParser({ generate }),
-    query: (...args) => getPool().query(...args), withTransaction, answerFinancial, explainCharge: chargeExplanation.byMerchant,
+    query: (...args) => getPool().query(...args), withTransaction, answerFinancial,
+    conversationalReads, explainCharge: chargeExplanation.byMerchant,
   }),
   'insight.get': (context) => answerFinancial({ ...context, intent: 'spending_insight' }),
   ...bankingHandlers,

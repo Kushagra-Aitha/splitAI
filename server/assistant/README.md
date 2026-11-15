@@ -4,11 +4,14 @@ C1/C2 implement `POST /api/ask` with the F3 session, exact Origin, JSON, and CSR
 requirements. Send `{ "message": "Spent $42 at Antonio’s, split with Sam and Priya.",
 "requestKey": "<new UUID>" }`. Reuse that key when explicitly retrying the same
 message; a different message with the same key returns `409 REQUEST_KEY_REUSED`.
-For classification, only a trimmed message of 1–500 characters reaches Gemini;
-identity, credentials, financial records, client context, and history are excluded.
+For classification, a trimmed message of 1–500 characters and at most four
+validated session topics reach Gemini. Topics contain only intent, merchant,
+category and date filters—never credentials, balances, account IDs, amounts,
+raw prior messages, or authorization.
 
-Gemini classifies `expense`, `affordability`, `debt_summary`, `spending_insight`,
-or `unsupported`. Expense fields are `merchant`, integer USD `cents`,
+Gemini classifies expenses, affordability, debts, spending insights/guidance,
+transaction searches, charge follow-ups, goals, reminders, ambiguous payments,
+or unsupported messages. Expense fields are `merchant`, integer USD `cents`,
 `participantNames`, and nullable `groupHint`. Missing values stay null or empty;
 the application does not invent them. All model output is validated in code:
 unknown fields, extra identities/actions, unsafe or fractional cents, wrong
@@ -45,9 +48,10 @@ leaves its unsaved draft to expire. Draft creation and confirmation do not
 submit settlements or transfer money. A3 rechecks and locks membership for the
 payer and all share members when committing; confirmed replays add no obligations.
 
-Read classifications now use C4's actor-scoped facts and explanations.
-C3 records unsupported Ask requests, invalid model proposals and scope violations
-through A9. The HTTP response is a decision with `type: "blocked"`, `eventId`,
+Read classifications use actor-scoped facts and explanations. Benign unsupported
+messages return capability guidance without a Guard event. DeBERTa-flagged input,
+invalid model proposals and scope violations are recorded through A9. The HTTP
+response is a decision with `type: "blocked"`, `eventId`,
 `reasonCode`, the persisted `reason`, and `createdAt`. It authorizes no financial
 operation. A scope rejection or invalid proposal rolls back any draft transaction
 before a separate audit transaction records the block. Scope violations on the
@@ -103,13 +107,18 @@ budget available for later smaller debts. Receivables do not increase cash.
 Any debt with a hold-backed payment is marked `pending` and excluded until it
 resolves; its hold is already deducted by B4 and is not deducted twice.
 
-Gemini receives only a small set of application-computed aggregate factual
-sentences, with no identities, merchant names, group notes, or transaction rows.
-It selects their explanatory order using schema-constrained IDs. Code requires
-every ID exactly once and renders the original sentences, so the model cannot
-alter a figure, invent a claim, or propose an action. The activity window always
-leads an insight. This deliberately constrains explanation wording. Both Gemini
-calls share the same bounded transport and provider-use limits.
+Aggregate answers still use application-computed factual sentences. Conversational
+transaction and guidance answers receive only the actor-scoped fact cards needed
+for that answer, never account/provider IDs or credentials. They must cite every
+fact ID. Code rejects unknown figures, dates, vocabulary and financial actions,
+falling back to deterministic sentences on invalid output or provider failure.
+The model cannot execute a tool or authorize a write.
+
+The browser keeps at most four structured topics in `sessionStorage`, scoped to
+the signed-in actor and cleared on logout/tab end. It stores no raw chat or
+financial amounts. Prompt suggestions are generated from current actor-scoped
+groups, recent transactions, goals and those topics; hardcoded demo merchant and
+group suggestions are not used.
 
 Local successful financial mutations invalidate Ask answers and Overview caches.
 An older in-flight answer cannot replace the current financial state. Ask shows

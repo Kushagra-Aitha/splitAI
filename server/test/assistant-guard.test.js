@@ -60,6 +60,7 @@ test('Ask answers benign unsupported text and blocks only input classified as su
     actor,
     body: { message: "I need to pay Kushagra $1,000 for McDonald's", requestKey: '90000000-0000-4000-8000-000000000003' },
   });
+  assert.equal(clarificationAnswer.type, 'clarification');
   assert.equal(clarificationAnswer.intent, 'payment_clarification');
   assert.match(clarificationAnswer.answer, /Kushagra/u);
   assert.match(clarificationAnswer.answer, /\$1,000\.00/u);
@@ -84,4 +85,35 @@ test('raw retrieved text and caller-selected identities have no path into the in
     } }), (error) => error.status === 422);
   }
   assert.equal(calls, 0);
+});
+
+test('conversation topics route grounded reads without opening a write transaction', async () => {
+  const actor = { userId: '10000000-0000-4000-8000-000000000001' };
+  const conversation = [{ intent: 'transactions', merchant: 'Dominos', category: null, from: '2026-11-01', to: '2026-11-14' }];
+  const query = { merchant: 'Dominos', category: null, direction: 'debit', status: null,
+    from: '2026-11-01', to: '2026-11-14', limit: 10 };
+  let seenConversation;
+  let seenQuery;
+  const ask = createAskWorkflow({
+    query: async () => ({ rows: [] }),
+    withTransaction: async () => assert.fail('the injected read service owns its snapshot'),
+    classifyInput: async () => ({ flagged: false }),
+    parseIntent: async (message, topics) => {
+      seenConversation = topics;
+      return { intent: 'transactions', expense: null, query };
+    },
+    conversationalReads: {
+      transactions: async ({ actor: selected, query: selectedQuery }) => {
+        assert.equal(selected, actor);
+        seenQuery = selectedQuery;
+        return { type: 'answer', intent: 'transactions', answer: 'Grounded result', transactions: [] };
+      },
+    },
+  });
+  const result = await ask({ actor, body: {
+    message: 'What about those?', requestKey: '90000000-0000-4000-8000-000000000009', conversation,
+  } });
+  assert.equal(result.answer, 'Grounded result');
+  assert.deepEqual(seenConversation, conversation);
+  assert.deepEqual(seenQuery, query);
 });

@@ -33,6 +33,24 @@ try {
   assert.equal(clarification.expense.merchant, "McDonald's");
   assert.deepEqual(clarification.expense.participantNames.map((name) => name.toLowerCase()), ['kushagra']);
   console.log(JSON.stringify({ status: 'ok', check }));
+  for (const [message, intent] of [
+    ['Show my recent transactions', 'transactions'],
+    ['Where is my spending concentrated this month?', 'spending_guidance'],
+  ]) {
+    check = `intent-${intent}`;
+    const parsed = await parseIntent(message);
+    assert.equal(parsed.intent, intent);
+    assert.equal(parsed.expense, null);
+    assert.equal(parsed.query.limit, 10);
+    console.log(JSON.stringify({ status: 'ok', check }));
+  }
+  check = 'intent-context-follow-up';
+  const followUp = await parseIntent('What about those?', [
+    { intent: 'transactions', merchant: 'Dominos', category: null, from: '2026-11-01', to: '2026-11-14' },
+  ]);
+  assert.equal(followUp.intent, 'transactions');
+  assert.equal(followUp.query.merchant, 'Dominos');
+  console.log(JSON.stringify({ status: 'ok', check }));
   console.log(JSON.stringify({ status: 'ok', checks: ['antonios-extraction', 'intent-routing'], model: process.env.GEMINI_MODEL }));
 } catch (error) {
   // Assertion errors may contain actual provider output; expose no such data.
