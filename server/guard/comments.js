@@ -52,12 +52,35 @@ async function modelProbability(text) {
   return spam.score;
 }
 
-export async function classifyComment(text) {
+export async function classifyGuardText(text) {
   try {
     return modelResult(text, await modelProbability(text), manifest);
   } catch {
     logFallback();
     return rulesOnlyResult(text);
+  }
+}
+
+export const classifyComment = classifyGuardText;
+
+/** Ask uses model OR high-precision rules so clear outside-rail asks still block when DeBERTa under-scores them. */
+export async function classifyAskText(text) {
+  const rules = rulesOnlyResult(text);
+  try {
+    const model = modelResult(text, await modelProbability(text), manifest);
+    if (model.flagged) return model;
+    if (rules.flagged) {
+      return {
+        flagged: true,
+        score: Math.max(model.score, rules.score),
+        reasons: rules.reasons,
+        modelVersion: model.modelVersion,
+      };
+    }
+    return model;
+  } catch {
+    logFallback();
+    return rules;
   }
 }
 

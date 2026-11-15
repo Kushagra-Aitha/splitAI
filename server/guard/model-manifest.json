@@ -1,9 +1,9 @@
 {
   "version": "split-guard-deberta-v1",
   "baseModel": "microsoft/deberta-v3-xsmall",
-  "threshold": 0.599,
+  "threshold": 0.9206172061920166,
   "maxLength": 128,
-  "revision": "split-guard-deberta-v1:2e6bda15b4e8",
+  "revision": "split-guard-deberta-v1:6264ae93ea9c",
   "artifact": "onnx/model_quantized.onnx",
-  "artifactSha256": "2e6bda15b4e8900875d542eb1eccf4332b1932f5f12a02bf4557b7d2a12b24a0"
+  "artifactSha256": "6264ae93ea9ce749b075881d77984e81e076185a2cad26c96a38f33f57547b73"
 }

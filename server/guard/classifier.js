@@ -13,8 +13,8 @@ const negated = (text, index) => /\b(?:don't|do not|never|avoid)\s+(?:\w+\s+){0,
 export function ruleReasons(text) {
   const value = normalize(text);
   const rules = [
-    ['PROMPT_OVERRIDE', /\b(?:ignore|disregard)\b.{0,35}\b(?:previous|prior|earlier|system)\b.{0,25}\b(?:instructions?|rules?|prompt)\b|\b(?:system override|bypass confirmation|skip approval|disable.{0,10}approval)\b/gu],
-    ['OUTSIDE_PAYMENT', /\b(?:pay|transfer)\b.{0,100}(?:<email>|\b(?:venmo|cash app|cashapp|zelle|paypal|bitcoin|crypto|gift card|outside split)\b)|\bsend\b.{0,30}\b(?:money|dollars?|cash|funds)\b.{0,70}\b(?:venmo|cash app|cashapp|zelle|paypal|bitcoin|crypto|wallet)\b/gu],
+    ['PROMPT_OVERRIDE', /\b(?:ignore|disregard)\b.{0,35}\b(?:previous|prior|earlier|system)\b.{0,25}\b(?:instructions?|rules?|prompt)\b|\b(?:ignore|disregard)\b.{0,40}\b(?:instructions?|rules?|prompt)\b.{0,40}\b(?:previously|previous|prior|earlier|system|assigned)\b|\b(?:system override|bypass confirmation|skip approval|disable.{0,10}approval)\b/gu],
+    ['OUTSIDE_PAYMENT', /\b(?:pay|transfer)\b.{0,100}(?:<email>|\b(?:venmo|cash app|cashapp|zelle|paypal|bitcoin|crypto|gift cards?|outside split)\b)|\bsend\b.{0,40}\b(?:money|dollars?|cash|funds|gift cards?)\b.{0,70}\b(?:venmo|cash app|cashapp|zelle|paypal|bitcoin|crypto|wallet|irs|tax|gift cards?)\b|\bgift cards?\b.{0,40}\b(?:irs|tax)\b|\b(?:irs|tax)\b.{0,40}\bgift cards?\b|\bsend\b.{0,40}<number>/gu],
     ['CREDENTIAL_REQUEST', /\b(?:send|share|enter|give|reveal|tell)\b.{0,50}\b(?:password|pin|one[ -]time code|verification code|otp)\b/gu],
   ];
   return rules.filter(([, regex]) => [...value.matchAll(regex)].some((match) => !negated(value, match.index))).map(([reason]) => reason);

@@ -8,6 +8,7 @@ import { createAssistantGuard, rejectedProposalReason } from './guard.js';
 import { chargeExplanationTarget } from '../ledger/explain-charge.js';
 import { bankQuery, bankSplitTarget, findLinkedMerchantExpense, matchPurchases } from './bank-match.js';
 import { answerGoalProgress } from './goal-progress.js';
+import { classifyAskText } from '../guard/comments.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -239,7 +240,7 @@ async function advance(db, proposal, actor, selection) {
 }
 
 export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, conversationalReads, prepareReminder, explainCharge,
-  guard = createAssistantGuard({ withTransaction }) }) {
+  guard = createAssistantGuard({ withTransaction }), classifyInput = classifyAskText }) {
   const run = async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
       if (Object.hasOwn(body, 'message')) throw invalid('Send a message or a proposal selection, not both.');
@@ -267,6 +268,8 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
     const { rows: [existing] } = await query(`SELECT ${columns} FROM assistant_proposals
       WHERE actor_user_id = $1 AND request_key = $2`, [actor.userId, requestKey]);
     if (existing && existing.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
+    const classification = await classifyInput(message);
+    if (classification.flagged) return guard.block({ actor, reasonCode: 'UNTRUSTED_INSTRUCTION' });
 
     const chipAction = Object.hasOwn(body, 'action') ? validateAskAction(body.action) : null;
     if (chipAction && !existing) {

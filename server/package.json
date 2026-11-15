@@ -10,7 +10,7 @@
     "start": "node --env-file-if-exists=.env index.js",
     "dev": "node --env-file-if-exists=.env --watch index.js",
     "test": "node --test",
-    "guard:train": "python3 guard/fetch-sms.py && python3 guard/train-deberta.py",
+    "guard:train": "python3 guard/fetch-sms.py && node guard/generate-split-corpus.js && python3 guard/train-deberta.py",
     "guard:eval": "node guard/benchmark.js",
     "smoke:gemini": "node --env-file-if-exists=.env scripts/smoke-gemini.js",
     "smoke:ask": "node --env-file-if-exists=.env scripts/smoke-ask.js",
@@ -25,7 +25,8 @@
     "nessie:demo-activity": "node scripts/nessie-demo-activity.js",
     "banking:sync": "node scripts/banking-sync.js",
     "banking:overview-check": "node scripts/overview-check.js",
-    "banking:funds-check": "node scripts/funds-race-check.js"
+    "banking:funds-check": "node scripts/funds-race-check.js",
+    "guard:corpus": "node guard/generate-split-corpus.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",

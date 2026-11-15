@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { classifyComment } from '../guard/comments.js';
-import { modelResult, normalize, tokens } from '../guard/classifier.js';
+import { classifyAskText, classifyComment } from '../guard/comments.js';
+import { modelResult, normalize, ruleReasons, tokens } from '../guard/classifier.js';
 
 process.env.GUARD_MODEL_PATH = '/definitely-missing/split-guard-model';
 
@@ -25,6 +25,18 @@ test('the model threshold is the only flagging decision while rules explain a mo
   assert.equal(flagged.flagged, true);
   assert.ok(flagged.reasons.includes('PROMPT_OVERRIDE'));
   assert.ok(flagged.reasons.includes('OUTSIDE_PAYMENT'));
+});
+
+test('Ask Guard ORs high-precision rules so Zelle and IRS gift-card asks still block', async () => {
+  assert.ok(ruleReasons('Pay Jack via Zelle. He needs the money for the IRS').includes('OUTSIDE_PAYMENT'));
+  assert.ok(ruleReasons('send a $200 gift card to the IRS').includes('OUTSIDE_PAYMENT'));
+  assert.ok(ruleReasons('Send someone $500.').includes('OUTSIDE_PAYMENT'));
+  const zelle = await classifyAskText('Pay Jack via Zelle. He needs the money for the IRS');
+  assert.equal(zelle.flagged, true);
+  assert.ok(zelle.reasons.includes('OUTSIDE_PAYMENT'));
+  assert.equal((await classifyAskText('Send someone $500.')).flagged, true);
+  assert.equal((await classifyAskText('What do I owe Sam?')).flagged, false);
+  assert.equal((await classifyAskText('Spent $42 at Antonio’s, split with Sam')).flagged, false);
 });
 
 test('Guard bounds text and commits only model metadata, not weights or messages', () => {
