@@ -1,0 +1,740 @@
+<title>Split Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one reading column of engineering figures, each a full-width plate
+   with a short lede; color encodes ownership (Tiger, Gemini, Nessie, human). */
+:root {
+  --bg: #EDF0F4;
+  --surface: #FFFFFF;
+  --soft: #E4E9EF;
+  --ink: #132033;
+  --muted: #566377;
+  --line: #C6CFDA;
+  --amber: #B05A00;  --amber-bg: #FFF0DB;
+  --violet: #5646C4; --violet-bg: #EEEBFF;
+  --teal: #03736C;   --teal-bg: #DBF3EF;
+  --blue: #1D58B0;   --blue-bg: #E2ECFB;
+  --red: #B42318;    --red-bg: #FCE7E5;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A1018; --surface: #111925; --soft: #1A2433; --ink: #E3E9F1; --muted: #8E9BAF; --line: #2B3749;
+    --amber: #F1A33C; --amber-bg: #2D2110; --violet: #A79AFF; --violet-bg: #211D3C;
+    --teal: #3FC8BD; --teal-bg: #0E2927; --blue: #80AAF1; --blue-bg: #13243F; --red: #F47168; --red-bg: #391614;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0A1018; --surface: #111925; --soft: #1A2433; --ink: #E3E9F1; --muted: #8E9BAF; --line: #2B3749;
+  --amber: #F1A33C; --amber-bg: #2D2110; --violet: #A79AFF; --violet-bg: #211D3C;
+  --teal: #3FC8BD; --teal-bg: #0E2927; --blue: #80AAF1; --blue-bg: #13243F; --red: #F47168; --red-bg: #391614;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+.wrap { max-width: 1160px; margin: 0 auto; display: grid; gap: 56px; }
+
+header { display: grid; gap: 20px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.05; letter-spacing: -.02em; margin: 0; font-weight: 700; text-wrap: balance; }
+.lede { font-size: 18px; color: var(--muted); max-width: 64ch; margin: 0; }
+.lede strong { color: var(--ink); font-weight: 600; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.stat { background: var(--surface); padding: 16px 18px; display: grid; gap: 2px; }
+.stat b { font-size: 28px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--muted); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
+.lg-amber { background: var(--amber-bg); border-color: var(--amber) !important; }
+.lg-violet { background: var(--violet-bg); border-color: var(--violet) !important; }
+.lg-teal { background: var(--teal-bg); border-color: var(--teal) !important; }
+.lg-blue { background: var(--blue-bg); border-color: var(--blue) !important; }
+.lg-red { background: var(--red-bg); border-color: var(--red) !important; }
+
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a { font-size: 13px; color: var(--ink); text-decoration: none; border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 999px; }
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--ink); outline: none; }
+
+section { display: grid; gap: 16px; scroll-margin-top: 24px; }
+.sec-head { display: grid; gap: 6px; max-width: 72ch; }
+.sec-head .eyebrow { color: var(--muted); }
+h2 { font-size: 26px; line-height: 1.2; letter-spacing: -.01em; margin: 0; font-weight: 600; text-wrap: balance; }
+.sec-head p { margin: 0; color: var(--muted); }
+.sec-head p code, .notes code, .chips code { font-family: var(--mono); font-size: .9em; color: var(--ink); }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.plate { overflow-x: auto; padding: 20px; }
+.plate svg { display: block; width: 100%; height: auto; min-width: 860px; }
+figcaption { border-top: 1px solid var(--line); padding: 14px 20px; font-size: 13.5px; color: var(--muted); }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.note { border-top: 2px solid var(--ink); padding-top: 10px; display: grid; gap: 4px; min-width: 0; }
+.note h3 { font-size: 15px; margin: 0; font-weight: 600; }
+.note p { margin: 0; font-size: 14px; color: var(--muted); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.chips code { border: 1px solid var(--line); background: var(--soft); border-radius: 4px; padding: 2px 7px; }
+
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+
+/* SVG drawing classes */
+.d text { font-family: var(--sans); fill: var(--ink); }
+.d .t { font-size: 13.5px; font-weight: 600; }
+.d .s { font-size: 11.5px; fill: var(--muted); }
+.d .m { font-family: var(--mono); font-size: 11.5px; fill: var(--ink); }
+.d .k { font-family: var(--mono); font-size: 10px; fill: var(--muted); letter-spacing: .04em; }
+.d .cap { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; fill: var(--muted); }
+.d .lbl { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.d .lbl.amber { fill: var(--amber); } .d .lbl.violet { fill: var(--violet); } .d .lbl.teal { fill: var(--teal); }
+.d .lbl.blue { fill: var(--blue); font-weight: 600; } .d .lbl.red { fill: var(--red); font-weight: 600; }
+.d .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.25; }
+.d .box.amber { fill: var(--amber-bg); stroke: var(--amber); }
+.d .box.violet { fill: var(--violet-bg); stroke: var(--violet); }
+.d .box.teal { fill: var(--teal-bg); stroke: var(--teal); }
+.d .box.blue { fill: var(--blue-bg); stroke: var(--blue); stroke-width: 2; }
+.d .box.soft { fill: var(--soft); stroke: var(--line); }
+.d .region { fill: none; stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 6 5; }
+.d .region.violet { stroke: var(--violet); }
+.d .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.d .edge.amber { stroke: var(--amber); } .d .edge.violet { stroke: var(--violet); }
+.d .edge.teal { stroke: var(--teal); } .d .edge.blue { stroke: var(--blue); stroke-width: 2; }
+.d .edge.red { stroke: var(--red); stroke-width: 1.75; }
+.d .dash { stroke-dasharray: 5 4; }
+.d .life { stroke: var(--line); stroke-width: 1.25; stroke-dasharray: 3 4; }
+.d .chunk { fill: var(--soft); stroke: var(--line); }
+.d .chunk.hot { fill: var(--amber-bg); stroke: var(--amber); stroke-width: 1.75; }
+.d .day { fill: var(--amber-bg); stroke: var(--amber); }
+.d .day.zero { fill: var(--surface); stroke: var(--muted); stroke-dasharray: 3 3; }
+.d .ent { fill: var(--surface); stroke: var(--line); stroke-width: 1.25; }
+.d .ent-h { fill: var(--soft); }
+.d .ent.amber { fill: var(--amber-bg); stroke: var(--amber); stroke-width: 2; }
+.d .ent-h.amber { fill: var(--amber); }
+.d .en { font-family: var(--mono); font-size: 12.5px; font-weight: 500; fill: var(--ink); }
+.d .en.inv { fill: var(--surface); }
+.d .stripe { fill: var(--amber); opacity: .28; }
+.d .x { stroke: var(--red); stroke-width: 2.5; }
+.mk { fill: var(--muted); } .mk.amber { fill: var(--amber); } .mk.violet { fill: var(--violet); }
+.mk.teal { fill: var(--teal); } .mk.blue { fill: var(--blue); } .mk.red { fill: var(--red); }
+
+@media (max-width: 640px) {
+  body { padding-block: 24px 48px; }
+  .wrap { gap: 40px; }
+  .plate { padding: 12px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  nav.toc a { transition: border-color .15s ease; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk amber" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk violet" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk teal" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk blue" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk red" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Split · System design</div>
+  <h1>Shared money, handled by voice, backed by a real bank.</h1>
+  <p class="lede">How Split is built: a single Node origin on <strong>Vultr</strong>, every dollar stored in <strong>Tiger Data</strong>, language and voice from <strong>Gemini</strong> and <strong>ElevenLabs</strong>, and real accounts and transfers through <strong>Nessie</strong>. The AI never moves money and never writes a number.</p>
+  <div class="stats" role="list">
+    <div class="stat" role="listitem"><b>27</b><span>tables in one Tiger service</span></div>
+    <div class="stat" role="listitem"><b>20</b><span>versioned, checksummed migrations</span></div>
+    <div class="stat" role="listitem"><b>49</b><span>authenticated API routes</span></div>
+    <div class="stat" role="listitem"><b>~200</b><span>automated tests in 46 files</span></div>
+    <div class="stat" role="listitem"><b>53</b><span>reviewed, merged pull requests</span></div>
+  </div>
+  <div class="legend" aria-label="Color legend">
+    <span><i class="lg-amber"></i>Tiger Data · time-series</span>
+    <span><i class="lg-violet"></i>Gemini · AI output</span>
+    <span><i class="lg-teal"></i>Nessie · bank</span>
+    <span><i class="lg-blue"></i>Human approval</span>
+    <span><i class="lg-red"></i>No path / blocked</span>
+  </div>
+  <nav class="toc" aria-label="Diagrams">
+    <a href="#system">System architecture</a>
+    <a href="#hypertable">Hypertable</a>
+    <a href="#schema">Data model</a>
+    <a href="#flow">Money flow</a>
+    <a href="#trust">AI trust boundary</a>
+  </nav>
+</header>
+
+<!-- 1. SYSTEM -->
+<section id="system">
+  <div class="sec-head">
+    <div class="eyebrow">System architecture</div>
+    <h2>One origin on Vultr, four providers, one database</h2>
+    <p>The browser only ever talks to one HTTPS origin. Nginx terminates TLS and forwards to a Node process bound to localhost; every request passes the session, Origin and CSRF checks before any module runs. Provider keys stay on the server.</p>
+  </div>
+  <figure>
+    <div class="plate">
+      <svg class="d" viewBox="0 0 1130 540" role="img" aria-label="Browser connects over HTTPS to Nginx on a Vultr instance, which proxies to a Node API. API modules call Gemini, ElevenLabs and Nessie, and read and write Tiger Cloud over TLS.">
+        <!-- client -->
+        <rect class="box" x="20" y="235" width="150" height="80" rx="8"/>
+        <text class="t" x="95" y="268" text-anchor="middle">Browser / phone</text>
+        <text class="s" x="95" y="288" text-anchor="middle">Split web app</text>
+
+        <!-- vultr region -->
+        <rect class="region" x="200" y="30" width="480" height="485" rx="12"/>
+        <text class="cap" x="216" y="52">VULTR CLOUD COMPUTE · FIREWALL: 80, 443</text>
+
+        <rect class="box" x="220" y="240" width="120" height="70" rx="8"/>
+        <text class="t" x="280" y="270" text-anchor="middle">Nginx</text>
+        <text class="s" x="280" y="290" text-anchor="middle">TLS · HSTS</text>
+
+        <rect class="region" x="368" y="68" width="296" height="430" rx="10"/>
+        <text class="cap" x="382" y="88">NODE API · 127.0.0.1:3001</text>
+
+        <rect class="box soft" x="382" y="100" width="40" height="384" rx="6"/>
+        <text class="s" transform="translate(407 292) rotate(-90)" text-anchor="middle">session · Origin · CSRF · rate limits</text>
+
+        <rect class="box" x="438" y="100" width="210" height="60" rx="7"/>
+        <text class="t" x="454" y="126">Ask Split</text>
+        <text class="s" x="454" y="145">intent → validate → draft</text>
+
+        <rect class="box" x="438" y="176" width="210" height="60" rx="7"/>
+        <text class="t" x="454" y="202">Guard</text>
+        <text class="s" x="454" y="221">on-server classifier + rules</text>
+
+        <rect class="box" x="438" y="252" width="210" height="60" rx="7"/>
+        <text class="t" x="454" y="278">Ledger</text>
+        <text class="s" x="454" y="297">expenses · debts · settlements</text>
+
+        <rect class="box" x="438" y="328" width="210" height="60" rx="7"/>
+        <text class="t" x="454" y="354">Capital Two worker</text>
+        <text class="s" x="454" y="373">schedules · every 20 s</text>
+
+        <rect class="box" x="438" y="404" width="210" height="60" rx="7"/>
+        <text class="t" x="454" y="430">Banking</text>
+        <text class="s" x="454" y="449">sync · funds · overview</text>
+
+        <!-- externals -->
+        <rect class="box violet" x="790" y="40" width="320" height="76" rx="8"/>
+        <text class="t" x="808" y="70">Gemini</text>
+        <text class="s" x="808" y="91">JSON Schema output · no tools · intent + explanations</text>
+
+        <rect class="box violet" x="790" y="134" width="320" height="64" rx="8"/>
+        <text class="t" x="808" y="161">ElevenLabs</text>
+        <text class="s" x="808" y="180">Scribe v2 speech-to-text · Flash v2.5 voice</text>
+
+        <rect class="box teal" x="790" y="230" width="320" height="86" rx="8"/>
+        <text class="t" x="808" y="260">Nessie API · Capital Two</text>
+        <text class="s" x="808" y="281">customers · accounts · purchases · deposits</text>
+        <text class="s" x="808" y="299">withdrawals · transfers · merchants · settle</text>
+
+        <rect class="box amber" x="790" y="346" width="320" height="170" rx="8"/>
+        <text class="t" x="808" y="374">Tiger Cloud · TimescaleDB</text>
+        <g>
+          <rect class="chunk hot" x="808" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="842" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="876" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="910" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="944" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="978" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="1012" y="390" width="30" height="30" rx="3"/>
+          <rect class="chunk hot" x="1046" y="390" width="30" height="30" rx="3"/>
+        </g>
+        <text class="m" x="808" y="440">bank_transactions</text>
+        <text class="s" x="942" y="440">hypertable, chunked by time</text>
+        <rect class="box" x="808" y="456" width="284" height="44" rx="6"/>
+        <text class="m" x="822" y="476">users · groups · expenses · settlements</text>
+        <text class="s" x="822" y="492">goals · guard · sessions · 26 relational tables</text>
+
+        <!-- edges -->
+        <line class="edge" x1="170" y1="275" x2="218" y2="275" marker-end="url(#ah)"/>
+        <text class="lbl" x="194" y="266" text-anchor="middle">HTTPS</text>
+        <line class="edge" x1="340" y1="275" x2="380" y2="275" marker-end="url(#ah)"/>
+        <text class="lbl" x="360" y="266" text-anchor="middle">proxy</text>
+
+        <path class="edge violet" d="M648 118 L790 82" marker-end="url(#ah-violet)"/>
+        <text class="lbl violet" x="719" y="90" text-anchor="middle">message only</text>
+        <path class="edge violet" d="M648 144 L790 166" marker-end="url(#ah-violet)"/>
+        <text class="lbl violet" x="719" y="144" text-anchor="middle">audio · reply</text>
+
+        <path class="edge teal" d="M648 282 L790 276" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="719" y="272" text-anchor="middle">transfers</text>
+        <path class="edge teal" d="M648 350 L790 300" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="722" y="318" text-anchor="middle">payments</text>
+        <path class="edge teal" d="M648 420 L790 310" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="732" y="372" text-anchor="middle">sync</text>
+
+        <path class="edge amber" d="M664 478 L806 478" marker-end="url(#ah-amber)"/>
+        <text class="lbl amber" x="735" y="470" text-anchor="middle">SQL over TLS</text>
+      </svg>
+    </div>
+    <figcaption>All modules share one connection pool to Tiger Cloud and run money changes inside database transactions. Gemini receives only the user's message; Nessie and ElevenLabs keys never reach the browser.</figcaption>
+  </figure>
+  <div class="notes">
+    <div class="note"><h3>Single origin</h3><p>The built front end and <code>/api</code> come from the same Node process, so cookies are <code>SameSite=Strict</code> and there is no CORS surface.</p></div>
+    <div class="note"><h3>One runtime dependency</h3><p>The server depends only on <code>pg</code>. HTTP, sessions, rate limits and provider clients use Node's standard library.</p></div>
+    <div class="note"><h3>Production defaults</h3><p>An HTTPS <code>APP_ORIGIN</code> turns on <code>__Host-</code> cookies, <code>Secure</code> and HSTS. The app ignores forwarded headers and stays private behind Nginx.</p></div>
+  </div>
+</section>
+
+<!-- 2. HYPERTABLE -->
+<section id="hypertable">
+  <div class="sec-head">
+    <div class="eyebrow">Tiger Data · TimescaleDB</div>
+    <h2>Bank activity is a time series, so it lives in a hypertable</h2>
+    <p><code>bank_transactions</code> is partitioned by <code>occurred_at</code>. A query for this month only scans this month's chunks, however long the history grows. The Overview chart is one <code>time_bucket</code> query joined to a <code>generate_series</code>, so days with no activity come back as zero instead of a gap.</p>
+  </div>
+  <figure>
+    <div class="plate">
+      <svg class="d" viewBox="0 0 1100 340" role="img" aria-label="Twenty-four weekly chunks from June to November. A query for November scans only the last two chunks and skips the other twenty-two. time_bucket returns one row per day, with empty days filled as zero.">
+        <rect class="box" x="640" y="14" width="440" height="58" rx="7"/>
+        <text class="m" x="656" y="38">SELECT time_bucket('1 day', occurred_at) …</text>
+        <text class="m" x="656" y="58">WHERE occurred_at &gt;= '2026-11-01'</text>
+
+        <text class="cap" x="60" y="100">BANK_TRANSACTIONS · ONE CHUNK PER 7 DAYS</text>
+
+        <g>
+          <rect class="chunk" x="60" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="100" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="140" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="180" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="220" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="260" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="300" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="340" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="380" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="420" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="460" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="500" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="540" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="580" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="620" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="660" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="700" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="740" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="780" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="820" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="860" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk" x="900" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk hot" x="940" y="112" width="36" height="56" rx="3"/>
+          <rect class="chunk hot" x="980" y="112" width="36" height="56" rx="3"/>
+        </g>
+
+        <g class="s">
+          <line class="life" x1="60" y1="172" x2="60" y2="184"/><text class="s" x="62" y="196">Jun</text>
+          <line class="life" x1="220" y1="172" x2="220" y2="184"/><text class="s" x="222" y="196">Jul</text>
+          <line class="life" x1="420" y1="172" x2="420" y2="184"/><text class="s" x="422" y="196">Aug</text>
+          <line class="life" x1="580" y1="172" x2="580" y2="184"/><text class="s" x="582" y="196">Sep</text>
+          <line class="life" x1="740" y1="172" x2="740" y2="184"/><text class="s" x="742" y="196">Oct</text>
+          <line class="life" x1="940" y1="172" x2="940" y2="184"/><text class="s" x="942" y="196">Nov</text>
+        </g>
+
+        <path class="edge" d="M60 210 L60 216 L936 216 L936 210"/>
+        <text class="s" x="498" y="234" text-anchor="middle">22 chunks skipped by the planner: outside the time range</text>
+        <path class="edge amber" d="M940 210 L940 216 L1016 216 L1016 210"/>
+        <text class="lbl amber" x="978" y="234" text-anchor="middle">2 scanned</text>
+
+        <path class="edge amber" d="M900 72 C 920 90, 960 92, 970 108" marker-end="url(#ah-amber)"/>
+
+        <text class="cap" x="60" y="276">TIME_BUCKET('1 DAY') + GENERATE_SERIES</text>
+        <text class="s" x="60" y="296">one row per local day, Nov 1–14</text>
+        <text class="s" x="60" y="314">empty days return 0, not a gap</text>
+
+        <path class="edge amber" d="M1018 140 C 1072 140, 1072 276, 1016 276" marker-end="url(#ah-amber)"/>
+
+        <g>
+          <rect class="day" x="540" y="258" width="30" height="36" rx="3"/>
+          <rect class="day" x="574" y="258" width="30" height="36" rx="3"/>
+          <rect class="day zero" x="608" y="258" width="30" height="36" rx="3"/><text class="k" x="623" y="281" text-anchor="middle">0</text>
+          <rect class="day" x="642" y="258" width="30" height="36" rx="3"/>
+          <rect class="day" x="676" y="258" width="30" height="36" rx="3"/>
+          <rect class="day zero" x="710" y="258" width="30" height="36" rx="3"/><text class="k" x="725" y="281" text-anchor="middle">0</text>
+          <rect class="day zero" x="744" y="258" width="30" height="36" rx="3"/><text class="k" x="759" y="281" text-anchor="middle">0</text>
+          <rect class="day" x="778" y="258" width="30" height="36" rx="3"/>
+          <rect class="day" x="812" y="258" width="30" height="36" rx="3"/>
+          <rect class="day" x="846" y="258" width="30" height="36" rx="3"/>
+          <rect class="day zero" x="880" y="258" width="30" height="36" rx="3"/><text class="k" x="895" y="281" text-anchor="middle">0</text>
+          <rect class="day" x="914" y="258" width="30" height="36" rx="3"/>
+          <rect class="day" x="948" y="258" width="30" height="36" rx="3"/>
+          <rect class="day" x="982" y="258" width="30" height="36" rx="3"/>
+        </g>
+        <text class="k" x="555" y="312" text-anchor="middle">1</text>
+        <text class="k" x="657" y="312" text-anchor="middle">4</text>
+        <text class="k" x="793" y="312" text-anchor="middle">8</text>
+        <text class="k" x="997" y="312" text-anchor="middle">14</text>
+      </svg>
+    </div>
+    <figcaption>Chunk exclusion on the November query, and the zero-filled daily series the chart draws. Shapes are schematic; the 7-day chunk interval is TimescaleDB's default for <code>create_hypertable</code>.</figcaption>
+  </figure>
+  <div class="notes">
+    <div class="note"><h3>Dedupe without timestamps</h3><p>A hypertable's unique keys must include <code>occurred_at</code>. The bank's transaction ID lives in <code>bank_import_keys</code>, inserted with the row in one transaction, so a resync never doubles a dollar.</p></div>
+    <div class="note"><h3>Money under a lock</h3><p>Spendable = available − goal reservations − settlement holds, computed under <code>SELECT … FOR UPDATE</code>. Sync, goals and settlements take the same lock.</p></div>
+    <div class="note"><h3>Snapshot reads</h3><p>Insights run in <code>REPEATABLE READ READ ONLY</code>, so a sync landing mid-request cannot change half the numbers on the page.</p></div>
+    <div class="note"><h3>Checked, not trusted</h3><p><code>banking:overview-check</code> recomputes every bucket from raw rows; <code>db:verify</code> rebuilds a throwaway schema and confirms the hypertable.</p></div>
+  </div>
+</section>
+
+<!-- 3. SCHEMA -->
+<section id="schema">
+  <div class="sec-head">
+    <div class="eyebrow">Data model</div>
+    <h2>Time-series and relational data, joined in plain SQL</h2>
+    <p>The hypertable sits at the center of the ledger. An expense points at the exact bank purchase it split, a settlement is matched to the Nessie transfer that paid it, and a Capital Two payment is found again by its provider reference after a lost response.</p>
+  </div>
+  <figure>
+    <div class="plate">
+      <svg class="d" viewBox="0 0 1130 800" role="img" aria-label="Entity relationship diagram in four columns: identity and AI, groups and ledger, bank and time-series with the bank_transactions hypertable, and Capital Two and goals. Amber links show ledger rows and bank operations joined to the hypertable.">
+        <text class="cap" x="20" y="44">IDENTITY · AI · CHAT</text>
+        <text class="cap" x="300" y="44">GROUPS · LEDGER</text>
+        <text class="cap" x="580" y="44">BANK · TIME-SERIES</text>
+        <text class="cap" x="860" y="44">CAPITAL TWO · GOALS</text>
+
+        <!-- col 1 -->
+        <g transform="translate(20 70)">
+          <rect class="ent" width="240" height="96" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">users</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">email</text><text class="k" x="228" y="64" text-anchor="end">UNIQUE</text>
+          <text class="m" x="12" y="82">password_hash</text><text class="k" x="228" y="82" text-anchor="end">SCRYPT</text>
+        </g>
+        <g transform="translate(20 190)">
+          <rect class="ent" width="240" height="114" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">sessions</text>
+          <text class="m" x="12" y="46">token_hash</text><text class="k" x="228" y="46" text-anchor="end">PK · SHA-256</text>
+          <text class="m" x="12" y="64">user_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">csrf_token</text>
+          <text class="m" x="12" y="100">expires_at</text>
+        </g>
+        <g transform="translate(20 328)">
+          <rect class="ent" width="240" height="132" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">assistant_proposals</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">actor_user_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">request_key</text><text class="k" x="228" y="82" text-anchor="end">UNIQUE</text>
+          <text class="m" x="12" y="100">draft_id</text><text class="k" x="228" y="100" text-anchor="end">FK</text>
+          <text class="m" x="12" y="118">extraction</text><text class="k" x="228" y="118" text-anchor="end">JSONB</text>
+        </g>
+        <g transform="translate(20 484)">
+          <rect class="ent" width="240" height="132" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">group_comments</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">group_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">text</text><text class="k" x="228" y="82" text-anchor="end">≤ 500</text>
+          <text class="m" x="12" y="100">guard_score</text><text class="k" x="228" y="100" text-anchor="end">0–1</text>
+          <text class="m" x="12" y="118">guard_reasons</text><text class="k" x="228" y="118" text-anchor="end">JSONB</text>
+        </g>
+        <g transform="translate(20 640)">
+          <rect class="ent" width="240" height="132" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">guard_events</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">actor_user_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">comment_id</text><text class="k" x="228" y="82" text-anchor="end">FK</text>
+          <text class="m" x="12" y="100">decision</text>
+          <text class="m" x="12" y="118">reason_code</text>
+        </g>
+
+        <!-- col 2 -->
+        <g transform="translate(300 70)">
+          <rect class="ent" width="240" height="96" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">groups</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">kind</text><text class="k" x="228" y="64" text-anchor="end">trip · roommates …</text>
+          <text class="m" x="12" y="82">name</text>
+        </g>
+        <g transform="translate(300 190)">
+          <rect class="ent" width="240" height="78" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">group_members</text>
+          <text class="m" x="12" y="46">(group_id, user_id)</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">left_at</text>
+        </g>
+        <g transform="translate(300 292)">
+          <rect class="ent" width="240" height="150" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">expenses</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">(group_id, created_by)</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">total_cents</text><text class="k" x="228" y="82" text-anchor="end">&gt; 0</text>
+          <text class="m" x="12" y="100">status</text><text class="k" x="228" y="100" text-anchor="end">draft · confirmed</text>
+          <text class="m" x="12" y="118">source</text><text class="k" x="228" y="118" text-anchor="end">chat · bank</text>
+          <text class="m" x="12" y="136">bank_provider_key</text><text class="k" x="228" y="136" text-anchor="end">FK</text>
+        </g>
+        <g transform="translate(300 466)">
+          <rect class="ent" width="240" height="78" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">expense_shares</text>
+          <text class="m" x="12" y="46">(expense_id, user_id)</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">share_cents</text>
+        </g>
+        <g transform="translate(300 568)">
+          <rect class="ent" width="240" height="150" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">settlements</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">payer/payee_account_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">amount_cents</text>
+          <text class="m" x="12" y="100">hold_cents</text><text class="k" x="228" y="100" text-anchor="end">≤ amount</text>
+          <text class="m" x="12" y="118">status</text><text class="k" x="228" y="118" text-anchor="end">pending · posted</text>
+          <text class="m" x="12" y="136">provider_reference</text><text class="k" x="228" y="136" text-anchor="end">UNIQUE</text>
+        </g>
+
+        <!-- col 3 -->
+        <g transform="translate(580 70)">
+          <rect class="ent" width="240" height="132" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">bank_accounts</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">user_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">kind</text><text class="k" x="228" y="82" text-anchor="end">checking · card</text>
+          <text class="m" x="12" y="100">available_cents</text>
+          <text class="m" x="12" y="118">linked_at</text><text class="k" x="228" y="118" text-anchor="end">CONSENT</text>
+        </g>
+        <g transform="translate(580 260)">
+          <rect class="ent" width="240" height="96" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">bank_import_keys</text>
+          <text class="m" x="12" y="46">account_id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">provider_key</text><text class="k" x="228" y="64" text-anchor="end">PK</text>
+          <text class="m" x="12" y="82">(transaction_id, occurred_at)</text>
+        </g>
+        <g transform="translate(580 410)">
+          <rect class="ent amber" width="240" height="150" rx="6"/><path class="ent-h amber" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <rect class="stripe" x="176" y="6" width="10" height="18" rx="1"/><rect class="stripe" x="190" y="6" width="10" height="18" rx="1"/><rect class="stripe" x="204" y="6" width="10" height="18" rx="1"/><rect class="stripe" x="218" y="6" width="10" height="18" rx="1"/>
+          <text class="en inv" x="12" y="20">bank_transactions</text>
+          <text class="m" x="12" y="46">(id, occurred_at)</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">account_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">kind · direction</text>
+          <text class="m" x="12" y="100">amount_cents</text><text class="k" x="228" y="100" text-anchor="end">&gt; 0</text>
+          <text class="m" x="12" y="118">status</text><text class="k" x="228" y="118" text-anchor="end">pending → completed</text>
+          <text class="m" x="12" y="136">category</text>
+        </g>
+        <text class="lbl amber" x="700" y="584" text-anchor="middle">HYPERTABLE · PARTITIONED BY occurred_at</text>
+
+        <!-- col 4 -->
+        <g transform="translate(860 70)">
+          <rect class="ent" width="240" height="132" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">capital_schedules</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">account_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">kind</text><text class="k" x="228" y="82" text-anchor="end">purchase · salary</text>
+          <text class="m" x="12" y="100">frequency</text><text class="k" x="228" y="100" text-anchor="end">monthly · biweekly</text>
+          <text class="m" x="12" y="118">next_due_on</text>
+        </g>
+        <g transform="translate(860 226)">
+          <rect class="ent" width="240" height="114" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">recurring_split_rules</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">schedule_id</text><text class="k" x="228" y="64" text-anchor="end">FK · UNIQUE</text>
+          <text class="m" x="12" y="82">group_id</text><text class="k" x="228" y="82" text-anchor="end">FK</text>
+          <text class="m" x="12" y="100">allocation</text><text class="k" x="228" y="100" text-anchor="end">JSONB</text>
+        </g>
+        <g transform="translate(860 364)">
+          <rect class="ent" width="240" height="150" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">capital_operations</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">account_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">schedule_id</text><text class="k" x="228" y="82" text-anchor="end">FK</text>
+          <text class="m" x="12" y="100">request_key</text><text class="k" x="228" y="100" text-anchor="end">UNIQUE</text>
+          <text class="m" x="12" y="118">status</text><text class="k" x="228" y="118" text-anchor="end">queued → completed</text>
+          <text class="m" x="12" y="136">provider_reference</text><text class="k" x="228" y="136" text-anchor="end">UNIQUE</text>
+        </g>
+        <g transform="translate(860 560)">
+          <rect class="ent" width="240" height="114" rx="6"/><path class="ent-h" d="M0 6a6 6 0 0 1 6-6h228a6 6 0 0 1 6 6v24H0z"/>
+          <text class="en" x="12" y="20">goals</text>
+          <text class="m" x="12" y="46">id</text><text class="k" x="228" y="46" text-anchor="end">PK</text>
+          <text class="m" x="12" y="64">account_id</text><text class="k" x="228" y="64" text-anchor="end">FK</text>
+          <text class="m" x="12" y="82">target_cents</text>
+          <text class="m" x="12" y="100">saved_cents</text><text class="k" x="228" y="100" text-anchor="end">RESERVED</text>
+        </g>
+
+        <!-- relationships: arrow points from FK to the row it references -->
+        <line class="edge" x1="140" y1="190" x2="140" y2="168" marker-end="url(#ah)"/>
+        <line class="edge" x1="140" y1="640" x2="140" y2="618" marker-end="url(#ah)"/>
+        <path class="edge" d="M300 232 L280 232 L280 112 L262 112" marker-end="url(#ah)"/>
+        <line class="edge violet" x1="260" y1="424" x2="298" y2="424" marker-end="url(#ah-violet)"/>
+        <line class="edge" x1="420" y1="190" x2="420" y2="168" marker-end="url(#ah)"/>
+        <line class="edge" x1="420" y1="292" x2="420" y2="270" marker-end="url(#ah)"/>
+        <line class="edge" x1="420" y1="466" x2="420" y2="444" marker-end="url(#ah)"/>
+
+        <path class="edge amber" d="M540 424 L560 424 L560 320 L578 320" marker-end="url(#ah-amber)"/>
+        <path class="edge amber dash" d="M540 700 L560 700 L560 486 L578 486" marker-end="url(#ah-amber)"/>
+
+        <line class="edge" x1="700" y1="260" x2="700" y2="204" marker-end="url(#ah)"/>
+        <line class="edge amber" x1="700" y1="356" x2="700" y2="408" marker-end="url(#ah-amber)"/>
+        <text class="lbl amber" x="710" y="386">(id, occurred_at)</text>
+
+        <path class="edge amber dash" d="M860 496 L834 496 L834 320 L822 320" marker-end="url(#ah-amber)"/>
+        <path class="edge" d="M860 620 L848 620 L848 112 L822 112" marker-end="url(#ah)"/>
+        <line class="edge" x1="980" y1="226" x2="980" y2="204" marker-end="url(#ah)"/>
+        <path class="edge" d="M1100 446 L1116 446 L1116 110 L1102 110" marker-end="url(#ah)"/>
+      </svg>
+    </div>
+    <figcaption>Arrows point from a foreign key to the row it references. Solid amber links are foreign keys into the bank data; dashed amber links are matches by provider reference (a settlement to its posted transfer, a Capital Two payment to its imported transaction). Every row is scoped to a user; those user links are left out for clarity.</figcaption>
+  </figure>
+  <div class="chips"><span>Also in the schema:</span>
+    <code>settlement_categories</code><code>goal_movements</code><code>goal_creation_requests</code><code>recurring_split_expenses</code><code>capital_merchants</code><code>guard_feedback</code><code>guard_settings</code><code>notifications</code><code>debt_reminders</code><code>bill_schedules</code>
+  </div>
+</section>
+
+<!-- 4. FLOW -->
+<section id="flow">
+  <div class="sec-head">
+    <div class="eyebrow">Money flow</div>
+    <h2>From a pizza to a posted transfer</h2>
+    <p>Maya buys pizza at Capital Two, asks Split by voice to split it with Sam and Priya, and Sam pays her back. Every arrow below is a real call; the two blue arrows are the only places money is approved, and both come from a person.</p>
+  </div>
+  <figure>
+    <div class="plate">
+      <svg class="d" viewBox="0 0 1030 740" role="img" aria-label="Sequence diagram: a Capital Two purchase syncs into Tiger, Maya asks Split to split it, Gemini returns structured JSON, the app drafts the expense, Maya confirms, Sam is reminded, Sam confirms a settlement, the app holds funds and sends a Nessie transfer, and the posted transfer is reconciled in Tiger.">
+        <rect class="box" x="30" y="24" width="100" height="40" rx="7"/><text class="t" x="80" y="49" text-anchor="middle">Maya</text>
+        <rect class="box" x="170" y="24" width="100" height="40" rx="7"/><text class="t" x="220" y="49" text-anchor="middle">Sam</text>
+        <rect class="box" x="335" y="24" width="130" height="40" rx="7"/><text class="t" x="400" y="49" text-anchor="middle">Split API</text>
+        <rect class="box violet" x="525" y="24" width="110" height="40" rx="7"/><text class="t" x="580" y="49" text-anchor="middle">Gemini</text>
+        <rect class="box amber" x="695" y="24" width="130" height="40" rx="7"/><text class="t" x="760" y="49" text-anchor="middle">Tiger Data</text>
+        <rect class="box teal" x="870" y="24" width="140" height="40" rx="7"/><text class="t" x="940" y="49" text-anchor="middle">Nessie</text>
+
+        <line class="life" x1="80" y1="64" x2="80" y2="720"/>
+        <line class="life" x1="220" y1="64" x2="220" y2="720"/>
+        <line class="life" x1="400" y1="64" x2="400" y2="720"/>
+        <line class="life" x1="580" y1="64" x2="580" y2="720"/>
+        <line class="life" x1="760" y1="64" x2="760" y2="720"/>
+        <line class="life" x1="940" y1="64" x2="940" y2="720"/>
+
+        <line class="edge teal" x1="80" y1="108" x2="936" y2="108" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="660" y="100" text-anchor="middle">Capital Two purchase · $48.00 pizza on the card</text>
+
+        <line class="edge teal" x1="940" y1="148" x2="404" y2="148" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="660" y="140" text-anchor="middle">sync · purchase (pending)</text>
+
+        <line class="edge amber" x1="400" y1="186" x2="756" y2="186" marker-end="url(#ah-amber)"/>
+        <text class="lbl amber" x="580" y="178" text-anchor="middle">import key + row → hypertable</text>
+
+        <line class="edge" x1="80" y1="236" x2="396" y2="236" marker-end="url(#ah)"/>
+        <text class="lbl" x="240" y="228" text-anchor="middle">"Split last night's pizza with Sam and Priya"</text>
+
+        <line class="edge violet" x1="400" y1="276" x2="576" y2="276" marker-end="url(#ah-violet)"/>
+        <text class="lbl violet" x="490" y="268" text-anchor="middle">message text only</text>
+
+        <line class="edge violet" x1="580" y1="316" x2="404" y2="316" marker-end="url(#ah-violet)"/>
+        <text class="lbl violet" x="490" y="308" text-anchor="middle">JSON · expense · 4800¢ · [Sam, Priya]</text>
+
+        <line class="edge amber" x1="400" y1="356" x2="756" y2="356" marker-end="url(#ah-amber)"/>
+        <text class="lbl amber" x="580" y="348" text-anchor="middle">validate · match purchase · save draft</text>
+
+        <line class="edge" x1="400" y1="396" x2="84" y2="396" marker-end="url(#ah)"/>
+        <text class="lbl" x="240" y="388" text-anchor="middle">draft to review</text>
+
+        <line class="edge blue" x1="80" y1="436" x2="396" y2="436" marker-end="url(#ah-blue)"/>
+        <text class="lbl blue" x="240" y="428" text-anchor="middle">Maya confirms the split</text>
+
+        <line class="edge" x1="400" y1="476" x2="224" y2="476" marker-end="url(#ah)"/>
+        <text class="lbl" x="310" y="468" text-anchor="middle">reminder</text>
+
+        <line class="edge blue" x1="220" y1="526" x2="396" y2="526" marker-end="url(#ah-blue)"/>
+        <text class="lbl blue" x="310" y="518" text-anchor="middle">Sam confirms $16.00</text>
+
+        <line class="edge amber" x1="400" y1="566" x2="756" y2="566" marker-end="url(#ah-amber)"/>
+        <text class="lbl amber" x="580" y="558" text-anchor="middle">lock account · check funds · hold 1600¢</text>
+
+        <line class="edge teal" x1="400" y1="606" x2="936" y2="606" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="670" y="598" text-anchor="middle">POST transfer · Sam's checking → Maya's checking</text>
+
+        <line class="edge teal" x1="940" y1="646" x2="404" y2="646" marker-end="url(#ah-teal)"/>
+        <text class="lbl teal" x="670" y="638" text-anchor="middle">sync · transfer posted</text>
+
+        <line class="edge amber" x1="400" y1="686" x2="756" y2="686" marker-end="url(#ah-amber)"/>
+        <text class="lbl amber" x="580" y="678" text-anchor="middle">settlement posted · hold released</text>
+      </svg>
+    </div>
+    <figcaption>Gemini never sees account IDs or balances, and nothing it returns can start a transfer. The settlement shows as paid only after Nessie reports the transfer posted; a failed transfer releases the hold.</figcaption>
+  </figure>
+</section>
+
+<!-- 5. TRUST -->
+<section id="trust">
+  <div class="sec-head">
+    <div class="eyebrow">AI security</div>
+    <h2>Hacking the model gets you a draft, not a payment</h2>
+    <p>Split assumes Gemini can be tricked and chat messages can be hostile. Three paths show where text can and cannot go: actions need a person, chat is scored on our own server, and numbers come from SQL.</p>
+  </div>
+  <figure>
+    <div class="plate">
+      <svg class="d" viewBox="0 0 1100 420" role="img" aria-label="Three paths. Actions: message to Gemini to validator to draft to human confirmation to Nessie transfer. Group chat: message scored by Guard and turned into warnings, with no path to money. Answers: Tiger computes figures, app code writes sentences, Gemini only orders them.">
+        <text class="cap" x="20" y="44">ASKING SPLIT TO DO SOMETHING</text>
+        <rect class="region violet" x="196" y="54" width="156" height="90" rx="10"/>
+        <text class="lbl violet" x="274" y="48" text-anchor="middle">untrusted output</text>
+        <text class="lbl blue" x="826" y="48" text-anchor="middle">the only way money moves</text>
+
+        <rect class="box" x="20" y="64" width="140" height="70" rx="8"/>
+        <text class="t" x="90" y="94" text-anchor="middle">Your message</text><text class="s" x="90" y="113" text-anchor="middle">typed or voice</text>
+        <rect class="box violet" x="204" y="64" width="140" height="70" rx="8"/>
+        <text class="t" x="274" y="94" text-anchor="middle">Gemini</text><text class="s" x="274" y="113" text-anchor="middle">no tools · JSON only</text>
+        <rect class="box" x="388" y="64" width="140" height="70" rx="8"/>
+        <text class="t" x="458" y="94" text-anchor="middle">Validator</text><text class="s" x="458" y="113" text-anchor="middle">schema · scope · cents</text>
+        <rect class="box" x="572" y="64" width="140" height="70" rx="8"/>
+        <text class="t" x="642" y="94" text-anchor="middle">Draft</text><text class="s" x="642" y="113" text-anchor="middle">expense or reminder</text>
+        <rect class="box blue" x="756" y="64" width="140" height="70" rx="8"/>
+        <text class="t" x="826" y="94" text-anchor="middle">You confirm</text><text class="s" x="826" y="113" text-anchor="middle">signed-in user only</text>
+        <rect class="box teal" x="940" y="64" width="140" height="70" rx="8"/>
+        <text class="t" x="1010" y="94" text-anchor="middle">Nessie</text><text class="s" x="1010" y="113" text-anchor="middle">transfer is sent</text>
+
+        <line class="edge" x1="160" y1="99" x2="202" y2="99" marker-end="url(#ah)"/>
+        <line class="edge violet" x1="344" y1="99" x2="386" y2="99" marker-end="url(#ah-violet)"/>
+        <line class="edge" x1="528" y1="99" x2="570" y2="99" marker-end="url(#ah)"/>
+        <line class="edge" x1="712" y1="99" x2="754" y2="99" marker-end="url(#ah)"/>
+        <line class="edge blue" x1="896" y1="99" x2="938" y2="99" marker-end="url(#ah-blue)"/>
+        <path class="edge red dash" d="M458 134 L458 156 L540 156" />
+        <text class="lbl red" x="546" y="160">rejected → Guard audit log</text>
+
+        <text class="cap" x="20" y="198">GROUP CHAT</text>
+        <rect class="box" x="20" y="212" width="140" height="70" rx="8"/>
+        <text class="t" x="90" y="242" text-anchor="middle">Chat message</text><text class="s" x="90" y="261" text-anchor="middle">from any member</text>
+        <rect class="box" x="204" y="212" width="140" height="70" rx="8"/>
+        <text class="t" x="274" y="242" text-anchor="middle">Guard</text><text class="s" x="274" y="261" text-anchor="middle">on our server</text>
+        <rect class="box" x="388" y="212" width="140" height="70" rx="8"/>
+        <text class="t" x="458" y="242" text-anchor="middle">Warning</text><text class="s" x="458" y="261" text-anchor="middle">+ private alerts</text>
+        <line class="edge" x1="160" y1="247" x2="202" y2="247" marker-end="url(#ah)"/>
+        <line class="edge" x1="344" y1="247" x2="386" y2="247" marker-end="url(#ah)"/>
+
+        <path class="edge red dash" d="M528 247 L1010 247 L1010 138" marker-end="url(#ah-red)"/>
+        <line class="x" x1="760" y1="237" x2="780" y2="257"/><line class="x" x1="780" y1="237" x2="760" y2="257"/>
+        <text class="lbl red" x="770" y="276" text-anchor="middle">no code path from text to money</text>
+
+        <text class="cap" x="20" y="320">ANSWERS WITH NUMBERS</text>
+        <rect class="box amber" x="20" y="334" width="140" height="70" rx="8"/>
+        <text class="t" x="90" y="364" text-anchor="middle">Tiger SQL</text><text class="s" x="90" y="383" text-anchor="middle">computes each figure</text>
+        <rect class="box" x="204" y="334" width="140" height="70" rx="8"/>
+        <text class="t" x="274" y="364" text-anchor="middle">App code</text><text class="s" x="274" y="383" text-anchor="middle">writes each sentence</text>
+        <rect class="box violet" x="388" y="334" width="140" height="70" rx="8"/>
+        <text class="t" x="458" y="364" text-anchor="middle">Gemini</text><text class="s" x="458" y="383" text-anchor="middle">returns the order</text>
+        <rect class="box" x="572" y="334" width="140" height="70" rx="8"/>
+        <text class="t" x="642" y="364" text-anchor="middle">Answer</text><text class="s" x="642" y="383" text-anchor="middle">read aloud</text>
+        <line class="edge amber" x1="160" y1="369" x2="202" y2="369" marker-end="url(#ah-amber)"/>
+        <line class="edge" x1="344" y1="369" x2="386" y2="369" marker-end="url(#ah)"/>
+        <line class="edge violet" x1="528" y1="369" x2="570" y2="369" marker-end="url(#ah-violet)"/>
+        <text class="s" x="740" y="364">Gemini sees sentence IDs and can only reorder them.</text>
+        <text class="s" x="740" y="383">The server checks every ID comes back exactly once.</text>
+      </svg>
+    </div>
+    <figcaption>Refused requests (send money, approve a payment, change permissions, several actions at once) are written to <code>guard_events</code> with a fixed reason. Group notes and chat text never reach Gemini or the bank.</figcaption>
+  </figure>
+  <div class="notes">
+    <div class="note"><h3>Identity from the session</h3><p>Payer, group and members are resolved against the signed-in user. Names from the model are hints, never identities.</p></div>
+    <div class="note"><h3>Guard is a second layer</h3><p>Rules for instruction override, outside payment and credential requests explain each flag. A miss still cannot move money.</p></div>
+    <div class="note"><h3>Payments sent once</h3><p>Request keys, a single-sender claim, and no blind retries: a lost Nessie response becomes Unknown and is reconciled, never resent.</p></div>
+    <div class="note"><h3>Hardened edge</h3><p>scrypt passwords, hashed session tokens, exact Origin + CSRF on every change, 16 KB bodies, login rate limits and lockout.</p></div>
+  </div>
+</section>
+
+<footer>Split · built at HackUMass on Tiger Data, Gemini, ElevenLabs, Nessie and Vultr. Diagrams reflect the <code>dev</code> branch schema (migrations 0001–0311).</footer>
+
+</div>
