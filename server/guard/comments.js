@@ -1,20 +1,97 @@
 import { readFileSync } from 'node:fs';
-import { HttpError } from '../http.js';
+import { fileURLToPath } from 'node:url';
 import { notify } from '../notifications/notify.js';
-import { REASONS, score } from './classifier.js';
+import { modelResult, REASONS, rulesOnlyResult } from './classifier.js';
 
-let model;
+let manifest;
 try {
-  model = JSON.parse(readFileSync(new URL('./model.json', import.meta.url), 'utf8'));
-  if (model.version !== 'split-guard-nb-v1' || !Array.isArray(model.priors) || model.priors.length !== 2 ||
-      model.priors.some((value) => !Number.isFinite(value)) || !Number.isFinite(model.threshold) || model.threshold <= 0 || model.threshold > 1 ||
-      !model.weights || Object.keys(model.weights).length > 6000 || Object.values(model.weights).some((weights) =>
-        !Array.isArray(weights) || weights.length !== 2 || weights.some((value) => !Number.isFinite(value)))) model = null;
-} catch { model = null; }
+  manifest = JSON.parse(readFileSync(new URL('./model-manifest.json', import.meta.url), 'utf8'));
+  if (manifest.version !== 'split-guard-deberta-v1' ||
+      manifest.baseModel !== 'microsoft/deberta-v3-xsmall' ||
+      !Number.isFinite(manifest.threshold) || manifest.threshold <= 0 || manifest.threshold > 1 ||
+      !Number.isInteger(manifest.maxLength) || manifest.maxLength < 16 || manifest.maxLength > 256 ||
+      typeof manifest.revision !== 'string' || typeof manifest.artifact !== 'string') manifest = null;
+} catch { manifest = null; }
 
-export function classifyComment(text) {
-  if (!model) throw new HttpError(503, 'COMMENT_GUARD_UNAVAILABLE', 'Comment checks are temporarily unavailable. Please try again.');
-  return score(text, model);
+const defaultModelPath = fileURLToPath(new URL('./.cache/deberta-xsmall-onnx/', import.meta.url));
+let pipelinePromise;
+let fallbackLogged = false;
+
+async function loadPipeline() {
+  if (!manifest) throw new Error('Invalid Guard model manifest.');
+  const { env, pipeline } = await import('@huggingface/transformers');
+  const localModel = process.env.GUARD_MODEL_PATH?.trim();
+  const remoteModel = process.env.GUARD_MODEL_ID?.trim();
+  const useRemote = !localModel && Boolean(remoteModel);
+  env.allowRemoteModels = useRemote;
+  env.allowLocalModels = true;
+  const modelPath = localModel || remoteModel || defaultModelPath;
+  return pipeline('text-classification', modelPath, {
+    dtype: 'q8',
+    local_files_only: !useRemote,
+  });
+}
+
+function guardPipeline() {
+  pipelinePromise ??= loadPipeline();
+  return pipelinePromise;
+}
+
+function logFallback() {
+  if (fallbackLogged) return;
+  fallbackLogged = true;
+  console.error(JSON.stringify({ event: 'GUARD_MODEL_FALLBACK', model: manifest?.baseModel ?? null }));
+}
+
+async function modelProbability(text) {
+  const classify = await guardPipeline();
+  const output = await classify(text.slice(0, 500), { top_k: null, truncation: true });
+  const rows = Array.isArray(output?.[0]) ? output[0] : output;
+  const spam = rows?.find((row) => /^(spam|label_1)$/iu.test(row.label));
+  if (!spam || !Number.isFinite(spam.score)) throw new Error('Invalid Guard model output.');
+  return spam.score;
+}
+
+export async function classifyGuardText(text) {
+  try {
+    return modelResult(text, await modelProbability(text), manifest);
+  } catch {
+    logFallback();
+    return rulesOnlyResult(text);
+  }
+}
+
+export const classifyComment = classifyGuardText;
+
+/** Ask uses model OR high-precision rules so clear outside-rail asks still block when DeBERTa under-scores them. */
+export async function classifyAskText(text) {
+  const rules = rulesOnlyResult(text);
+  try {
+    const model = modelResult(text, await modelProbability(text), manifest);
+    if (model.flagged) return model;
+    if (rules.flagged) {
+      return {
+        flagged: true,
+        score: Math.max(model.score, rules.score),
+        reasons: rules.reasons,
+        modelVersion: model.modelVersion,
+      };
+    }
+    return model;
+  } catch {
+    logFallback();
+    return rules;
+  }
+}
+
+export async function warmGuard() {
+  try {
+    await modelProbability('Thanks, I will settle through Split.');
+    return true;
+  } catch {
+    logFallback();
+    return false;
+  }
 }
 
 // B16: every member of the chat gets a Guard entry for a flagged message,

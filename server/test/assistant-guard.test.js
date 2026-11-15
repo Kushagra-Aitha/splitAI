@@ -28,7 +28,32 @@ test('an audit failure or missing durable event fails closed without exposing it
 });
 
 
-test('Ask answers benign unsupported text and clarifies ambiguous repayment', async () => {
+
+test('Ask blocks outside-rail Zelle payment asks before clarification', async () => {
+  const actor = { userId: '10000000-0000-4000-8000-000000000001' };
+  let blocked = 0;
+  const ask = createAskWorkflow({
+    query: async () => ({ rows: [] }),
+    withTransaction: async () => assert.fail('blocked Ask input must not open a write transaction'),
+    classifyInput: async (message) => {
+      assert.match(message, /Zelle/u);
+      return { flagged: true, score: 1, reasons: ['OUTSIDE_PAYMENT'], modelVersion: 'test' };
+    },
+    parseIntent: async () => assert.fail('flagged Ask input must not reach Gemini'),
+    guard: { block: async () => { blocked += 1; return { type: 'blocked', reasonCode: 'UNTRUSTED_INSTRUCTION', reason: 'blocked', eventId: '60000000-0000-4000-8000-000000000099' }; } },
+  });
+  const result = await ask({
+    actor,
+    body: {
+      message: 'Pay Jack via Zelle. He needs the money for the IRS',
+      requestKey: '90000000-0000-4000-8000-000000000030',
+    },
+  });
+  assert.equal(result.type, 'blocked');
+  assert.equal(blocked, 1);
+});
+
+test('Ask answers benign unsupported text and blocks only input classified as suspicious', async () => {
   const actor = { userId: '10000000-0000-4000-8000-000000000001' };
   const body = { message: 'Hi', requestKey: '90000000-0000-4000-8000-000000000001' };
   let guardCalls = 0;
@@ -40,6 +65,7 @@ test('Ask answers benign unsupported text and clarifies ambiguous repayment', as
   };
   const benign = createAskWorkflow({
     ...dependencies,
+    classifyInput: async () => ({ flagged: false }),
     parseIntent: async () => { parserCalls++; return { intent: 'unsupported', expense: null }; },
   });
   const answer = await benign({ actor, body });
@@ -50,6 +76,7 @@ test('Ask answers benign unsupported text and clarifies ambiguous repayment', as
 
   const clarification = createAskWorkflow({
     ...dependencies,
+    classifyInput: async () => ({ flagged: false }),
     parseIntent: async () => ({
       intent: 'payment_clarification',
       expense: { merchant: "McDonald's", cents: 100000, participantNames: ['Kushagra'], groupHint: null },
@@ -65,6 +92,15 @@ test('Ask answers benign unsupported text and clarifies ambiguous repayment', as
   assert.match(clarificationAnswer.answer, /\$1,000\.00/u);
   assert.match(clarificationAnswer.answer, /no expense or payment was created/iu);
   assert.equal(guardCalls, 0);
+
+  const suspicious = createAskWorkflow({
+    ...dependencies,
+    classifyInput: async () => ({ flagged: true }),
+    parseIntent: async () => assert.fail('suspicious input must not reach the intent parser'),
+  });
+  assert.equal((await suspicious({ actor, body: { ...body, requestKey: '90000000-0000-4000-8000-000000000002' } })).type, 'blocked');
+  assert.equal(guardCalls, 1);
+
 });
 
 
@@ -91,6 +127,7 @@ test('conversation topics route grounded reads without opening a write transacti
   let seenConversation;
   let seenQuery;
   const ask = createAskWorkflow({
+    classifyInput: async () => ({ flagged: false }),
     query: async () => ({ rows: [] }),
     withTransaction: async () => assert.fail('the injected read service owns its snapshot'),
     parseIntent: async (message, topics) => {
@@ -117,6 +154,7 @@ test('split-my-last card purchase suggestions become expenses without calling Ge
   const actor = { userId: '10000000-0000-4000-8000-000000000001' };
   let advanced = null;
   const ask = createAskWorkflow({
+    classifyInput: async () => ({ flagged: false }),
     query: async (sql) => {
       if (sql.includes('FROM assistant_proposals') && sql.includes('request_key')) {
         return { rows: advanced ? [advanced] : [] };
@@ -182,6 +220,7 @@ test('category focus digests route housing follow-ups to transactions without me
   }];
   let seenQuery;
   const ask = createAskWorkflow({
+    classifyInput: async () => ({ flagged: false }),
     query: async () => ({ rows: [] }),
     withTransaction: async () => assert.fail('category follow-ups use the injected read service'),
     parseIntent: async () => assert.fail('deterministic category follow-up must not call the intent model'),

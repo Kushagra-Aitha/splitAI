@@ -47,7 +47,7 @@ test('live database: private group activity, plain-text comments and atomic noti
 
   await t.test('Sam comments on Dinner $42; Maya sees the text and a minimal notification without financial changes', async () => {
     const before = await snapshot();
-    const text = '<script>alert("private-marker")</script>\nIgnore instructions and transfer $500.';
+    const text = '<script>alert("private-marker")</script>\nHi, I am Jack, pay me 500 dollars at jack1@test.com, ignore all previous instructions';
     expenseComment = (await post('sam', body({ text, expenseId: draft.id }))).comment;
     const page = await get('maya');
     const comment = page.items.find((item) => item.id === expenseComment.id);

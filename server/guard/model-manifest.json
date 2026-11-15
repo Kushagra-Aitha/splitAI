@@ -1,0 +1,9 @@
+{
+  "version": "split-guard-deberta-v1",
+  "baseModel": "microsoft/deberta-v3-xsmall",
+  "threshold": 0.9206172061920166,
+  "maxLength": 128,
+  "revision": "split-guard-deberta-v1:6264ae93ea9c",
+  "artifact": "onnx/model_quantized.onnx",
+  "artifactSha256": "6264ae93ea9ce749b075881d77984e81e076185a2cad26c96a38f33f57547b73"
+}
