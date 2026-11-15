@@ -45,6 +45,44 @@ function settlementStatements(facts) {
   };
 }
 
+function bankPurchaseStatements(facts) {
+  const { merchant, amountCents, occurredAt, status, category, splitGroupName, matchCount } = facts;
+  const statements = {
+    charge: `Your bank shows a ${money(amountCents)} ${merchant} purchase on ${when(occurredAt)}.`,
+    source: account(facts)
+      ? `It posted from your ${account(facts)}${status ? ` and is currently ${status}` : ''}.`
+      : 'It is on one of your linked bank accounts.',
+    category: category ? `Split categorized it as ${category}.` : 'No category is set for this purchase yet.',
+    split: splitGroupName
+      ? `It is already linked to the shared expense in ${splitGroupName}.`
+      : 'It is not linked to a confirmed shared expense yet, so you can still split it from Transactions or Ask.',
+  };
+  if (matchCount > 1) {
+    statements.matches = `There are ${matchCount} matching ${merchant} bank purchases; this is the most recent one.`;
+  }
+  return statements;
+}
+
+async function readBankPurchases(db, actorId, merchant) {
+  const { rows } = await db.query(`
+    SELECT t.id, coalesce(nullif(btrim(t.merchant_name), ''), nullif(btrim(t.description), ''), 'Purchase') AS merchant,
+      t.amount_cents AS "amountCents", t.status, t.occurred_at AS "occurredAt",
+      coalesce(nullif(btrim(t.category_override), ''), nullif(btrim(t.category), ''), 'Other') AS category,
+      a.kind AS "accountKind", a.account_mask AS "accountMask", g.name AS "splitGroupName"
+    FROM bank_accounts a
+    JOIN bank_transactions t ON t.account_id = a.id
+    LEFT JOIN bank_import_keys k ON k.account_id = a.id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
+    LEFT JOIN expenses e ON e.bank_account_id = a.id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
+    LEFT JOIN groups g ON g.id = e.group_id
+    WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
+      AND t.kind = 'purchase' AND t.direction = 'debit' AND t.status IN ('pending', 'completed')
+      AND regexp_replace(lower(coalesce(t.merchant_name, t.description, '')), '[^[:alnum:]]', '', 'g')
+        LIKE '%' || nullif(regexp_replace(lower($2), '[^[:alnum:]]', '', 'g'), '') || '%'
+    ORDER BY t.occurred_at DESC, t.id
+    LIMIT 6`, [actorId, merchant]);
+  return rows;
+}
+
 async function readExpense(db, actorId, groupId, expenseId) {
   const { rows: [expense] } = await db.query(`
     SELECT e.id, g.name AS "groupName", e.merchant, e.total_cents AS "totalCents",
@@ -121,10 +159,19 @@ export function createChargeExplanation({ withTransaction, explain }) {
           AND regexp_replace(lower(e.merchant), '[^[:alnum:]]', '', 'g') =
             nullif(regexp_replace(lower($2), '[^[:alnum:]]', '', 'g'), '')
         ORDER BY e.confirmed_at DESC, e.id LIMIT 2`, [actor.userId, merchant]);
-      if (rows.length !== 1) return { result: rows.length
-        ? 'I found multiple matching expenses. Open the right group and choose Explain on the charge.'
-        : 'I couldn’t find a matching confirmed expense in your groups.' };
-      return expenseStatements(await readExpense(db, actor.userId, rows[0].groupId, rows[0].id));
+      if (rows.length === 1) {
+        return expenseStatements(await readExpense(db, actor.userId, rows[0].groupId, rows[0].id));
+      }
+      if (rows.length > 1) {
+        return { result: 'I found multiple matching expenses. Open the right group and choose Explain on the charge.' };
+      }
+      // Suggestions come from linked bank purchases, which may never have been
+      // confirmed into a group expense. Fall back to the actor's own bank rows.
+      const purchases = await readBankPurchases(db, actor.userId, merchant);
+      if (!purchases.length) {
+        return { result: 'I couldn’t find a matching bank purchase or confirmed group expense for that merchant.' };
+      }
+      return bankPurchaseStatements({ ...purchases[0], matchCount: purchases.length });
     });
     return response(statements);
   }
