@@ -76,7 +76,7 @@
 #split-common-ground [aria-label='Choose a reminder'] button { display: block; margin-top: 10px; width: 100%; text-align: left; }
 
 /* C14: one conversation, readable financial answers, deliberate confirmation. */
-#split-common-ground[data-page='chat'] .main{max-width:1000px;margin-inline:auto}
+#split-common-ground[data-page='chat'] .main{width:100%;max-width:none;min-width:0;margin-inline:0}
 #split-common-ground[data-page='chat'] .chat-thread{max-width:none;display:flex;flex-direction:column;gap:22px;padding:12px 0 24px}
 #split-common-ground .chat-thread{overflow-wrap:anywhere;min-width:0}
 #split-common-ground .agent-message{max-width:100%;min-width:0}

@@ -23,12 +23,13 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     if (state.page === 'goals' && !root.querySelector('#sp-modal-root').children.length) preserveFocus(root, render);
   } });
   subscribeFinancialChanges(() => store.invalidate());
-  const seenGoalScenes = new Set();
+  const seenSavingsIntros = new Set();
   let goalPreview = null,
     goalPlaying = false,
     goalPlayFrame = 0,
     sceneAngle = 0.64,
-    sceneController = null;
+    sceneController = null,
+    sceneMountGeneration = 0;
   let contributionTransition = null,
     contributionFrame = 0;
   function motionAllowed() {
@@ -408,6 +409,8 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     const host = root.querySelector('#sp-diorama');
     if (!host) return;
     const goal = activeGoal();
+    if (!goal) return;
+    const mountGeneration = ++sceneMountGeneration;
     const transition = contributionTransition;
     contributionTransition = null;
     function applyTransition(controller) {
@@ -419,33 +422,40 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     if (sceneController && sceneHost && sceneGoalId === goal.id) {
       sceneHost.setAttribute('aria-label', host.getAttribute('aria-label'));
       host.replaceWith(sceneHost);
-      sceneController.settleTo(transition ? transition.from : scenePercent());
+      if (transition) sceneController.settleTo(transition.from);
+      else sceneController.update(scenePercent());
       applyTransition(sceneController);
       return;
     }
     try {
       const T = await loadThree();
-      if (!host.isConnected || state.page !== 'goals') return;
-      const firstOpen = !seenGoalScenes.has(goal.id);
-      seenGoalScenes.add(goal.id);
+      if (
+        mountGeneration !== sceneMountGeneration ||
+        !host.isConnected ||
+        state.page !== 'goals' ||
+        activeGoal()?.id !== goal.id
+      ) return;
+      const playSavingsIntro = !seenSavingsIntros.has(goal.id);
+      seenSavingsIntros.add(goal.id);
       sceneController = createDiorama(
         T,
         host,
         goal.type,
         transition && motionAllowed() ? transition.from : scenePercent(),
-        firstOpen,
+        true,
+        playSavingsIntro,
       );
       sceneHost = host;
       sceneGoalId = goal.id;
       applyTransition(sceneController);
     } catch (e) {
-      if (host.isConnected) {
+      if (mountGeneration === sceneMountGeneration && host.isConnected) {
         const loading = host.querySelector('.scene-loading');
         if (loading) loading.textContent = 'The 3D scene couldn’t load. Your progress is still shown below.';
       }
     }
   }
-  function createDiorama(T, host, type, pct, firstOpen = false) {
+  function createDiorama(T, host, type, pct, playEntrance = false, playSavingsIntro = false) {
     const renderer = new T.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -1132,7 +1142,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
       firstBuild = true,
       workerUntil = 0,
       entranceStart = null,
-      entranceRequested = firstOpen && motionAllowed(),
+      entranceRequested = playEntrance && motionAllowed(),
       entranceClock = 0,
       pendingDepositAt = Infinity,
       pendingDepositCallback = null;
@@ -1446,7 +1456,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     renderer.domElement.addEventListener('pointercancel', up);
     const ro = new ResizeObserver(draw);
     ro.observe(host);
-    host.dataset.entranceCount = firstOpen && motionAllowed() ? '1' : '0';
+    host.dataset.entranceCount = entranceRequested ? '1' : '0';
     host.dataset.entranceState = entranceRequested ? 'dropping' : 'settled';
     if (entranceRequested) stageRoot.position.y = 4.6;
     build(pct);
@@ -1456,7 +1466,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
     }
     if (type === 'savings') {
       createHand();
-      if (firstOpen && motionAllowed()) {
+      if (playSavingsIntro && motionAllowed()) {
         pendingDepositAt = performance.now() + (entranceStart !== null ? 1090 : 120);
         wake();
       }
@@ -1554,6 +1564,7 @@ export function createGoals({ root, state, icon, icons, heading, money, dollarLa
   function beforeRender() {
     stopGoalPlay();
     cancelAnimationFrame(contributionFrame);
+    sceneMountGeneration++;
     if (state.page === 'goals' && sceneController && sceneGoalId === state.activeGoal) return;
     sceneController?.dispose();
     sceneController = null;
