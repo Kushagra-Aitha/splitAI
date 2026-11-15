@@ -114,3 +114,25 @@
 @keyframes ask-thinking{to{opacity:.35;transform:translateY(-2px)}}
 @media(prefers-reduced-motion:reduce){#split-common-ground .ask-working span{animation:none}}
 @media(max-width:620px){#split-common-ground .composer textarea{font-size:16px}#split-common-ground .ask-welcome{padding:20px}#split-common-ground .ask-welcome h2{font-size:23px}#split-common-ground .ask-panel .composer-area{padding-bottom:max(18px,env(safe-area-inset-bottom))}#split-common-ground .ask-reminder-review{padding:16px}}
+
+#split-common-ground .ask-mic {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  touch-action: none;
+}
+#split-common-ground .ask-mic[aria-pressed="true"] {
+  background: var(--sp-red);
+  color: white;
+}
+#split-common-ground .ask-voice-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+#split-common-ground .ask-voice-options button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

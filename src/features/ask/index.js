@@ -2,6 +2,8 @@ import { apiRequest, getSession } from '../../api/session.js';
 import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { preserveFocus } from '../../lib/focus.js';
+import { canReadAloud, readAloud, stopReading } from '../../lib/read-aloud.js';
+import { createPushToTalk } from './push-to-talk.js';
 import { createAskPanel } from './panel.js';
 
 export function createAsk({ root, state, icon, icons, esc, heading, render, announce, go,
@@ -15,7 +17,81 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   const actorId = getSession()?.actor.userId;
   const owned = () => !!actorId && getSession()?.actor.userId === actorId;
   const prompts = ["Split last night's Domino's with Flat 7", 'What do I owe?', 'Food spending this month', 'How am I doing on my goals?', "Explain the Domino's charge"];
-  const panel = createAskPanel({ root, icon, icons, renderChat: () => chat(true) });
+  const panel = createAskPanel({ root, icon, icons, renderChat: () => chat(true), onClose: stopVoice });
+  let voiceState = 'idle';
+  let voiceMessage = '';
+  let speakReplies = false;
+  let pointer = null;
+  let heldKey = null;
+  const voice = createPushToTalk({
+    Recognition: window.SpeechRecognition || window.webkitSpeechRecognition,
+    onState(value) {
+      voiceState = value;
+      if (value !== 'idle') voiceMessage = '';
+      else { pointer = null; heldKey = null; }
+      paintVoice();
+    },
+    onTranscript(transcript) {
+      if (!askVisible() || sending) return;
+      if (composerText.trim()) {
+        composerText = `${composerText.trim()} ${transcript}`.slice(0, 500);
+        refresh();
+        announceVoice('Voice input added. Review your message, then send it.');
+      } else if (transcript.length > 500) {
+        composerText = transcript.slice(0, 500);
+        refresh();
+        announceVoice('Voice input reached 500 characters. Review it before sending.');
+      } else {
+        void submitMessage(transcript);
+      }
+    },
+    onError: announceVoice,
+  });
+
+  function askVisible() {
+    return owned() && !document.hidden && (panel.isOpen() || state.page === 'chat') &&
+      !root.querySelector('#sp-modal-root').children.length;
+  }
+
+  function voiceStatus() {
+    return voiceState === 'listening' ? 'Listening…' : voiceState === 'processing' ? 'Transcribing…' : voiceMessage;
+  }
+
+  function paintVoice() {
+    for (const button of root.querySelectorAll('[data-ask-mic]')) {
+      button.setAttribute('aria-pressed', String(voiceState === 'listening'));
+      button.disabled = sending || voiceState === 'processing';
+    }
+    for (const status of root.querySelectorAll('[data-ask-voice-status]')) status.textContent = voiceStatus();
+  }
+
+  function announceVoice(message) {
+    voiceMessage = message;
+    paintVoice();
+  }
+
+  function stopVoice() {
+    voiceMessage = '';
+    voice.cancel();
+    stopReading('ask');
+  }
+
+  function startVoice() {
+    if (!askVisible() || sending || voiceState !== 'idle') return false;
+    stopReading();
+    return voice.start();
+  }
+
+  function replyText(response) {
+    if (response.type === 'answer') return response.answer;
+    if (response.type === 'reminder_draft') return 'Your reminder is ready for review. Select Send reminder to confirm it.';
+    if (response.type === 'reminder_selection') return response.answer;
+    if (response.type === 'reminder_sent') return 'Reminder sent.';
+    if (response.type === 'draft') return 'Your expense split is ready for review.';
+    if (response.type === 'selection_needed') return 'Choose the expense details, then review your split.';
+    if (response.type === 'blocked') return response.reason;
+    return null;
+  }
   const label = '<div class="agent-label"><span class="agent-mark" aria-hidden="true"><span class="brand-mark"></span></span>Split<span class="tag">AI assistant</span></div>';
   const refresh = () => {
     if (!owned()) return;
@@ -93,7 +169,12 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message ask-welcome">${label}<h2>A little clarity, before your next move.</h2><p>Ask what you owe, check your goals, or review a charge. You stay in charge of every action.</p></div>`}</div>
       <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(prompt)}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
       <textarea rows="2" id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" ${sending ? 'disabled' : ''} required>${esc(composerText)}</textarea>
+      ${voice.supported ? `<button type="button" class="icon-button ask-mic" id="sp-ask-mic" data-ask-mic aria-label="Microphone, hold to talk" aria-pressed="${voiceState === 'listening'}" title="Hold to talk" ${sending || voiceState === 'processing' ? 'disabled' : ''}>${icon('microphone')}</button>` : ''}
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
+      <div class="ask-voice-options">
+        ${canReadAloud() ? `<button type="button" class="text-button" id="sp-ask-speech" data-ask-speech aria-pressed="${speakReplies}">${icon('speaker-high')} Spoken replies ${speakReplies ? 'on' : 'off'}</button>` : ''}
+        <span class="small" data-ask-voice-status role="status">${esc(voiceStatus())}</span>
+      </div>
       <p id="sp-chat-help" class="chat-footnote">Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
   }
 
@@ -141,6 +222,9 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       if (generation !== epoch || !owned()) return;
       if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
       receive(entry, response);
+      if (speakReplies && askVisible() && voiceState === 'idle') {
+        readAloud(replyText(response), { owner: 'ask', onError: () => announceVoice('Couldn’t read the reply aloud.') });
+      }
     } catch (error) {
       if (generation !== epoch || controller.signal.aborted) return;
       if (!owned() || error.status === 401) { reset(); return; }
@@ -188,6 +272,9 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   async function submitMessage(text, context = null) {
     const message = text.trim();
     if (!message || sending) return;
+    voice.cancel();
+    voiceMessage = '';
+    stopReading('ask');
     const previous = entries.at(-1);
     const retry = previous?.error && previous.message === message && previous.retryBody?.message === message &&
       JSON.stringify(previous.retryBody?.context ?? null) === JSON.stringify(context);
@@ -212,6 +299,45 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       entry.error = error.message; entry.retryBody = null; refresh();
     }
   }
+
+  root.addEventListener('pointerdown', (event) => {
+    const button = event.target.closest('[data-ask-mic]');
+    if (!button || event.button !== 0 || !event.isPrimary || !startVoice()) return;
+    event.preventDefault();
+    pointer = event.pointerId;
+    button.focus();
+  });
+  window.addEventListener('pointerup', (event) => {
+    if (event.pointerId === pointer) voice.release();
+  });
+  window.addEventListener('pointercancel', (event) => {
+    if (event.pointerId === pointer) voice.cancel();
+  });
+  root.addEventListener('keydown', (event) => {
+    if (!event.target.closest('[data-ask-mic]') || ![' ', 'Enter'].includes(event.key)) return;
+    event.preventDefault();
+    if (!event.repeat && startVoice()) heldKey = event.key;
+  });
+  window.addEventListener('keyup', (event) => {
+    if (event.key !== heldKey) return;
+    event.preventDefault();
+    heldKey = null;
+    voice.release();
+  });
+  root.addEventListener('click', (event) => {
+    if (event.target.closest('[data-ask-mic]') && event.detail === 0) {
+      // Assistive activation can be a click with no down/up events.
+      if (voiceState === 'listening') voice.release();
+      else startVoice();
+    }
+    if (event.target.closest('[data-ask-speech]')) {
+      speakReplies = !speakReplies;
+      if (!speakReplies) stopReading('ask');
+      refresh();
+    }
+  });
+  window.addEventListener('blur', stopVoice);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopVoice(); });
 
   root.addEventListener('keydown', event => {
     if(event.target.id==='sp-chat-input'&&event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();if(!sending)event.target.form.requestSubmit();}
@@ -282,9 +408,10 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   });
   function reset() {
     epoch++; for (const controller of controllers) controller.abort(); controllers.clear();
+    stopVoice(); speakReplies = false;
     entries.length = 0; composerText = ''; sending = false; panel.clear();
   }
   root.addEventListener('click', (event) => { if (event.target.closest('#sp-logout')) reset(); }, true);
   window.addEventListener('pagehide', reset, { once: true });
-  return { chat, handleAskForm, open() { if (!owned()) reset(); else if (state.page === 'chat') root.querySelector('#sp-chat-input')?.focus(); else panel.open(); }, close: panel.close, isOpen: panel.isOpen };
+  return { chat, handleAskForm, open() { if (!owned()) reset(); else if (state.page === 'chat') root.querySelector('#sp-chat-input')?.focus(); else panel.open(); }, close(options) { stopVoice(); panel.close(options); }, isOpen: panel.isOpen };
 }
