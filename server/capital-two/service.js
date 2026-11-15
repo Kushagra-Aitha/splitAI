@@ -1,4 +1,5 @@
 import { settlementDescription, settlementLabelJoin } from '../ledger/settlement-labels.js';
+import { displayCategory, settledColumns, settledJoin } from '../ledger/settlement-categories.js';
 import { nessie as defaultNessie } from '../lib/nessie.js';
 import { HttpError } from '../http.js';
 import { normalizeTransaction } from '../banking/provider.js';
@@ -73,7 +74,7 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
           AND account_type IN ('Checking', 'Credit Card') ORDER BY account_type`, [userId]),
         query(`SELECT ${scheduleColumns} FROM capital_schedules WHERE user_id = $1 AND status <> 'deleted' ORDER BY next_due_on, id LIMIT 100`, [userId]),
         query(`SELECT ${operationColumns} FROM capital_operations WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 30`, [userId]),
-        query(`SELECT t.id, t.account_id AS "accountId", t.kind, t.direction, t.amount_cents AS "amountCents", t.status, t.category,
+        query(`SELECT t.id, t.account_id AS "accountId", t.kind, t.direction, t.amount_cents AS "amountCents", t.status, ${displayCategory} AS category, ${settledColumns},
           o.kind = 'deposit' AND o.category = 'Salary' AS "isSalary",
           (s.day_of_month IS NOT NULL OR s.kind = 'salary') AS "isRecurring",
           CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS merchant, regexp_replace(${settlementDescription}, ' \\[[0-9a-f-]{36}\\]$', '') AS description, t.occurred_at AS "occurredAt"
@@ -81,6 +82,7 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
           LEFT JOIN capital_operations o ON o.account_id = a.id AND o.provider_reference = t.provider_transaction_id
           LEFT JOIN capital_schedules s ON s.id = o.schedule_id
           ${settlementLabelJoin}
+          ${settledJoin}
           WHERE a.user_id = $1 AND t.source = 'nessie' ORDER BY t.occurred_at DESC, t.id DESC LIMIT 40`, [userId]),
       ]);
       const data = { accounts: results[0].rows, schedules: results[1].rows, operations: results[2].rows, transactions: results[3].rows, presets, categories: PURCHASE_CATEGORIES };

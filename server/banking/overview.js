@@ -2,7 +2,9 @@ import { settlementDescription, settlementLabelJoin } from '../ledger/settlement
 // B3 · Spending and earnings buckets with TimescaleDB time_bucket.
 //
 // Rules:
-//   - spending  = purchases only (transfers never count, in or out)
+//   - spending  = purchases, plus settlements (B17): one you paid counts in
+//     the category it paid for, one you received reduces it. Other transfers
+//     never count, in or out
 //   - earnings  = deposits only
 //   - declined and cancelled rows never count; pending ones do
 //   - buckets are in the app's local time zone, zero-filled across the whole
@@ -12,6 +14,7 @@ import { settlementDescription, settlementLabelJoin } from '../ledger/settlement
 //     pending settlement holds. That is the number users see as available.
 import { getSpendableFunds } from './funds.js';
 import { effectiveCategory, isSalary, recurringColumns, recurringJoins } from './details.js';
+import { displayCategory, settledColumns, settledJoin, spendingLines } from '../ledger/settlement-categories.js';
 
 export const TIME_ZONE = 'America/New_York';
 const BUCKETS = { day: '1 day', week: '1 week', month: '1 month' };
@@ -56,6 +59,7 @@ const inRange = (alias = '') => `
   AND ${alias}occurred_at <  (($3::date + 1)::timestamp AT TIME ZONE '${TIME_ZONE}')`;
 const IN_RANGE = inRange();
 const COUNTS = `status IN ('pending', 'completed')`;
+const SPENDING = spendingLines(`${inRange('t.')} AND t.${COUNTS}`);
 
 /**
  * The overview for a user's money over a validated range. `accountId` is the
@@ -110,11 +114,11 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
                 $4::interval) AS start
      ), agg AS (
        SELECT time_bucket($4::interval, occurred_at AT TIME ZONE '${TIME_ZONE}') AS start,
-              coalesce(sum(amount_cents) FILTER (WHERE kind = 'deposit'), 0)  AS earned,
-              coalesce(sum(amount_cents) FILTER (WHERE kind = 'purchase'), 0) AS spent,
-              count(*) FILTER (WHERE kind IN ('deposit', 'purchase'))         AS n
-         FROM bank_transactions
-        WHERE ${IN_RANGE} AND ${COUNTS}
+              coalesce(sum(earned), 0) AS earned, coalesce(sum(spent), 0) AS spent, count(DISTINCT id) AS n
+         FROM (SELECT id, occurred_at, amount_cents AS earned, 0 AS spent FROM bank_transactions t
+                WHERE ${inRange('t.')} AND t.${COUNTS} AND t.kind = 'deposit'
+               UNION ALL
+               SELECT id, occurred_at, 0, cents FROM ${SPENDING}) activity
         GROUP BY 1
      )
      SELECT to_char(greatest(s.start, $2::date::timestamp), 'YYYY-MM-DD') AS start,
@@ -132,14 +136,15 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   const recent = await db.query(
     `SELECT t.id, t.provider_transaction_id AS "providerTransactionId", t.kind, t.direction,
             t.amount_cents AS "amountCents", ${settlementDescription} AS description, CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName",
-            ${effectiveCategory('t')} AS category, t.payment_method AS "paymentMethod", t.status, t.source,
-            ${recurringColumns('t')},
+            ${displayCategory} AS category, t.payment_method AS "paymentMethod", t.status, t.source,
+            ${recurringColumns('t')}, ${settledColumns},
             t.occurred_at AS "occurredAt", t.account_id AS "accountId", acct.kind AS "accountKind",
             acct.account_mask AS "accountMask", k.provider_key AS "providerKey",
             g.id AS "splitGroupId", g.name AS "splitGroupName",
             to_char(greatest(time_bucket($4::interval, t.occurred_at AT TIME ZONE '${TIME_ZONE}'), $2::date::timestamp), 'YYYY-MM-DD') AS "bucketStart",
             CASE WHEN t.status NOT IN ('pending', 'completed') THEN null
-                 WHEN t.kind = 'purchase' THEN 'spent'
+                 WHEN t.kind = 'purchase' OR (settled.id IS NOT NULL AND t.direction = 'debit') THEN 'spent'
+                 WHEN settled.id IS NOT NULL THEN 'reimbursed'
                  WHEN t.kind = 'deposit' THEN 'earned' END AS "countsAs"
        FROM bank_transactions t
        JOIN bank_accounts acct ON acct.id = t.account_id
@@ -147,6 +152,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
        LEFT JOIN expenses e ON e.bank_account_id = t.account_id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
        LEFT JOIN groups g ON g.id = e.group_id
        ${settlementLabelJoin}
+       ${settledJoin}
        ${recurringJoins('t', 'k')}
       WHERE ${inRange('t.')}
       ORDER BY t.occurred_at DESC, t.id
@@ -164,6 +170,19 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
       WHERE ${IN_RANGE} AND ${COUNTS} AND kind = 'purchase'
       GROUP BY 1, 2, 3
       ORDER BY cents DESC, name`,
+    params.slice(0, 3),
+  );
+
+  // Where the money went, by category, settlements included (B17).
+  const categories = await db.query(
+    `SELECT category, sum(cents)::bigint AS cents FROM ${SPENDING} lines
+      GROUP BY 1 HAVING sum(cents) > 0 ORDER BY cents DESC, category`,
+    params.slice(0, 3),
+  );
+  const settledTotals = await db.query(
+    `SELECT coalesce(sum(cents) FILTER (WHERE cents > 0), 0)::bigint AS "paidCents",
+            coalesce(-sum(cents) FILTER (WHERE cents < 0), 0)::bigint AS "receivedCents"
+       FROM ${SPENDING} lines WHERE settled`,
     params.slice(0, 3),
   );
 
@@ -228,9 +247,10 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
       spentCents: rows.reduce((a, b) => a + b.spentCents, 0),
     },
     buckets: rows,
+    settledWithSplit: settledTotals.rows[0],
     recent: recent.rows,
     breakdown: {
-      categories: sumBy('category'),
+      categories: categories.rows,
       paymentMethods: sumBy('paymentMethod'),
       merchants: merchants.rows,
     },

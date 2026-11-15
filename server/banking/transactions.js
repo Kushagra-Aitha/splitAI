@@ -2,6 +2,7 @@ import { settlementDescription, settlementLabelJoin } from '../ledger/settlement
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from './overview.js';
 import { CATEGORY_CHOICES, effectiveCategory, recurringColumns, recurringJoins } from './details.js';
+import { displayCategory, settledColumns, settledJoin } from '../ledger/settlement-categories.js';
 
 const PAGE_SIZE = 50;
 
@@ -18,8 +19,8 @@ export async function listTransactions(db, userId, query) {
 
   const { rows } = await db.query(`
     SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", ${settlementDescription} AS description,
-           CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName", ${effectiveCategory('t')} AS category, t.status, t.source,
-           ${recurringColumns('t')},
+           CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName", ${displayCategory} AS category, t.status, t.source,
+           ${recurringColumns('t')}, ${settledColumns},
            t.occurred_at AS "occurredAt", a.id AS "accountId", a.kind AS "accountKind",
            a.account_mask AS "accountMask", k.provider_key AS "providerKey",
            g.name AS "splitGroupName",
@@ -42,6 +43,7 @@ export async function listTransactions(db, userId, query) {
       LEFT JOIN expenses e ON e.bank_account_id = a.id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
       LEFT JOIN groups g ON g.id = e.group_id
       ${settlementLabelJoin}
+      ${settledJoin}
       ${recurringJoins('t', 'k')}
       LEFT JOIN LATERAL (
         SELECT candidate.id, candidate.name
@@ -70,7 +72,8 @@ export async function listTransactions(db, userId, query) {
      WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
        AND ($7::uuid IS NULL OR t.id = $7)
        AND ($2::text IS NULL OR a.kind = $2)
-       AND ($3::text IS NULL OR coalesce(${effectiveCategory('t')}, 'Other') = $3)
+       AND ($3::text IS NULL OR coalesce(${displayCategory}, 'Other') = $3 OR (t.category_override IS NULL AND
+         EXISTS (SELECT 1 FROM settlement_categories sc WHERE sc.settlement_id = settled.id AND sc.category = $3)))
        AND (NOT $4 OR (
          e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
          AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed')
@@ -79,9 +82,14 @@ export async function listTransactions(db, userId, query) {
      LIMIT $5 OFFSET $6
   `, [userId, account, category, unsplit, PAGE_SIZE + 1, offset, id]);
   const { rows: categories } = await db.query(`
-    SELECT DISTINCT coalesce(${effectiveCategory('t')}, 'Other') AS category
+    SELECT coalesce(${effectiveCategory('t')}, 'Other') AS category
     FROM bank_accounts a JOIN bank_transactions t ON t.account_id = a.id
-    WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
+    WHERE a.user_id = $1 AND a.linked_at IS NOT NULL AND NOT (t.kind = 'transfer' AND t.category_override IS NULL AND EXISTS (
+      SELECT 1 FROM settlements s JOIN settlement_categories sc ON sc.settlement_id = s.id
+       WHERE s.provider_reference = t.provider_transaction_id))
+    UNION
+    SELECT sc.category FROM settlement_categories sc JOIN settlements s ON s.id = sc.settlement_id
+    WHERE s.payer_user_id = $1 OR s.payee_user_id = $1
     ORDER BY category
   `, [userId]);
   return {
@@ -109,8 +117,14 @@ export async function setTransactionCategory(db, userId, id, body) {
       FROM bank_accounts a
      WHERE t.id = $1 AND a.id = t.account_id AND a.user_id = $2 AND a.linked_at IS NOT NULL
      RETURNING t.id, ${effectiveCategory('t')} AS category, t.category AS "bankCategory",
-               t.category_override IS NOT NULL AS "categoryOverridden"`,
+               t.category_override IS NOT NULL AS "categoryOverridden", t.kind`,
   [id, userId, category]);
   if (!row) throw new HttpError(404, 'TRANSACTION_NOT_FOUND', 'Transaction not found.');
-  return { transaction: row };
+  const { kind, ...transaction } = row;
+  // A settlement goes back to the category it paid for, not the bank's.
+  if (kind === 'transfer' && !transaction.categoryOverridden) {
+    const { transactions: [listed] } = await listTransactions(db, userId, new URLSearchParams({ id }));
+    if (listed?.settledWithSplit) transaction.category = listed.category;
+  }
+  return { transaction };
 }

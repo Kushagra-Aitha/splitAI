@@ -499,12 +499,16 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
 
   function txRow(t, today, selectable = false) {
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt));
-    const label = t.salary ? 'Salary' : t.kind === 'transfer' ? 'Transfer' : t.kind === 'deposit' ? 'Deposit' : t.category || 'Purchase';
-    // On Transactions the category is a button: re-categorize in Split (B15).
-    const categoryPart = selectable && t.kind === 'purchase'
+    const settled = t.settledWithSplit ? t.settled : null;
+    const label = t.salary ? 'Salary' : settled ? t.category || 'Other' : t.kind === 'transfer' ? 'Transfer' : t.kind === 'deposit' ? 'Deposit' : t.category || 'Purchase';
+    // On Transactions the category is a button: re-categorize in Split (B15),
+    // settlements included (B17: they count in the category they paid for).
+    const categoryPart = selectable && (t.kind === 'purchase' || settled)
       ? `<button type="button" class="tx-category" data-tx-category="${esc(t.id)}" aria-label="Change category for ${esc(t.merchantName || t.description)}, now ${esc(label)}">${esc(label)}${t.categoryOverridden ? ' <span class="small muted">· yours</span>' : ''}${icon('chevron-down')}</button>`
       : esc(label);
     const flags = [
+      settled?.categories?.length > 1 ? `+ ${settled.categories.slice(1).map((c) => esc(c.category)).join(', ')}` : null,
+      settled ? (settled.direction === 'received' ? 'money back' : esc(settled.group)) : null,
       t.accountKind === 'credit_card' ? `card${t.accountMask ? ` ••${esc(t.accountMask)}` : ''}` : null,
       t.status === 'pending' ? 'pending' : null,
       t.source === 'demo' ? 'demo history' : null,
@@ -514,9 +518,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       t.salary ? `<span class="tx-badge is-salary">${icon('banknote')}Salary</span>` : '',
       t.recurring === 'scheduled' ? `<span class="tx-badge is-recurring" title="Paid by a Capital Two recurring payment${t.recurringPayee ? ` to ${esc(t.recurringPayee)}` : ''}">${icon('repeat-2')}Recurring</span>` : '',
       t.recurring === 'detected' ? `<span class="tx-badge is-detected" title="Same merchant and amount as last month">${icon('repeat-2')}Looks recurring</span>` : '',
+      settled ? `<span class="tx-badge is-settled" title="${settled.direction === 'received' ? `${esc(settled.with)} paid you back in ${esc(settled.group)}. It lowers your ${esc(label)} spending.` : `You paid ${esc(settled.with)} back in ${esc(settled.group)}. It counts as ${esc(label)} spending.`}">${icon('heart-handshake')}Settled with Split</span>` : '',
     ].join('');
     const sign = t.direction === 'credit' ? '+ ' : '− ';
-    const symbol = t.kind === 'transfer' ? 'repeat-2' : CATEGORY_ICONS[t.category] || (t.kind === 'deposit' ? 'arrow-down-left' : 'receipt');
+    const symbol = settled ? CATEGORY_ICONS[t.category] || 'heart-handshake' : t.kind === 'transfer' ? 'repeat-2' : CATEGORY_ICONS[t.category] || (t.kind === 'deposit' ? 'arrow-down-left' : 'receipt');
     const row = tx(
       `${esc((t.kind === 'deposit' && t.bankPayee) || t.merchantName || t.description)}${(t.recentlyImported ?? isNew(t)) ? ' <span class="tx-new">New</span>' : ''}${badges}`,
       `${dayWord(day, today)} · ${categoryPart}${flags.length ? ` · ${flags.join(' · ')}` : ''}`,
@@ -764,9 +769,14 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
         return `<article class="sp-card insight-goal"><div>${chartHost(`insights-goal-${index}`, `${esc(goal.name)} goal progress`, 'echart-goal')}</div><div><h3>${esc(goal.name)}</h3><p><strong class="money">${money(goal.savedCents)}</strong> of ${money(goal.targetCents)}</p><p class="small muted">${esc(projection)} · observed net pace ${money(goal.paceCentsPerDay)}/day</p></div></article>`;
       }).join('')}</div></section>`
       : '<section class="sp-empty insights-section"><h2>No goals yet</h2><p>Create a savings goal to see progress and an honest projection here.</p><button type="button" class="secondary" data-go="goals">Create a goal</button></section>';
+    const sw = data.settledWithSplit;
+    const settledSection = sw?.count
+      ? `<section class="insights-section settled-split" aria-label="Settled with Split"><div class="section-head"><div><h2>${icon('heart-handshake')}Settled with Split</h2><p class="small muted">Settlements count in the category they paid for. Money paid back to you lowers your spending there.</p></div><button type="button" class="text-button" data-go="transactions">See transactions</button></div><div class="settled-split-grid"><div><span class="small muted">You paid back this month</span><strong class="display money">${money(sw.currentPaidCents)}</strong></div><div><span class="small muted">Paid back to you this month</span><strong class="display money">${money(sw.currentReceivedCents)}</strong></div><div><span class="small muted">Last twelve months</span><strong class="money">${money(sw.paidCents)} paid · ${money(sw.receivedCents)} back</strong><span class="small muted">${sw.count} ${sw.count === 1 ? 'settlement' : 'settlements'}</span></div></div></section>`
+      : '';
     return `${header}${syncBar(overview)}${insightCard()}
       <div class="insight-facts"><span>${data.hasDemoHistory ? 'Includes labeled demo history' : 'Bank activity only'}</span><span>Snapshot ${esc(new Date(data.asOf).toLocaleString())}</span></div>
       <section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Income, spending and net</h2><p class="small muted">Twelve calendar months. This month includes activity through today.</p></div></div>${chartHost('insights-flow', 'Twelve month income, spending and net chart', 'echart-flow')}</section>
+      ${settledSection}
       <div class="insights-grid"><section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Category pace</h2><p class="small muted">${data.baselineMonths ? `Compared with ${data.baselineMonths} prior active ${data.baselineMonths === 1 ? 'month' : 'months'}.` : 'More history is needed for monthly averages.'}</p></div></div>${data.categories.length ? chartHost('insights-categories', 'This month and average spending by category', 'echart-category') + `<div class="insight-category-links">${categoryButtons}</div>` : '<div class="sp-empty"><h3>No category spending</h3><p>Purchases will appear here after they are recorded.</p></div>'}</section>
       <section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Salary allocation view</h2><p class="small muted">A planning view—not a claim that money transferred.</p></div></div>${data.allocation.salaryCents || data.allocation.outsideSalaryCents ? chartHost('insights-allocation', 'Salary allocation across spending, goals and unallocated funds', 'echart-sankey') : '<div class="sp-empty"><h3>No salary activity</h3><p>Set up or receive a salary deposit to see this allocation.</p></div>'}<p class="small muted">${esc(data.allocation.note)}</p></section></div>
       ${goals}
@@ -817,7 +827,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       filtered = state.category === 'all' ? merchants : merchants.filter((r) => r.category === state.category),
       chartData = series(d),
       thirty = billsWithin(d.bills, today, 30);
-    return `<div class="profile-totals"><div class="profile-total"><span class="small">${icon('arrow-down-left')}Money in</span><div class="display money">${dollarLabel(totals.earnedCents)}</div></div><div class="profile-total"><span class="small">${icon('arrow-up-right')}Your spending</span><div class="display money">${dollarLabel(totals.spentCents)}</div></div><div class="profile-total"><span class="small">Deposits minus spending</span><div class="display money">${net < 0 ? '−' : '+'}${dollarLabel(Math.abs(net))}</div></div></div><section class="analytics-sheet" aria-label="Detailed cash flow"><div class="section-head"><h2>How it’s been flowing</h2><span class="small muted">USD</span></div>${moneyChart('profile-flow', chartData)}${chartControls('profile-flow', chartData, state.period)}<p class="small muted" style="margin-top:10px">${state.period === 'month' ? `Running totals, ${label}.` : 'Monthly totals. This month includes days so far.'} Purchases count as spending; transfers don’t.</p></section><div class="section-head"><h2>A closer look</h2><span class="small muted">${esc(label)}</span></div><div class="profile-columns"><section aria-label="Interactive spending categories"><div class="section-head" style="margin-bottom:5px"><h3>Where it went</h3><button type="button" class="text-button cursor-interaction" data-category="all">${state.category === 'all' ? 'Choose a category' : 'Clear filter'}</button></div>${cats
+    return `<div class="profile-totals"><div class="profile-total"><span class="small">${icon('arrow-down-left')}Money in</span><div class="display money">${dollarLabel(totals.earnedCents)}</div></div><div class="profile-total"><span class="small">${icon('arrow-up-right')}Your spending</span><div class="display money">${dollarLabel(totals.spentCents)}</div></div><div class="profile-total"><span class="small">Deposits minus spending</span><div class="display money">${net < 0 ? '−' : '+'}${dollarLabel(Math.abs(net))}</div></div></div><section class="analytics-sheet" aria-label="Detailed cash flow"><div class="section-head"><h2>How it’s been flowing</h2><span class="small muted">USD</span></div>${moneyChart('profile-flow', chartData)}${chartControls('profile-flow', chartData, state.period)}<p class="small muted" style="margin-top:10px">${state.period === 'month' ? `Running totals, ${label}.` : 'Monthly totals. This month includes days so far.'} Purchases and Split settlements count as spending (money paid back to you lowers it); other transfers don’t.</p></section><div class="section-head"><h2>A closer look</h2><span class="small muted">${esc(label)}</span></div><div class="profile-columns"><section aria-label="Interactive spending categories"><div class="section-head" style="margin-bottom:5px"><h3>Where it went</h3><button type="button" class="text-button cursor-interaction" data-category="all">${state.category === 'all' ? 'Choose a category' : 'Clear filter'}</button></div>${cats
       .map((cat) => {
         const c = catCents(cat);
         return `<button type="button" class="category-choice cursor-interaction" data-category="${esc(cat)}" aria-pressed="${state.category === 'all' || state.category === cat}" aria-label="Filter ${esc(cat)}, ${money(c)}, ${pct(c)} percent of spending"><span class="math-line"><span>${esc(cat)}</span><span class="money">${dollarLabel(c)} <span class="muted">· ${pct(c)}%</span></span></span><span class="category-track"><span style="width:${pct(c)}%"></span></span></button>`;
