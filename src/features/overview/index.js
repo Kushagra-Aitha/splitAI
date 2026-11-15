@@ -3,6 +3,7 @@ import { apiRequest, getSession } from '../../api/session.js';
 import { financialChanged, financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { usdToCents } from '../../lib/money.js';
 import {
+  allocationFlows,
   calendarOption,
   cashFlowOption,
   categoryOption,
@@ -21,6 +22,7 @@ import {
 
 const TIME_ZONE = 'America/New_York';
 const PERIODS = { month: null, quarter: 2, half: 5 }; // months back from this one
+const INSIGHT_PERIODS = { month: 'This month', quarter: 'Last 3 months', year: 'Last 12 months' };
 const CATEGORY_ICONS = {
   'Food & drink': 'utensils',
   Groceries: 'shopping-basket',
@@ -52,6 +54,8 @@ const lastOfMonth = (day) => {
   const d = asDate(day);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
 };
+const displayDate = (day) => fmtDay(day, { month: 'short', day: 'numeric', year: 'numeric' });
+const dateSpan = ({ from, to }) => from === to ? displayDate(from) : `${displayDate(from)} – ${displayDate(to)}`;
 
 export function rangeFor(period, today = todayLocal()) {
   const back = PERIODS[period];
@@ -67,7 +71,11 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   state.category = state.category || 'all';
   state.merchantSort = state.merchantSort || 'spend';
   let echartSpecs = new Map();
-  const chartManager = createChartManager(root);
+  const chartManager = createChartManager(root, handleChartEvent);
+  let insightPeriod = 'year';
+  let insightZoom = null;
+  let selectedFlow = '';
+  let selectedCategory = '';
 
   // ── Data ──────────────────────────────────────────────────────────────
   const store = {
@@ -84,7 +92,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     seenTx: null, // transaction ids already shown (B12 "New" badges)
     newTx: new Map(), // id → first seen (ms)
   };
-  const transactionFeed = { account: '', category: '', unsplit: false, categories: [], rows: null, nextOffset: null, error: null, request: null };
+  const transactionFeed = { account: '', category: '', unsplit: false, drilldown: null, totals: null, categories: [], rows: null, nextOffset: null, error: null, request: null };
   const selectedTransactions = new Map();
   const analytics = { data: null, error: null, request: null, revision: -1 };
 
@@ -115,20 +123,29 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   }
 
   function resetTransactionFeed() {
-    Object.assign(transactionFeed, { rows: null, nextOffset: null, error: null, request: null });
+    Object.assign(transactionFeed, { rows: null, totals: null, nextOffset: null, error: null, request: null });
   }
 
   async function loadTransactions(offset = 0) {
     const feed = transactionFeed;
     const query = new URLSearchParams({ account: feed.account, category: feed.category, unsplit: feed.unsplit, offset });
+    if (feed.drilldown) {
+      query.set('from', feed.drilldown.from);
+      query.set('to', feed.drilldown.to);
+    }
     const request = apiRequest(`/api/banking/transactions?${query}`);
     feed.request = request;
     feed.error = null;
     try {
-      const { transactions, nextOffset, categories, categoryChoices } = await request;
+      const { transactions, nextOffset, categories, categoryChoices, chartTotals } = await request;
       if (feed.request !== request) return;
+      if (feed.drilldown && !chartTotals) {
+        feed.error = new Error('The running API does not support chart filters yet.');
+        return;
+      }
       feed.rows = offset ? [...new Map([...feed.rows, ...transactions].map((row) => [row.id, row])).values()] : transactions;
       feed.nextOffset = nextOffset;
+      if (chartTotals && (!offset || transactions.length)) feed.totals = chartTotals;
       feed.categories = categories;
       feed.categoryChoices = categoryChoices ?? [];
       for (const row of transactions) {
@@ -465,7 +482,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       spentCents: point.spent,
       netCents: point.earned - point.spent,
     }));
-    echartSpecs.set(id, cashFlowOption(monthly, { zoom: mode !== 'home' }));
+    echartSpecs.set(id, cashFlowOption(monthly, { zoom: mode !== 'home', daily: mode === 'home' }));
     return chartHost(id, 'Interactive income, spending and net chart', mode === 'home' ? 'echart-home' : 'echart-flow');
   }
 
@@ -534,7 +551,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       ? `<input type="checkbox" data-select-transaction="${esc(t.id)}" aria-label="Select ${esc(t.merchantName || t.description)}, ${money(t.amountCents)}" ${selectedTransactions.has(t.id) ? 'checked' : ''}>`
       : '';
     const suggestion = t.suggestion ? `<span class="tx-suggestion">Suggested · ${esc(t.suggestion)}</span>` : '';
-    return `<div class="tx-select-row"><span>${selector}</span><div>${row}${suggestion}</div></div>`;
+    const contribution = transactionFeed.drilldown && transactionFeed.category && t.settled
+      && t.spendingContributionCents != null
+      ? `<span class="tx-suggestion">${esc(transactionFeed.category)} share · ${t.spendingContributionCents < 0 ? '−' : '+'}${money(Math.abs(t.spendingContributionCents))} ${t.spendingContributionCents < 0 ? 'reimbursed' : 'counted as spending'}</span>` : '';
+    return `<div class="tx-select-row"><span>${selector}</span><div>${row}${contribution}${suggestion}</div></div>`;
   }
 
   function transactionBatchButton() {
@@ -569,7 +589,13 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
         : feed.nextOffset !== null
           ? '<button type="button" class="secondary" data-action="tx-more">Load more</button>'
           : '';
-    const header = head + syncBar(d) + filters;
+    const totals = feed.totals;
+    const scope = feed.drilldown ? `<section class="sp-card tx-chart-scope" aria-label="Chart transactions">
+      <div><h2>${esc(feed.category || 'Chart transactions')}</h2><p>${dateSpan(feed.drilldown)}</p>
+      ${totals ? `<p>${feed.category ? 'Category spending' : 'Spending'} <strong class="money">${money(totals.spendingCents)}</strong>${feed.category ? '' : ` · Income <strong class="money">${money(totals.incomeCents)}</strong> · Net <strong class="money">${money(totals.incomeCents - totals.spendingCents)}</strong>`}</p>` : ''}</div>
+      <button type="button" class="secondary" data-action="clear-chart-filter">Clear chart filter</button>
+    </section>` : '';
+    const header = head + syncBar(d) + scope + filters;
     if (!feed.rows?.length) {
       return header + (status || '<div class="sp-empty"><h2>No matching transactions</h2><p>Adjust the filters or refresh Capital Two.</p></div>');
     }
@@ -580,7 +606,9 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       days.get(day).push(t);
     }
     return header + [...days].map(([day, list]) => {
-      const net = list.reduce((sum, t) => sum + (t.direction === 'credit' ? t.amountCents : -t.amountCents), 0);
+      const net = list.reduce((sum, t) => sum + (feed.drilldown
+        ? (t.incomeContributionCents ?? 0) - (t.spendingContributionCents ?? 0)
+        : t.direction === 'credit' ? t.amountCents : -t.amountCents), 0);
       const label = day === today ? 'Today' : day === addDays(today, -1) ? 'Yesterday' : fmtDay(day, { weekday: 'short', month: 'short', day: 'numeric' });
       return `<section class="sp-card tx-day" aria-label="${esc(label)}"><div class="tx-day-head"><h2>${esc(label)}</h2><span class="money muted">${net >= 0 ? '+ ' : '− '}${money(Math.abs(net))}</span></div>${list.map((t) => txRow(t, today, true)).join('')}</section>`;
     }).join('') + status;
@@ -660,12 +688,114 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const data = needInsight();
     const failed = !data && insight.error && insight.revision === financialRevision();
     const body = data
-      ? `<p>${esc(data.answer)}</p>${canReadAloud()
-        ? `<button type="button" class="text-button" data-action="insight-read" aria-label="Read summary aloud">${icon('speaker-high')} Read aloud</button>` : ''}<span class="small muted">Worked out at ${clock(data.asOf)} from your balance and this month’s activity.</span>`
+      ? `<p>${esc(data.answer)}</p><div class="insight-footer">${canReadAloud()
+        ? `<button type="button" class="text-button" data-action="insight-read" aria-label="Read summary aloud">${icon('speaker-high')} Read aloud</button>` : ''}<span>Worked out at ${clock(data.asOf)} from your balance and this month’s activity.</span></div>`
       : failed
         ? `<p>${insightErrorText(insight.error)}</p><button type="button" class="cursor-interaction" data-action="insight-retry">Try again</button>`
         : '<p class="muted" role="status">Reading this month’s activity…</p>';
     return `<div class="insight" data-insight aria-busy="${!data && !failed}">${icon('sprout')}<div><div class="insight-label">A thought from Split · AI</div>${body}</div></div>`;
+  }
+
+  function flowPoints(data) {
+    if (insightPeriod !== 'month' || !data.daily) {
+      return data.monthly.map((row) => {
+        const from = `${row.month}-01`;
+        return { ...row, from, to: row.month === data.range.to.slice(0, 7) ? data.range.to : lastOfMonth(from),
+          label: fmtDay(from, { month: 'short', year: '2-digit' }) };
+      }).slice(insightPeriod === 'month' ? -1 : 0);
+    }
+    const from = `${data.range.to.slice(0, 7)}-01`;
+    const daily = new Map(data.daily.map((row) => [row.day, row]));
+    let earned = 0, spent = 0;
+    return Array.from({ length: Number(data.range.to.slice(8)) }, (_, index) => {
+      const to = addDays(from, index);
+      earned += daily.get(to)?.earnedCents ?? 0;
+      spent += daily.get(to)?.spentCents ?? 0;
+      const spentCents = Math.max(0, spent);
+      return { from, to, label: fmtDay(to, { month: 'short', day: 'numeric' }), earnedCents: earned, spentCents, netCents: earned - spentCents };
+    });
+  }
+
+  function visibleFlow(points) {
+    if (insightPeriod === 'month') return points;
+    if (insightZoom) return points.filter((row) => row.to >= insightZoom.from && row.to <= insightZoom.to);
+    return insightPeriod === 'quarter' ? points.slice(-3) : points;
+  }
+
+  function flowSummary(points) {
+    const visible = visibleFlow(points);
+    if (!visible.length) return '';
+    // This month's points are running totals. Other views show one total per month.
+    const last = visible.at(-1);
+    const buckets = insightPeriod === 'month' ? [last] : visible;
+    const earned = buckets.reduce((sum, row) => sum + row.earnedCents, 0);
+    const spent = buckets.reduce((sum, row) => sum + row.spentCents, 0);
+    return `${dateSpan({ from: visible[0].from, to: last.to })} · Income ${money(earned)} · Spending ${money(spent)} · Net ${money(earned - spent)}`;
+  }
+
+  function selectInsightFlow(points, to) {
+    const row = visibleFlow(points).find((point) => point.to === to);
+    selectedFlow = row?.to ?? '';
+    const picker = root.querySelector('[data-insight-date]');
+    const detail = root.querySelector('[data-flow-detail]');
+    picker.value = selectedFlow;
+    detail.hidden = !row;
+    detail.querySelector('strong').textContent = row ? `${dateSpan(row)} · Net ${money(row.netCents)}` : '';
+  }
+
+  function selectInsightCategory(data, name) {
+    const row = data.categories.find((item) => item.category === name);
+    selectedCategory = row?.category ?? '';
+    for (const button of root.querySelectorAll('[data-insights-category]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.insightsCategory === selectedCategory));
+    }
+    const detail = root.querySelector('[data-category-detail]');
+    detail.hidden = !row;
+    detail.querySelector('strong').textContent = row ? `${row.category} · ${money(row.currentCents)} this month` : '';
+  }
+
+  function handleChartEvent(id, type, event, chart) {
+    const data = analytics.data;
+    if (!data || state.page !== 'profile') return;
+    if (id === 'insights-flow') {
+      const points = flowPoints(data);
+      if (type === 'datazoom') {
+        const zoom = chart.getOption().dataZoom[0];
+        const from = points[Math.round(zoom.start / 100 * (points.length - 1))];
+        const to = points[Math.round(zoom.end / 100 * (points.length - 1))];
+        if (!from || !to) return;
+        if (insightZoom?.from === from.to && insightZoom?.to === to.to) return;
+        insightZoom = { from: from.to, to: to.to };
+        root.querySelector('[data-flow-summary]').textContent = flowSummary(points);
+        for (const button of root.querySelectorAll('[data-insight-period]')) button.setAttribute('aria-pressed', 'false');
+        const available = new Set(visibleFlow(points).map((row) => row.to));
+        for (const option of root.querySelector('[data-insight-date]').options) {
+          option.hidden = option.disabled = !!option.value && !available.has(option.value);
+        }
+        selectInsightFlow(points, selectedFlow);
+      } else {
+        const label = event.componentType === 'xAxis' ? event.value : event.name;
+        const row = points.find((point) => point.label === label);
+        if (row) selectInsightFlow(points, row.to);
+      }
+    }
+    if (id === 'insights-categories' && type === 'click' && (event.componentType === 'yAxis' || event.seriesName === 'This month')) {
+      selectInsightCategory(data, event.componentType === 'yAxis' ? event.value : event.name);
+    }
+    if (id === 'insights-allocation' && type === 'click' && event.dataType === 'edge') {
+      chart.dispatchAction({ type: 'downplay', seriesIndex: 0, dataType: 'edge' });
+      chart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataType: 'edge', dataIndex: event.dataIndex });
+    }
+  }
+
+  function openChartTransactions(range, category = '') {
+    selectedTransactions.clear();
+    Object.assign(transactionFeed, { account: '', unsplit: false, category, drilldown: { from: range.from, to: range.to } });
+    resetTransactionFeed();
+    state.page = 'transactions';
+    render();
+    view.querySelector('h1')?.focus();
+    persist();
   }
 
   function groupRows() {
@@ -717,8 +847,8 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       syncBar(d) +
       `
 <div class="balance-strip"><div class="available"><div class="label">Left after this week’s bills ${icon('arrow-up-right')}</div><div class="figure display money">${whole}<span class="cents">${known ? '.' + cents : ''}</span></div><p class="footnote">${!known ? 'Refresh to read your bank balance.' : planWith >= 0 ? 'This week’s bills are covered. This is the breathing room.' : 'This week’s bills are more than what’s free right now.'}</p></div><div class="balance-math"><div class="math-line"><span class="muted">In your account</span><strong class="money">${a.balanceCents === null ? '—' : money(a.balanceCents)}</strong></div>${a.goalHoldsCents ? `<div class="math-line"><span class="muted">Set aside for goals</span><span class="money">− ${money(a.goalHoldsCents)}</span></div><p class="small muted">${(d.goalReservations || []).map((goal) => `${esc(goal.name)} ${money(goal.savedCents)}`).join(' · ')} · Stays in checking; unavailable to spend.</p>` : ''}${a.settlementHoldsCents ? `<div class="math-line"><span class="muted">Pending payment reservations</span><span class="money">− ${money(a.settlementHoldsCents)}</span></div>` : ''}<div class="math-line"><span class="muted">Bills due this week</span><span class="money">− ${money(billsWeek)}</span></div><div class="math-line"><span>Yours to plan with</span><span class="money">${known ? money(planWith) : '—'}</span></div></div></div>${cardStrip(d)}
-<section class="chart-section" aria-label="Monthly money flow"><div class="section-head"><h2>The month so far</h2><span class="month-label">${fmtDay(today, { month: 'long', year: 'numeric' })}</span></div><div class="chart-summary"><p><strong class="money">${dollarLabel(d.totals.earnedCents)}</strong> earned <span aria-hidden="true">·</span> <strong class="money">${dollarLabel(d.totals.spentCents)}</strong> spent</p><span class="forecast">${icon('move-up-right')}${net >= 0 ? 'Ahead by ' + dollarLabel(net) : 'Behind by ' + dollarLabel(-net)} so far</span></div>${moneyChart('home-flow', series_, 'home')}${chartControls('home-flow', series_)}<p class="chart-note">Spending counts purchases only; transfers between accounts don’t count.${anyDemo ? ' Activity before your sandbox connected is labeled demo history.' : ''}</p></section>
-<div class="under-chart"><section aria-label="Top spending categories"><div class="section-head"><h2>Where it went</h2><button type="button" class="text-button cursor-interaction" data-go="profile">Insights ${icon('arrow-up-right')}</button></div>${topCategories(d)}</section><section aria-label="Shared money"><div class="section-head"><h2>In it together</h2><button type="button" class="text-button cursor-interaction" data-go="groups">All groups ${icon('arrow-up-right')}</button></div>${groupRows()}<div class="activity"><div class="section-head" style="margin-bottom:4px"><h3>Recent transactions</h3><button type="button" class="text-button cursor-interaction" data-go="transactions">See all ${icon('arrow-up-right')}</button></div>${recent.length ? recent.map((t) => txRow(t, today)).join('') : '<p class="small muted">No transactions yet this month. Buy something at Capital Two and it shows up here.</p>'}</div></section></div>`
+<section class="chart-section" aria-label="Monthly money flow"><div class="section-head"><h2>The month so far</h2><span class="month-label">${fmtDay(today, { month: 'long', year: 'numeric' })}</span></div><div class="chart-summary"><p><strong class="money">${dollarLabel(d.totals.earnedCents)}</strong> earned <span aria-hidden="true">·</span> <strong class="money">${dollarLabel(d.totals.spentCents)}</strong> spent</p><span class="forecast${net < 0 ? ' is-behind' : ''}">${net >= 0 ? 'Ahead by ' + dollarLabel(net) : 'Behind by ' + dollarLabel(-net)} so far</span></div>${moneyChart('home-flow', series_, 'home')}${chartControls('home-flow', series_)}<p class="chart-note">Spending counts purchases only; transfers between accounts don’t count.${anyDemo ? ' Activity before your sandbox connected is labeled demo history.' : ''}</p></section>
+<div class="under-chart"><section aria-label="Top spending categories"><div class="section-head"><h2>Where it went</h2><button type="button" class="text-button cursor-interaction" data-go="profile">Insights ${icon('arrow-up-right')}</button></div>${topCategories(d)}</section><section aria-label="Shared money"><div class="section-head"><h2>In it together</h2><button type="button" class="text-button cursor-interaction" data-go="groups">All groups ${icon('arrow-up-right')}</button></div>${groupRows()}<section class="activity" aria-label="Recent transactions"><div class="section-head"><h2>Recent transactions</h2><button type="button" class="text-button cursor-interaction" data-go="transactions">See all ${icon('arrow-up-right')}</button></div>${recent.length ? recent.map((t) => txRow(t, today)).join('') : '<p class="small muted">No transactions yet this month. Buy something at Capital Two and it shows up here.</p>'}</section></section></div>`
     );
   }
 
@@ -747,16 +877,41 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     if (!data.hasActivity) {
       return `${header}${syncBar(overview)}${insightCard()}<div class="sp-empty">${icon('sprout')}<h2>Your charts are ready for activity</h2><p>New users see this state instead of empty axes. Buy something or receive income at Capital Two, then refresh.</p></div>${insightCards(data)}`;
     }
-    echartSpecs.set('insights-flow', cashFlowOption(data.monthly));
+    const points = flowPoints(data);
+    const visiblePoints = visibleFlow(points);
+    const zoomRange = visiblePoints.length && insightPeriod !== 'month'
+      ? { startValue: visiblePoints[0].label, endValue: visiblePoints.at(-1).label }
+      : undefined;
+    const flowSelection = visiblePoints.find((row) => row.to === selectedFlow);
+    const categorySelection = data.categories.find((row) => row.category === selectedCategory);
+    const flows = allocationFlows(data.allocation, data.categories, data.goals);
+    echartSpecs.set('insights-flow', cashFlowOption(points, { zoom: insightPeriod !== 'month',
+      daily: insightPeriod === 'month', zoomRange, selectable: true }));
     if (data.categories.length) echartSpecs.set('insights-categories', categoryOption(data.categories));
-    if (data.allocation.salaryCents || data.allocation.outsideSalaryCents) {
-      echartSpecs.set('insights-allocation', sankeyOption(data.allocation, data.categories, data.goals));
-    }
+    if (flows.length) echartSpecs.set('insights-allocation', sankeyOption(flows));
     if (data.recurring.length) echartSpecs.set('insights-recurring', recurringOption(data.range.months, data.recurring));
     if (data.calendar.days.length) echartSpecs.set('insights-calendar', calendarOption(data.calendar));
     data.goals.forEach((goal, index) => echartSpecs.set(`insights-goal-${index}`, goalOption(goal)));
     const categoryButtons = data.categories.map((row) =>
-      `<button type="button" class="insight-category-link" data-insights-category="${esc(row.category)}"><span>${esc(row.category)}</span><strong class="money">${money(row.currentCents)}</strong>${icon('arrow-up-right')}</button>`).join('');
+      `<button type="button" class="insight-category-link" data-insights-category="${esc(row.category)}" aria-pressed="${row.category === selectedCategory}"><span>${esc(row.category)}</span><strong class="money">${money(row.currentCents)}</strong></button>`).join('');
+    const detail = (kind, text) => `<div class="insight-selection" data-${kind}-detail ${text ? '' : 'hidden'}>
+      <strong>${esc(text)}</strong><button type="button" class="secondary" data-open-insight="${kind}">View transactions</button></div>`;
+    const availableDays = new Set(visiblePoints.map((row) => row.to));
+    const flowPanel = `<section class="insights-section analytics-sheet">
+      <div class="section-head"><h2>Income, spending and net</h2></div>
+      <div class="insight-periods" role="group" aria-label="Cash-flow period">
+        ${Object.entries(INSIGHT_PERIODS).map(([key, label]) => `<button type="button" class="secondary" data-insight-period="${key}" aria-pressed="${!insightZoom && key === insightPeriod}">${label}</button>`).join('')}
+      </div>
+      <p class="insight-flow-summary money" data-flow-summary aria-live="polite">${flowSummary(points)}</p>
+      ${chartHost('insights-flow', 'Income, spending and net by ' + (insightPeriod === 'month' && data.daily ? 'day' : 'month'), 'echart-flow')}
+      <label class="insight-date-picker">${insightPeriod === 'month' ? 'Through date' : 'Transaction month'} <select data-insight-date><option value="">Select a date</option>
+        ${points.map((row) => `<option value="${row.to}" ${availableDays.has(row.to) ? '' : 'hidden disabled'} ${flowSelection === row ? 'selected' : ''}>${row.label}</option>`).join('')}
+      </select></label>
+      ${detail('flow', flowSelection ? `${dateSpan(flowSelection)} · Net ${money(flowSelection.netCents)}` : '')}
+    </section>`;
+    const allocationBreakdown = flows.length ? `<ul class="insight-allocation-breakdown" aria-label="Allocation breakdown">
+      ${flows.map(({ source, target, value }) => `<li><span>${esc(source)} → ${esc(target)}</span><strong class="money">${money(value)}</strong></li>`).join('')}
+    </ul>` : '';
     const upcomingSchedules = data.upcomingSchedules ?? [];
     const upcoming = upcomingSchedules.length
       ? `<div class="upcoming-schedules" aria-label="Upcoming scheduled activity">${upcomingSchedules.map((schedule) =>
@@ -776,10 +931,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       : '';
     return `${header}${syncBar(overview)}${insightCard()}
       <div class="insight-facts"><span>${data.hasDemoHistory ? 'Includes labeled demo history' : 'Bank activity only'}</span><span>Snapshot ${esc(new Date(data.asOf).toLocaleString())}</span></div>
-      <section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Income, spending and net</h2><p class="small muted">Twelve calendar months. This month includes activity through today.</p></div></div>${chartHost('insights-flow', 'Twelve month income, spending and net chart', 'echart-flow')}</section>
+      ${flowPanel}
       ${settledSection}
-      <div class="insights-grid"><section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Category pace</h2><p class="small muted">${data.baselineMonths ? `Compared with ${data.baselineMonths} prior active ${data.baselineMonths === 1 ? 'month' : 'months'}.` : 'More history is needed for monthly averages.'}</p></div></div>${data.categories.length ? chartHost('insights-categories', 'This month and average spending by category', 'echart-category') + `<div class="insight-category-links">${categoryButtons}</div>` : '<div class="sp-empty"><h3>No category spending</h3><p>Purchases will appear here after they are recorded.</p></div>'}</section>
-      <section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Salary allocation view</h2><p class="small muted">A planning view—not a claim that money transferred.</p></div></div>${data.allocation.salaryCents || data.allocation.outsideSalaryCents ? chartHost('insights-allocation', 'Salary allocation across spending, goals and unallocated funds', 'echart-sankey') : '<div class="sp-empty"><h3>No salary activity</h3><p>Set up or receive a salary deposit to see this allocation.</p></div>'}<p class="small muted">${esc(data.allocation.note)}</p></section></div>
+      <div class="insights-grid insight-spending-grid"><section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Category pace</h2><p class="small muted">${data.baselineMonths ? `Compared with ${data.baselineMonths} prior active ${data.baselineMonths === 1 ? 'month' : 'months'}.` : 'More history is needed for monthly averages.'}</p></div></div>${data.categories.length ? chartHost('insights-categories', 'Spending by category', 'echart-category') + `<div><div class="insight-category-links">${categoryButtons}</div>${detail('category', categorySelection ? `${categorySelection.category} · ${money(categorySelection.currentCents)} this month` : '')}</div>` : '<div class="sp-empty"><h3>No category spending</h3><p>Purchases will appear here after they are recorded.</p></div>'}</section>
+      <section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Salary allocation view</h2><p class="small muted">A planning view—not a claim that money transferred.</p></div></div>${flows.length ? chartHost('insights-allocation', 'Salary allocation across spending, goals and unallocated funds', 'echart-sankey') : '<div class="sp-empty"><h3>No salary activity</h3><p>Set up or receive a salary deposit to see this allocation.</p></div>'}<div>${allocationBreakdown}<p class="small muted">${esc(data.allocation.note)}</p></div></section></div>
       ${goals}
       <div class="insights-grid"><section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Recurring history and upcoming schedules</h2><p class="small muted">Recorded repeating expenses plus future Capital Two activity.</p></div></div>${data.recurring.length ? chartHost('insights-recurring', 'Monthly recurring expenses stacked by merchant', 'echart-recurring') + `<p class="small muted">${data.recurring.some((row) => row.kind === 'detected') ? '“Looks recurring” entries are inferred from matching activity.' : 'Recorded entries came from explicit schedules.'}</p>` : '<p class="small muted">No recorded recurring transactions yet.</p>'}${upcoming}</section>
       <section class="insights-section analytics-sheet"><div class="section-head"><div><h2>Due-day calendar</h2><p class="small muted">Expected dates; no payment is initiated here.</p></div></div>${data.calendar.days.length ? chartHost('insights-calendar', 'Calendar heatmap of expected recurring costs', 'echart-calendar') : '<div class="sp-empty"><h3>No scheduled due days</h3><p>Add a recurring Capital Two payment to build this calendar.</p></div>'}</section></div>
@@ -910,12 +1065,34 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       render();
       return;
     }
-    if (b.dataset.insightsCategory) {
-      transactionFeed.category = b.dataset.insightsCategory;
-      resetTransactionFeed();
-      state.page = 'transactions';
+    if (b.dataset.insightPeriod && Object.hasOwn(INSIGHT_PERIODS, b.dataset.insightPeriod)) {
+      insightPeriod = b.dataset.insightPeriod;
+      insightZoom = null;
+      selectedFlow = '';
       render();
-      persist();
+      view.querySelector(`[data-insight-period="${insightPeriod}"]`)?.focus({ preventScroll: true });
+      return;
+    }
+    if (b.dataset.insightsCategory) {
+      selectInsightCategory(analytics.data, b.dataset.insightsCategory);
+      return;
+    }
+    if (b.dataset.openInsight === 'flow') {
+      const row = visibleFlow(flowPoints(analytics.data)).find((point) => point.to === selectedFlow);
+      if (row) openChartTransactions(row);
+      return;
+    }
+    if (b.dataset.openInsight === 'category' && selectedCategory) {
+      const to = analytics.data.range.to;
+      openChartTransactions({ from: `${to.slice(0, 7)}-01`, to }, selectedCategory);
+      return;
+    }
+    if (b.dataset.action === 'clear-chart-filter') {
+      selectedTransactions.clear();
+      Object.assign(transactionFeed, { drilldown: null, category: '' });
+      resetTransactionFeed();
+      render();
+      view.querySelector('h1')?.focus({ preventScroll: true });
       return;
     }
     if (b.dataset.profileTab) {
@@ -1082,6 +1259,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
 
   root.addEventListener('change', (e) => {
     const input = e.target;
+    if (input.matches('[data-insight-date]')) {
+      selectInsightFlow(flowPoints(analytics.data), input.value);
+      return;
+    }
     if (input.dataset.merchantSort !== undefined) {
       state.merchantSort = input.value;
       render();

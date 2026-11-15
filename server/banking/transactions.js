@@ -2,9 +2,16 @@ import { settlementDescription, settlementLabelJoin } from '../ledger/settlement
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from './overview.js';
 import { CATEGORY_CHOICES, effectiveCategory, recurringColumns, recurringJoins } from './details.js';
-import { displayCategory, settledColumns, settledJoin } from '../ledger/settlement-categories.js';
+import { dateOnly } from '../capital-two/input.js';
+import { displayCategory, settledColumns, settledJoin, spendingLines } from '../ledger/settlement-categories.js';
 
 const PAGE_SIZE = 50;
+const dateRange = `t.occurred_at >= ($8::date::timestamp AT TIME ZONE '${TIME_ZONE}')
+  AND t.occurred_at < (($9::date + 1)::timestamp AT TIME ZONE '${TIME_ZONE}')`;
+const drilldownSpending = spendingLines(`${dateRange}
+  AND t.status IN ('pending', 'completed')
+  AND t.account_id IN (SELECT id FROM bank_accounts WHERE user_id = $1 AND linked_at IS NOT NULL
+    AND ($2::text IS NULL OR kind = $2))`);
 
 export async function listTransactions(db, userId, query) {
   const account = query.get('account') || null;
@@ -12,12 +19,28 @@ export async function listTransactions(db, userId, query) {
   const unsplit = query.get('unsplit') === 'true';
   const offset = Number(query.get('offset') ?? 0);
   const id = query.get('id') || null;
+  const from = query.get('from');
+  const to = query.get('to');
+  const drilldown = from !== null || to !== null;
   if ((account && !['checking', 'credit_card'].includes(account)) ||
       !Number.isSafeInteger(offset) || offset < 0 || (id && !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu.test(id))) {
     throw new HttpError(422, 'INVALID_TRANSACTION_FILTER', 'Choose a valid account and page.');
   }
+  if (drilldown) {
+    dateOnly(from);
+    dateOnly(to);
+    if (from > to) throw new HttpError(422, 'INVALID_TRANSACTION_FILTER', 'Choose an end date on or after the start date.');
+  }
+  const deposit = "t.kind = 'deposit' AND t.direction = 'credit' AND t.status IN ('pending', 'completed')";
+  const args = [userId, account, category, unsplit, PAGE_SIZE + 1, offset, id];
+  if (drilldown) args.push(from, to);
 
   const { rows } = await db.query(`
+    ${drilldown ? `WITH contributions AS (
+      SELECT l.id, l.occurred_at, sum(l.cents)::bigint AS cents
+      FROM ${drilldownSpending} l WHERE $3::text IS NULL OR l.category = $3
+      GROUP BY l.id, l.occurred_at
+    )` : ''}
     SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", ${settlementDescription} AS description,
            CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName", ${displayCategory} AS category, t.status, t.source,
            ${recurringColumns('t')}, ${settledColumns},
@@ -37,6 +60,11 @@ export async function listTransactions(db, userId, query) {
            END AS "suggestion",
            suggestions.id AS "suggestedGroupId",
            coalesce(k.imported_at >= now() - interval '90 seconds', false) AND t.source = 'nessie' AS "recentlyImported"
+           ${drilldown ? `,
+             contribution.cents AS "spendingContributionCents",
+             CASE WHEN ${deposit} THEN t.amount_cents ELSE 0 END AS "incomeContributionCents",
+             greatest(0, coalesce(sum(contribution.cents) OVER (), 0))::bigint AS "chartSpendingCents",
+             sum(CASE WHEN ${deposit} THEN t.amount_cents ELSE 0 END) OVER ()::bigint AS "chartIncomeCents"` : ''}
       FROM bank_accounts a
       JOIN bank_transactions t ON t.account_id = a.id
       LEFT JOIN bank_import_keys k ON k.account_id = a.id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
@@ -45,6 +73,7 @@ export async function listTransactions(db, userId, query) {
       ${settlementLabelJoin}
       ${settledJoin}
       ${recurringJoins('t', 'k')}
+      ${drilldown ? 'LEFT JOIN contributions contribution ON contribution.id = t.id AND contribution.occurred_at = t.occurred_at' : ''}
       LEFT JOIN LATERAL (
         SELECT candidate.id, candidate.name
           FROM group_members m JOIN groups candidate ON candidate.id = m.group_id
@@ -72,15 +101,17 @@ export async function listTransactions(db, userId, query) {
      WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
        AND ($7::uuid IS NULL OR t.id = $7)
        AND ($2::text IS NULL OR a.kind = $2)
-       AND ($3::text IS NULL OR coalesce(${displayCategory}, 'Other') = $3 OR (t.category_override IS NULL AND
-         EXISTS (SELECT 1 FROM settlement_categories sc WHERE sc.settlement_id = settled.id AND sc.category = $3)))
+       ${drilldown ? `AND ${dateRange}
+         AND (contribution.id IS NOT NULL OR ($3::text IS NULL AND ${deposit}))` :
+         `AND ($3::text IS NULL OR coalesce(${displayCategory}, 'Other') = $3 OR (t.category_override IS NULL AND
+           EXISTS (SELECT 1 FROM settlement_categories sc WHERE sc.settlement_id = settled.id AND sc.category = $3)))`}
        AND (NOT $4 OR (
          e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
          AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed')
        ))
      ORDER BY t.occurred_at DESC, t.id, a.id
      LIMIT $5 OFFSET $6
-  `, [userId, account, category, unsplit, PAGE_SIZE + 1, offset, id]);
+  `, args);
   const { rows: categories } = await db.query(`
     SELECT coalesce(${effectiveCategory('t')}, 'Other') AS category
     FROM bank_accounts a JOIN bank_transactions t ON t.account_id = a.id
@@ -93,7 +124,11 @@ export async function listTransactions(db, userId, query) {
     ORDER BY category
   `, [userId]);
   return {
-    transactions: rows.slice(0, PAGE_SIZE),
+    transactions: rows.slice(0, PAGE_SIZE).map(({ chartIncomeCents, chartSpendingCents, ...row }) => row),
+    ...(drilldown ? { chartTotals: {
+      incomeCents: rows[0]?.chartIncomeCents ?? 0,
+      spendingCents: rows[0]?.chartSpendingCents ?? 0,
+    } } : {}),
     categories: categories.map(({ category }) => category),
     categoryChoices: [...new Set([...CATEGORY_CHOICES, ...categories.map(({ category }) => category)])],
     nextOffset: rows.length > PAGE_SIZE ? offset + PAGE_SIZE : null,

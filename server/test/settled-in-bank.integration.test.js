@@ -123,6 +123,16 @@ test('live database: settlements show in the bank in the category they paid for'
   assert.deepEqual(benInsights.settledWithSplit, { paidCents: 4_500, receivedCents: 0, currentPaidCents: 4_500, currentReceivedCents: 0, count: 2 });
   assert.deepEqual(benInsights.categories.map((row) => [row.category, row.totalCents]),
     [['Food & drink', 3_000], ['Getting around', 1_000], ['Other', 500]]);
+  assert.deepEqual(benInsights.daily.map((row) => [row.day, row.spentCents]),
+    [['2026-11-05', 3_000], ['2026-11-06', 1_500]]);
+  const chartFilter = new URLSearchParams({ from: '2026-11-06', to: '2026-11-06', category: 'Other' });
+  const benDrilldown = await listTransactions(db, ben, chartFilter);
+  assert.deepEqual(benDrilldown.transactions.map(({ id, amountCents, spendingContributionCents }) =>
+    [id, amountCents, spendingContributionCents]), [[second.paid.id, 1_500, 500]]);
+  assert.deepEqual(benDrilldown.chartTotals, { incomeCents: 0, spendingCents: 500 });
+  const avaDrilldown = await listTransactions(db, ava, chartFilter);
+  assert.equal(avaDrilldown.transactions[0].spendingContributionCents, -500);
+  assert.deepEqual(avaDrilldown.chartTotals, { incomeCents: 0, spendingCents: 0 });
 
   // Override: Ben files the $15 under Groceries; reset puts it back.
   const changed = await setTransactionCategory(db, ben, second.paid.id, { category: 'Groceries' });

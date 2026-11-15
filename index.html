@@ -22,7 +22,7 @@
       <div class="shell">
         <header class="book-header" aria-label="Split navigation">
           <div class="book-brand">
-            <div class="brand"><span class="brand-mark" aria-hidden="true"></span>split<span class="brand-period">.</span></div>
+            <button type="button" class="brand" data-go="home" aria-label="Split Overview"><span class="brand-mark" aria-hidden="true"></span>split<span class="brand-period">.</span></button>
             <span class="book-edition">YOUR EVERYDAY LEDGER</span>
           </div>
 
@@ -53,7 +53,6 @@
                   <i data-lucide="landmark" aria-hidden="true"></i>
                   <span><span class="small muted">Connected bank</span><strong data-account-bank>Capital Two</strong></span>
                 </button>
-                <button type="button" role="menuitem" class="account-menu-item" data-go="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>
                 <button type="button" role="menuitem" class="account-menu-item" id="sp-theme-toggle">
                   <i data-lucide="moon" aria-hidden="true"></i><i data-lucide="sun" aria-hidden="true"></i>
                   <span data-theme-label>Dark mode</span>
@@ -76,7 +75,7 @@
 
         <nav class="bottom-nav" aria-label="Main navigation">
           <button type="button" class="bottom-nav-item" data-page="home"><i data-lucide="overview" aria-hidden="true"></i><span>Overview</span></button>
-          <button type="button" class="bottom-nav-item" data-page="transactions"><i data-lucide="transactions" aria-hidden="true"></i><span>Transactions</span></button>
+          <button type="button" class="bottom-nav-item" data-page="transactions" aria-label="Ledger transactions"><i data-lucide="transactions" aria-hidden="true"></i><span>Ledger</span></button>
           <button type="button" class="bottom-nav-item" data-page="groups"><i data-lucide="groups" aria-hidden="true"></i><span>Groups</span></button>
           <button type="button" class="bottom-nav-item" data-page="goals"><i data-lucide="goals" aria-hidden="true"></i><span>Goals</span></button>
           <button type="button" class="bottom-nav-item" data-page="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>

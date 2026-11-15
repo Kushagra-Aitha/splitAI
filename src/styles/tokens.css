@@ -27,6 +27,7 @@
   --sp-rail-muted: var(--sp-muted);
   --sp-radius: 22px;
   --sp-motion: 1;
+  --sp-text-detail: 0.8125rem;
   font-family: 'DM Sans', sans-serif;
   color: var(--sp-ink);
   font-size: 14px;
