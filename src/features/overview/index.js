@@ -1,3 +1,4 @@
+import { canReadAloud, readAloud } from '../../lib/read-aloud.js';
 import { apiRequest, getSession } from '../../api/session.js';
 import { financialChanged, financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { usdToCents } from '../../lib/money.js';
@@ -688,7 +689,8 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const data = needInsight();
     const failed = !data && insight.error && insight.revision === financialRevision();
     const body = data
-      ? `<p>${esc(data.answer)}</p><span class="small muted">Worked out at ${clock(data.asOf)} from your balance and this month’s activity.</span>`
+      ? `<p>${esc(data.answer)}</p>${canReadAloud()
+        ? `<button type="button" class="text-button" data-action="insight-read" aria-label="Read summary aloud">${icon('speaker-high')} Read aloud</button>` : ''}<span class="small muted">Worked out at ${clock(data.asOf)} from your balance and this month’s activity.</span>`
       : failed
         ? `<p>${insightErrorText(insight.error)}</p><button type="button" class="cursor-interaction" data-action="insight-retry">Try again</button>`
         : '<p class="muted" role="status">Reading this month’s activity…</p>';
@@ -1148,6 +1150,10 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     if (b.dataset.action === 'bank-sync-now') {
       closeModal();
       void sync();
+    }
+    if (b.dataset.action === 'insight-read' && insight.revision === financialRevision()) {
+      const onError = () => announce('Couldn’t read the summary aloud.');
+      if (!readAloud(insight.data?.answer, { owner: 'insight', onError })) onError();
     }
     if (b.dataset.action === 'insight-retry') {
       insight.revision = -1;

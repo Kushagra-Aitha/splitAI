@@ -1,3 +1,4 @@
+import { stopReading } from './lib/read-aloud.js';
 import { createRecurringSplits } from './features/recurring/index.js';
 import { PHB, PHN } from './icons/phosphor.js';
 import { createGoals } from './features/goals/index.js';
@@ -94,6 +95,7 @@ export function mountApp(root) {
   }
   function go(page) {
     // B13: Ask is a page in the navigation; the floating button opens the panel.
+    stopReading();
     ask.close({ restoreFocus: false });
     const fromView = view.contains(document.activeElement);
     clearTimeout(toastTimer);
@@ -168,6 +170,7 @@ export function mountApp(root) {
   window.addEventListener('hashchange', () => {
     const next = parseHash(window.location.hash);
     if (next.page === state.page && next.group === state.group) return;
+    stopReading();
     ask.close({ restoreFocus: false });
     closeModal();
     if (next.page === 'guard') guardFeature.invalidate();

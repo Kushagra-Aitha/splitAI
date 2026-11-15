@@ -1,6 +1,6 @@
 import { preserveFocus } from '../../lib/focus.js';
 
-export function createAskPanel({ root, icon, icons, renderChat }) {
+export function createAskPanel({ root, icon, icons, renderChat, onClose }) {
   const layer = root.ownerDocument.createElement('div');
   layer.className = 'ask-layer'; layer.hidden = true;
   layer.innerHTML = `<div class="ask-backdrop" data-ask-close></div><section id="sp-ask-panel" class="ask-panel" role="dialog" aria-modal="true" aria-labelledby="sp-ask-panel-title">
@@ -36,6 +36,7 @@ export function createAskPanel({ root, icon, icons, renderChat }) {
   }
   function close({ restoreFocus = true } = {}) {
     if (!isOpen()) return;
+    onClose?.();
     layer.hidden = true; body.replaceChildren(); panel.inert = false; background(modalOpen());
     root.ownerDocument.documentElement.style.overflow = previousOverflow;
     root.querySelector('[data-ask-open]')?.setAttribute('aria-expanded', 'false');
