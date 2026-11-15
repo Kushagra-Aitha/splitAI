@@ -620,6 +620,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
         <span class="split-card-number">•••• ${esc(c.mask ?? '••••')}</span><span class="split-card-kind">Credit</span></div>
       <div class="split-card-facts"><div><span class="small muted">Balance owed</span><strong class="money">${owed === null ? '—' : money(owed)}</strong></div>
         <div><span class="small muted">Available</span><strong class="money">${owed === null ? '—' : money(Math.max(0, limit - owed))}</strong></div>
+        <div><span class="small muted">Statement due</span><strong>${c.dueDate ? fmtDay(c.dueDate, { month: 'short', day: 'numeric' }) : 'Unavailable'}</strong></div>
         <div class="split-card-used"><span class="small muted">Credit used${used === null ? '' : ` · ${used}%`}</span><span class="category-track"><span style="width:${used ?? 0}%"></span></span><span class="small muted">of ${money(limit)} limit</span></div></div>
     </article>`;
   }
@@ -790,7 +791,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     return `<section class="insights-section"><div class="section-head"><div><h2>Cards</h2><p class="small muted">Credit used comes from the provider’s available-credit fact.</p></div></div><div class="insight-card-grid">${data.cards.map((card) => {
       const known = Number.isSafeInteger(card.limitCents) && Number.isSafeInteger(card.usedCents) && card.limitCents > 0;
       const percent = known ? Math.min(100, Math.round((card.usedCents / card.limitCents) * 100)) : 0;
-      return `<article class="sp-card insight-credit-card"><div class="section-head"><h3>Capital Two ••${esc(card.mask || '••••')}</h3><span class="tag">${known ? `${percent}% used` : 'Balance unavailable'}</span></div><p class="display money">${known ? money(card.usedCents) : '—'}</p><span class="category-track"><span style="width:${percent}%"></span></span><div class="math-line small"><span>Limit ${card.limitCents === null ? 'unavailable' : money(card.limitCents)}</span><span>Due date ${card.dueDate ? fmtDay(card.dueDate, { month: 'short', day: 'numeric' }) : 'unavailable'}</span></div></article>`;
+      return `<article class="sp-card insight-credit-card"><div class="section-head"><h3>Capital Two ••${esc(card.mask || '••••')}</h3><span class="tag">${known ? `${percent}% used` : 'Balance unavailable'}</span></div><p class="display money">${known ? money(card.amountDueCents) : '—'}</p><span class="category-track"><span style="width:${percent}%"></span></span><div class="math-line small"><span>Limit ${card.limitCents === null ? 'unavailable' : money(card.limitCents)}</span><span>Due date ${card.dueDate ? fmtDay(card.dueDate, { month: 'short', day: 'numeric' }) : 'unavailable'}</span></div></article>`;
     }).join('')}</div></section>`;
   }
 

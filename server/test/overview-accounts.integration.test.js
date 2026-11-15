@@ -37,6 +37,7 @@ test('live database: Overview counts card purchases, ignores paying the card, an
     [user.id, `acct_${randomUUID().slice(0, 8)}`, kind, ...extra])).rows[0].id;
   const checking = await account('checking', ['1111', 100_000, 100_000, null, new Date()]);
   const card = await account('credit_card', ['9876', -2_400, 197_600, 200_000, new Date()]);
+  await db.query('UPDATE bank_accounts SET statement_due_day = 25 WHERE id = $1', [card]);
 
   const tx = async (accountId, kind, direction, cents, merchant, occurredAt = '2026-11-10T17:00:00Z') => {
     const id = randomUUID();
@@ -74,8 +75,10 @@ test('live database: Overview counts card purchases, ignores paying the card, an
   const overview = await getOverview(db, checking, parseRange({ from: '2026-11-01', to: '2026-11-14' }));
   assert.equal(overview.account.id, checking);
   assert.deepEqual(overview.totals, { earnedCents: 50_000, spentCents: 3_600 });
-  assert.deepEqual(overview.cards.map((c) => ({ mask: c.mask, owed: c.owedCents, limit: c.creditLimitCents })),
-    [{ mask: '9876', owed: 2_400, limit: 200_000 }]);
+  assert.deepEqual(overview.cards.map((c) => ({
+    mask: c.mask, owed: c.owedCents, due: c.amountDueCents, limit: c.creditLimitCents,
+  })), [{ mask: '9876', owed: 2_400, due: 2_400, limit: 200_000 }]);
+  assert.match(overview.cards[0].dueDate, /^\d{4}-\d{2}-25$/u);
   assert.equal(overview.recent.length, 5);
   assert.ok(overview.recent.every((r) => r.merchantName !== 'Not yours'));
   const pizzaRow = overview.recent.find((r) => r.merchantName === "Domino's");

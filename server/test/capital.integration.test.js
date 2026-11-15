@@ -41,6 +41,7 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
     checking = summary.accounts.find((account) => account.type === 'Checking');
     card = summary.accounts.find((account) => account.type === 'Credit Card');
     assert.equal(checking.balanceCents, 150000); assert.equal(card.balanceCents, 0); assert.equal(card.creditLimitCents, CARD_LIMIT_CENTS);
+    assert.equal(card.amountDueCents, 0); assert.equal(card.dueDate, '2026-11-25');
     await service.connect(users[0]); assert.equal(provider.accounts.size, 2);
     assert.equal(await getMappedAccountForUser(db, users[0]), null);
     assert.equal(await accountIdForUser(db, users[0]), null);
@@ -59,6 +60,7 @@ test('live database: Capital Two owns accounts, charges once and persists schedu
     assert.equal((await service.operations.create(users[0], body)).status, 'completed');
     const summary = await service.sync(users[0]);
     assert.equal(summary.accounts.find((account) => account.id === card.id).balanceCents, 2400);
+    assert.equal(summary.accounts.find((account) => account.id === card.id).amountDueCents, 2400);
     assert.equal(summary.accounts.find((account) => account.id === checking.id).balanceCents, 150000);
     assert.equal(summary.transactions.filter((transaction) => transaction.kind === 'purchase').length, 1);
     assert.equal(summary.transactions.find((transaction) => transaction.kind === 'purchase').category, 'Food & drink');

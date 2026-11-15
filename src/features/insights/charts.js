@@ -17,12 +17,14 @@ echarts.use([
 ]);
 
 const usd = (cents) => new Intl.NumberFormat('en-US', {
-  style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+  style: 'currency', currency: 'USD', maximumFractionDigits: 2,
 }).format((cents ?? 0) / 100);
 const monthLabel = (month) => new Intl.DateTimeFormat('en-US', {
   month: 'short', year: '2-digit', timeZone: 'UTC',
 }).format(new Date(`${month}-01T12:00:00Z`));
 const periodLabel = (row) => row.label ?? (/^\d{4}-\d{2}$/u.test(row.month) ? monthLabel(row.month) : row.month);
+const html = (value) => String(value ?? '').replace(/[&<>"']/gu, (char) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
 export const chartHost = (id, label, className = '') =>
   `<div class="echart ${className}" data-echart="${id}" role="img" aria-label="${label}"></div>`;
@@ -51,6 +53,22 @@ function palette(root) {
   return colors;
 }
 
+const legend = (colors, count = 0) => ({
+  type: count > 4 ? 'scroll' : 'plain',
+  top: 0,
+  left: 'center',
+  width: '88%',
+  icon: 'rect',
+  itemWidth: 10,
+  itemHeight: 10,
+  itemGap: 14,
+  textStyle: { color: colors.muted },
+  pageTextStyle: { color: colors.muted },
+  pageIconColor: colors.accent,
+  pageIconInactiveColor: colors.line,
+  selectedMode: true,
+});
+
 const base = (colors) => ({
   animationDuration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 350,
   textStyle: { color: colors.ink, fontFamily: 'DM Sans, system-ui, sans-serif' },
@@ -60,12 +78,13 @@ const base = (colors) => ({
     borderColor: colors.line,
     textStyle: { color: colors.ink },
   },
-  legend: { textStyle: { color: colors.muted }, selectedMode: true },
+  legend: legend(colors),
 });
 
 export function cashFlowOption(monthly, { zoom = true } = {}) {
   return (colors) => ({
     ...base(colors),
+    legend: { ...legend(colors, 3), data: ['Income', 'Spending', 'Net'] },
     grid: { left: 58, right: 24, top: 48, bottom: zoom ? 70 : 38 },
     xAxis: {
       type: 'category',
@@ -92,6 +111,7 @@ export function categoryOption(categories) {
   const rows = [...categories].sort((a, b) => b.currentCents - a.currentCents).slice(0, 10);
   return (colors) => ({
     ...base(colors),
+    legend: { ...legend(colors, 2), data: ['This month', 'Prior monthly average'] },
     grid: { left: 122, right: 26, top: 46, bottom: 28 },
     xAxis: { type: 'value', axisLabel: { color: colors.muted, formatter: usd }, splitLine: { lineStyle: { color: colors.line } } },
     yAxis: { type: 'category', inverse: true, data: rows.map((row) => row.category), axisLabel: { color: colors.ink } },
@@ -121,7 +141,7 @@ export function sankeyOption(allocation, categories, goals) {
   return (colors) => ({
     ...base(colors),
     tooltip: { ...base(colors).tooltip, trigger: 'item', valueFormatter: usd },
-    legend: { ...base(colors).legend, data: ['Allocation'] },
+    legend: { ...legend(colors, 1), data: ['Allocation'] },
     series: [{
       name: 'Allocation',
       type: 'sankey',
@@ -138,7 +158,8 @@ export function recurringOption(months, recurring) {
   const names = [...new Set(recurring.map((row) => row.name))].slice(0, 8);
   return (colors) => ({
     ...base(colors),
-    grid: { left: 56, right: 18, top: 54, bottom: 42 },
+    legend: { ...legend(colors, names.length), data: names },
+    grid: { left: 56, right: 18, top: 58, bottom: 42 },
     xAxis: { type: 'category', data: months.map(monthLabel), axisLabel: { color: colors.muted } },
     yAxis: { type: 'value', axisLabel: { color: colors.muted, formatter: usd }, splitLine: { lineStyle: { color: colors.line } } },
     series: names.map((name) => ({
@@ -150,25 +171,64 @@ export function recurringOption(months, recurring) {
 }
 
 export function calendarOption(calendar) {
-  return (colors) => ({
-    ...base(colors),
-    tooltip: {
-      ...base(colors).tooltip,
-      trigger: 'item',
-      formatter: ({ value }) => `${value[0]}<br>${usd(value[1])} expected · ${value[2]} ${value[2] === 1 ? 'cost' : 'costs'}`,
-    },
-    visualMap: { min: 0, max: Math.max(1, ...calendar.days.map((day) => day.cents)), show: false, inRange: { color: [colors.soft, colors.accent] } },
-    calendar: {
-      range: [calendar.from, calendar.to],
-      cellSize: ['auto', 18],
-      itemStyle: { color: colors.soft, borderColor: colors.paper, borderWidth: 3 },
-      dayLabel: { color: colors.muted },
-      monthLabel: { color: colors.ink },
-      yearLabel: { show: false },
-    },
-    legend: { ...base(colors).legend, data: ['Expected cost'] },
-    series: [{ name: 'Expected cost', type: 'heatmap', coordinateSystem: 'calendar', data: calendar.days.map((day) => [day.date, day.cents, day.count]) }],
-  });
+  const days = new Map(calendar.days.map((day) => [day.date, day]));
+  return (colors) => {
+    const tooltip = ({ value }) => {
+      const date = Array.isArray(value) ? value[0] : value?.value?.[0];
+      const day = days.get(date);
+      const items = day?.items?.length ? day.items : [{
+        name: `${day?.count ?? 0} expected ${(day?.count ?? 0) === 1 ? 'cost' : 'costs'}`,
+        cents: day?.cents ?? 0,
+        direction: 'debit',
+      }];
+      return `<strong>${html(date)}</strong>${items.map((item) =>
+        `<br>${html(item.name)} · ${item.direction === 'credit' ? '+' : '−'}${html(usd(item.cents))}`).join('')}`;
+    };
+    return {
+      ...base(colors),
+      tooltip: { ...base(colors).tooltip, trigger: 'item', formatter: tooltip },
+      legend: { ...legend(colors, 3), data: ['Bills', 'Salary', 'Today'] },
+      visualMap: [
+        { show: false, seriesIndex: 0, min: 0, max: 1, inRange: { color: [colors.spend, colors.spend] } },
+        { show: false, seriesIndex: 1, min: 0, max: 1, inRange: { color: [colors.income, colors.income] } },
+        { show: false, seriesIndex: 2, min: 0, max: 1, inRange: { color: [colors.ink, colors.ink] } },
+      ],
+      calendar: {
+        range: [calendar.from, calendar.to],
+        top: 48,
+        left: 42,
+        right: 12,
+        bottom: 12,
+        cellSize: ['auto', 18],
+        itemStyle: { color: colors.soft, borderColor: colors.paper, borderWidth: 3 },
+        dayLabel: { color: colors.muted },
+        monthLabel: { color: colors.ink },
+        yearLabel: { show: false },
+      },
+      series: [
+        {
+          name: 'Bills', type: 'heatmap', coordinateSystem: 'calendar',
+          itemStyle: { color: colors.spend },
+          data: calendar.days.filter((day) => (day.billCents ?? day.cents) > 0)
+            .map((day) => [day.date, day.billCents ?? day.cents]),
+        },
+        {
+          name: 'Salary', type: 'heatmap', coordinateSystem: 'calendar',
+          itemStyle: { color: colors.income },
+          data: calendar.days.filter((day) => (day.incomeCents ?? 0) > 0)
+            .map((day) => [day.date, day.incomeCents]),
+        },
+        {
+          name: 'Today', type: 'heatmap', coordinateSystem: 'calendar', silent: true,
+          itemStyle: { color: colors.ink },
+          data: calendar.today ? [{
+            value: [calendar.today, 0],
+            itemStyle: { color: 'transparent', borderColor: colors.ink, borderWidth: 2 },
+          }] : [],
+        },
+      ],
+    };
+  };
 }
 
 export function goalOption(goal) {

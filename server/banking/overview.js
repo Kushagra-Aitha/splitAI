@@ -15,6 +15,7 @@ import { settlementDescription, settlementLabelJoin } from '../ledger/settlement
 import { getSpendableFunds } from './funds.js';
 import { effectiveCategory, isSalary, recurringColumns, recurringJoins } from './details.js';
 import { displayCategory, settledColumns, settledJoin, spendingLines } from '../ledger/settlement-categories.js';
+import { cardAmountDue, nextStatementDueDate } from './card-due.js';
 
 export const TIME_ZONE = 'America/New_York';
 const BUCKETS = { day: '1 day', week: '1 week', month: '1 month' };
@@ -88,7 +89,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   const { rows: linked } = await db.query(
     `SELECT b.id, b.kind, b.nickname, b.account_mask AS mask, b.balance_cents AS "balanceCents",
             b.available_cents AS "availableCents", b.credit_limit_cents AS "creditLimitCents",
-            b.balance_as_of AS "balanceAsOf"
+            b.statement_due_day AS "statementDueDay", b.balance_as_of AS "balanceAsOf"
        FROM bank_accounts a JOIN bank_accounts b ON b.user_id = a.user_id
       WHERE a.id = $1 AND (b.id = $1 OR b.linked_at IS NOT NULL)`,
     [accountId],
@@ -100,8 +101,9 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   // covers purchases that are still pending.
   const cards = linked.filter((row) => row.kind === 'credit_card').map(({ kind, ...card }) => ({
     ...card,
-    owedCents: card.creditLimitCents !== null && card.availableCents !== null
-      ? Math.max(0, card.creditLimitCents - card.availableCents) : null,
+    owedCents: cardAmountDue(card),
+    amountDueCents: cardAmountDue(card),
+    dueDate: nextStatementDueDate(card.statementDueDay),
   }));
 
   // Zero-filled buckets: a generated series of local bucket starts, left

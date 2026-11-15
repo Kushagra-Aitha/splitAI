@@ -5,6 +5,7 @@ import './styles.css';
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const money = (value) => value === null || value === undefined ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value / 100);
+const shortDate = (value) => value ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)) : 'unavailable';
 const statusText = { queued: 'Scheduled to send', submitting: 'Submitting', unknown: 'Verifying with bank', pending: 'Pending', completed: 'Completed', declined: 'Declined', cancelled: 'Cancelled' };
 
 export function mountBank(root) {
@@ -54,8 +55,8 @@ export function mountBank(root) {
     return `<article class="bank-card ${credit ? 'bank-card-credit' : ''}" data-bank-card="${esc(account.id)}">
       <div class="bank-card-inner"><div class="bank-card-front"><div class="bank-card-top"><span>Capital Two</span><span>${credit ? 'CREDIT' : 'CHECKING'}</span></div>
         <span class="bank-chip" aria-hidden="true"></span><p class="bank-card-number">•••• &nbsp; •••• &nbsp; •••• &nbsp; ${esc(account.mask || '••••')}</p>
-        <p class="bank-card-label">${credit ? 'Amount owed' : 'Available balance'}</p><p class="bank-card-balance">${money(credit ? account.balanceCents : account.availableCents)}</p>
-        <p class="bank-card-detail">${credit ? `${money(account.availableCents)} available credit · ${money(account.creditLimitCents)} limit` : `Posted balance ${money(account.balanceCents)}`}</p></div>
+        <p class="bank-card-label">${credit ? 'Amount owed' : 'Available balance'}</p><p class="bank-card-balance">${money(credit ? account.amountDueCents : account.availableCents)}</p>
+        <p class="bank-card-detail">${credit ? `${money(account.availableCents)} available credit · ${money(account.creditLimitCents)} limit · due ${shortDate(account.dueDate)}` : `Posted balance ${money(account.balanceCents)}`}</p></div>
       <div class="bank-card-back"><div class="bank-magnetic-strip"></div><p>Made for the practice run.</p><p>Sandbox account · no real card details</p><p>${esc(account.type)} ••${esc(account.mask || '••••')}</p></div></div>
       <button type="button" class="bank-flip" data-bank-flip="${esc(account.id)}" aria-pressed="false" aria-label="Flip ${esc(account.type)} card">Flip card ↻</button></article>`;
   }
@@ -72,7 +73,7 @@ export function mountBank(root) {
         <section class="bank-panel"><h2>Payments</h2><p>Pay a business now, schedule it for later, or repeat it monthly.</p><div class="bank-payment-options">
           <button type="button" data-bank-action="payment" ${!connected.length ? 'disabled' : ''}>One-time payment <span>Now or on a date →</span></button>
           <button type="button" data-bank-action="recurring" ${!connected.length ? 'disabled' : ''}>Recurring payment <span>A fixed amount each month →</span></button>
-          <button type="button" data-bank-action="card_payment" ${!credit || !credit.balanceCents || credit.balanceCents < 0 ? 'disabled' : ''}>Pay card balance <span>${money(credit?.balanceCents)} owed →</span></button></div></section></div>
+          <button type="button" data-bank-action="card_payment" ${!credit || !credit.amountDueCents || credit.amountDueCents < 0 ? 'disabled' : ''}>Pay card balance <span>${money(credit?.amountDueCents)} owed · due ${shortDate(credit?.dueDate)} →</span></button></div></section></div>
         <section class="bank-panel"><h2>Scheduled</h2><div class="bank-actions"><button type="button" data-bank-action="salary">Set up direct deposit</button></div><p class="bank-note">Direct deposit credits your checking account. Card autopay is not enabled; use Pay card balance for a manual repayment.</p><p class="bank-note">Payments use America/New_York time. Days 29–31 use the last day of shorter months. Run now pays each current occurrence once. Pausing stops future unsent payments.</p>
           ${data.schedules.length ? `<ul class="bank-list">${data.schedules.map((schedule) => `<li><div><strong>${esc(schedule.payee)}</strong><p>${money(schedule.amountCents)} · ${schedule.kind === 'salary' ? `Salary · ${schedule.frequency === 'biweekly' ? 'Every two weeks' : 'Monthly'}` : schedule.dayOfMonth ? `Recurring · Monthly, day ${schedule.dayOfMonth}` : 'One time'} · ${esc(schedule.status)}</p><p>Next date ${esc(schedule.nextDueOn)}</p></div><div class="bank-row-actions">
           ${schedule.status === 'active' ? `<button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="run" ${busy ? 'disabled' : ''}>Run now</button><button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="pause" ${busy ? 'disabled' : ''}>Pause</button>` : schedule.status === 'paused' ? `<button type="button" data-bank-schedule="${esc(schedule.id)}" data-bank-command="resume" ${busy ? 'disabled' : ''}>Resume</button>` : ''}
@@ -116,7 +117,7 @@ export function mountBank(root) {
     root.querySelector('#bank-dialog-content').innerHTML = `<div class="bank-dialog-heading"><h2 id="bank-dialog-title">${({ salary: 'Set up direct deposit', recurring: 'New recurring payment', payment: 'One-time payment', card_payment: 'Pay card balance', withdrawal: 'Withdraw cash', purchase: preset.payee || 'Custom purchase' })[kind]}</h2><button type="button" data-bank-action="close" aria-label="Close payment form">×</button></div>
       <form id="bank-payment-form">
       ${['card_payment', 'withdrawal'].includes(kind) ? '' : `<label>${salary ? 'Employer' : 'Merchant / business'}<input name="payee" required maxlength="80" value="${esc(preset.payee)}" autocomplete="off"></label>`}
-      <label>Amount (USD)<input name="amount" inputmode="decimal" required pattern="[0-9]+(\\.[0-9]{1,2})?" value="${kind === 'card_payment' && credit?.balanceCents > 0 ? centsToUsdText(credit.balanceCents) : ''}" placeholder="Enter your amount"></label>
+      <label>Amount (USD)<input name="amount" inputmode="decimal" required pattern="[0-9]+(\\.[0-9]{1,2})?" value="${kind === 'card_payment' && credit?.amountDueCents > 0 ? centsToUsdText(credit.amountDueCents) : ''}" placeholder="Enter your amount"></label>
       ${salary || ['card_payment', 'withdrawal'].includes(kind) ? '' : `<label>Category<select name="category" required><option value="">Choose a category</option>${categories.map((category) => `<option ${category === preset.category ? 'selected' : ''}>${esc(category)}</option>`).join('')}</select></label>`}
       <label>${salary ? 'Deposit into' : 'Pay from'}<select name="accountId" required>${accountOptions(salary || kind === 'card_payment')}</select></label>
       ${salary ? '<label>Frequency<select name="frequency"><option value="biweekly">Every two weeks</option><option value="monthly">Monthly</option></select></label><label>Next deposit date<input name="dueOn" type="date" required></label>' : ''}

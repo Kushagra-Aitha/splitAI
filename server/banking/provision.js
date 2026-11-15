@@ -13,6 +13,7 @@
 // A retry after any failure resumes from what was stored, so it never opens a
 // second account of the same kind.
 import { nessie as defaultNessie } from '../lib/nessie.js';
+import { DEFAULT_STATEMENT_DUE_DAY } from './card-due.js';
 
 export const STARTING_BALANCE_CENTS = 150_000;
 export const CARD_LIMIT_CENTS = 200_000;
@@ -55,9 +56,9 @@ export async function provisionBankAccount({ withTransaction, nessie = defaultNe
   await withTransaction(async (db) => {
     for (const { kind, type } of ACCOUNT_KINDS) {
       await db.query(
-        `INSERT INTO bank_accounts (user_id, provider, nickname, account_type, kind)
-         VALUES ($1, 'nessie', $2, $3, $4) ON CONFLICT (user_id, kind) DO NOTHING`,
-        [userId, accountNickname(userId, kind), type, kind],
+        `INSERT INTO bank_accounts (user_id, provider, nickname, account_type, kind, statement_due_day)
+         VALUES ($1, 'nessie', $2, $3, $4, $5) ON CONFLICT (user_id, kind) DO NOTHING`,
+        [userId, accountNickname(userId, kind), type, kind, kind === 'credit_card' ? DEFAULT_STATEMENT_DUE_DAY : null],
       );
     }
   });
