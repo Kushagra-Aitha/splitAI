@@ -18,9 +18,9 @@
   gap: 12px; padding: 12px 18px 10px; background: var(--sp-paper); border-bottom: 1px solid var(--sp-line);
 }
 #split-common-ground .notification-heading h2 { font-size: 17px; margin: 0; }
-#split-common-ground .notification-heading button { font-size: 13px; }
+#split-common-ground .notification-heading button { font-size: 0.875rem; }
 #split-common-ground .notification-section {
-  margin: 14px 18px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sp-muted);
+  margin: 14px 18px 6px; font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sp-muted);
 }
 #split-common-ground .notification-panel ul { list-style: none; margin: 0; padding: 0 8px; display: grid; gap: 2px; }
 #split-common-ground .notification-item {
@@ -45,12 +45,12 @@
 #split-common-ground .notification-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 #split-common-ground .notification-text { font-size: 14px; line-height: 1.35; font-weight: 400; }
 #split-common-ground .notification-text strong { font-weight: 700; }
-#split-common-ground .notification-meta { font-size: 12px; color: var(--sp-muted); }
+#split-common-ground .notification-meta { font-size: 0.875rem; color: var(--sp-muted); }
 #split-common-ground .notification-dot { width: 8px; height: 8px; background: var(--sp-pine-ink); }
 #split-common-ground .notification-item > svg:last-child { width: 16px; height: 16px; color: var(--sp-muted); grid-column: 4; }
 #split-common-ground .notification-item.is-read > svg:last-child { grid-column: 4; }
 #split-common-ground .notification-status,
-#split-common-ground .notification-error { margin: 12px 18px; font-size: 13px; }
+#split-common-ground .notification-error { margin: 12px 18px; font-size: 0.875rem; }
 #split-common-ground .notification-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 32px 18px; color: var(--sp-muted); }
 #split-common-ground .notification-empty svg { width: 28px; height: 28px; }
 #split-common-ground .notification-pages { display: flex; justify-content: space-between; gap: 12px; padding: 8px 18px 0; }

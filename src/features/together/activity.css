@@ -10,5 +10,5 @@
 #split-common-ground #sp-comment-form { max-width: 640px; margin-top: 20px; }
 #split-common-ground #sp-comment-text { resize: vertical; min-height: 90px; }
 
-.comment-warning { padding: .75rem; margin-top: .75rem; border: 1px solid var(--sp-red); border-radius: 0; background: var(--sp-red-soft); color: var(--sp-red); font-size: .8rem; }
+.comment-warning { padding: .75rem; margin-top: .75rem; border: 1px solid var(--sp-red); border-radius: 0; background: var(--sp-red-soft); color: var(--sp-red); font-size: 0.875rem; }
 [data-inline-thread] { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--sp-rim); }

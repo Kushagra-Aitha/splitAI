@@ -68,6 +68,15 @@ export function createInsightsHandler({ withTransaction, now = () => new Date() 
         return { month, earnedCents, spentCents, netCents: exactCents(String(BigInt(earnedCents) - BigInt(spentCents))),
           salaryCents: exactCents(row?.salaryCents ?? '0'), count: row?.count ?? 0, demoCount: row?.demoCount ?? 0 };
       });
+      const { rows: daily } = await db.query(`SELECT
+        to_char(activity.occurred_at AT TIME ZONE '${TIME_ZONE}', 'YYYY-MM-DD') AS day,
+        sum(activity.earned)::text AS "earnedCents", sum(activity.spent)::text AS "spentCents"
+        FROM (
+          SELECT t.occurred_at, t.amount_cents AS earned, 0 AS spent FROM bank_transactions t
+          WHERE ${inRange} AND t.kind = 'deposit' AND t.direction = 'credit'
+          UNION ALL
+          SELECT l.occurred_at, 0, l.cents FROM ${lines} l
+        ) activity GROUP BY 1 ORDER BY 1`, [args[0], `${currentMonth}-01`, range.to]);
       // Averages use prior calendar months with recorded activity. Missing
       // historical data is not treated as evidence of zero spending.
       const baselineMonths = monthly.filter((m) => m.month !== currentMonth && m.count > 0).length;
@@ -188,7 +197,9 @@ export function createInsightsHandler({ withTransaction, now = () => new Date() 
         return { ...g, projectedDate: days !== null && days <= 36525 ? addDays(range.to, days) : null };
       });
       const allocation = buildAllocation(monthly, categories, progress);
-      return { range, asOf: at.toISOString(), connected: accounts.length > 0, monthly, categories, baselineMonths,
+      return { range, asOf: at.toISOString(), connected: accounts.length > 0, monthly,
+        daily: daily.map((row) => ({ day: row.day, earnedCents: exactCents(row.earnedCents), spentCents: exactCents(row.spentCents) })),
+        categories, baselineMonths,
         merchants, recurring, upcomingSchedules,
         calendar: { from: range.to, to: calendarEnd, today: range.to,
           days: [...dueDays.values()].sort((a, b) => a.date.localeCompare(b.date)) },

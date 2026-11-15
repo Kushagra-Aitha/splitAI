@@ -65,7 +65,7 @@
   flex-shrink: 0;
 }
 #split-common-ground .small {
-  font-size: 12px;
+  font-size: var(--sp-text-detail);
 }
 #split-common-ground .muted {
   color: var(--sp-muted);
@@ -368,6 +368,7 @@
 }
 #split-common-ground .available .figure .cents {
   font-size: 27px;
+  letter-spacing: 0;
   opacity: 0.65;
 }
 #split-common-ground .available .footnote {
@@ -633,16 +634,27 @@
   align-items: start;
 }
 #split-common-ground .insight .insight-label {
-  font-size: 11px;
+  font-size: 0.875rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 700;
   opacity: 0.8;
-  margin-bottom: 3px;
+  margin-bottom: 6px;
 }
 #split-common-ground .insight p {
-  font-size: 11px;
-  line-height: 1.5;
+  max-width: 76ch;
+  font-size: 1rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+#split-common-ground .insight-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin-top: 10px;
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 #split-common-ground .insight svg {
   width: 16px;
@@ -650,11 +662,11 @@
   margin-top: 1px;
 }
 #split-common-ground .insight button {
-  font-size: 11px;
+  font-size: 0.875rem;
   font-weight: 650;
   text-decoration: underline;
   text-underline-offset: 3px;
-  padding: 4px 0 0;
+  padding: 0;
   color: inherit;
 }
 #split-common-ground .activity {
@@ -693,7 +705,7 @@
   font-weight: 550;
   display: block;
 }
-#split-common-ground .tx-copy span {
+#split-common-ground .tx-copy > span {
   font-size: 11px;
   color: var(--sp-muted);
 }
@@ -1485,9 +1497,6 @@
   width: 100%;
   accent-color: var(--sp-pine);
 }
-#split-common-ground .brand:hover .brand-mark {
-  animation: sp-wiggle calc(450ms * var(--sp-motion)) ease-in-out;
-}
 #split-common-ground .expense-ticket .split-person {
   animation: sp-share calc(380ms * var(--sp-motion)) cubic-bezier(0.18, 0.89, 0.32, 1.25) both;
 }
@@ -1507,18 +1516,6 @@
 }
 #split-common-ground .primary {
   transition: transform calc(140ms * var(--sp-motion)) ease;
-}
-@keyframes sp-wiggle {
-  0%,
-  100% {
-    transform: rotate(-12deg);
-  }
-  35% {
-    transform: rotate(-22deg) translateY(-2px);
-  }
-  70% {
-    transform: rotate(-4deg);
-  }
 }
 @keyframes sp-share {
   from {

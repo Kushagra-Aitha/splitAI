@@ -9,7 +9,7 @@
 #split-common-ground .group-tile > button:focus-visible { outline-offset: -3px; }
 #split-common-ground .group-tile-photo { display: block; width: 100%; height: clamp(110px, 12vw, 140px); object-fit: cover; }
 #split-common-ground .group-tile-body { display: grid; gap: 5px; padding: 12px; min-width: 0; }
-#split-common-ground .group-type { font-size: .75rem; font-weight: 650; }
+#split-common-ground .group-type { font-size: 0.875rem; font-weight: 650; }
 #split-common-ground .group-tile-name { font-size: 1.25rem; font-weight: 750; overflow-wrap: anywhere; }
 #split-common-ground .group-tile-balances { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .96rem; }
 #split-common-ground .group-owe { color: var(--sp-red); }
@@ -36,8 +36,21 @@
 #split-common-ground .group-menu > div button:hover { background: var(--sp-soft); }
 #split-common-ground .group-balance-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px; }
 #split-common-ground .group-balance-card h2, #split-common-ground .group-members h2 { font-size: 1rem; margin: 0 0 4px; }
-#split-common-ground .group-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--sp-line); }
-#split-common-ground .group-tabs button { padding: 8px 4px; border-bottom: 2px solid transparent; }
+#split-common-ground .group-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: min(100%, 32rem);
+  justify-self: center;
+  border-bottom: 1px solid var(--sp-line);
+}
+#split-common-ground .group-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 4px;
+  border-bottom: 2px solid transparent;
+}
 #split-common-ground .group-tabs [aria-selected="true"] { border-color: var(--sp-pine-ink); font-weight: 700; }
 #split-common-ground .group-balance-list, #split-common-ground .group-members ul { list-style: none; margin: 0; padding: 8px 12px; }
 #split-common-ground .group-balance-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding-block: 5px; }

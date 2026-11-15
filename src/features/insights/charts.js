@@ -19,6 +19,9 @@ echarts.use([
 const usd = (cents) => new Intl.NumberFormat('en-US', {
   style: 'currency', currency: 'USD', maximumFractionDigits: 2,
 }).format((cents ?? 0) / 100);
+const wholeUsd = new Intl.NumberFormat('en-US', {
+  style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+});
 const monthLabel = (month) => new Intl.DateTimeFormat('en-US', {
   month: 'short', year: '2-digit', timeZone: 'UTC',
 }).format(new Date(`${month}-01T12:00:00Z`));
@@ -62,7 +65,7 @@ const legend = (colors, count = 0) => ({
   itemWidth: 10,
   itemHeight: 10,
   itemGap: 14,
-  textStyle: { color: colors.muted },
+  textStyle: { color: colors.muted, fontSize: 13 },
   pageTextStyle: { color: colors.muted },
   pageIconColor: colors.accent,
   pageIconInactiveColor: colors.line,
@@ -81,74 +84,128 @@ const base = (colors) => ({
   legend: legend(colors),
 });
 
-export function cashFlowOption(monthly, { zoom = true } = {}) {
+export function cashFlowOption(monthly, { zoom = true, daily = false, zoomRange, selectable = false } = {}) {
+  const points = selectable ? { showSymbol: true, symbol: 'emptyCircle', symbolSize: 7 } : { showSymbol: false };
   return (colors) => ({
     ...base(colors),
-    legend: { ...legend(colors, 3), data: ['Income', 'Spending', 'Net'] },
+    legend: {
+      ...legend(colors, 3),
+      data: daily ? [
+        { name: 'Income', icon: 'path://M0 4h18v2H0z' },
+        { name: 'Spending', icon: 'path://M0 3h18v3H0z' },
+        { name: 'Net', icon: 'path://M0 4h4v2H0z M7 4h4v2H7z M14 4h4v2h-4z' },
+      ] : ['Income', 'Spending', 'Net'],
+      ...(daily ? { width: '100%', itemWidth: 16, itemHeight: 4, itemGap: 9, textStyle: { color: colors.ink, fontSize: 13 } } : {}),
+    },
     grid: { left: 58, right: 24, top: 48, bottom: zoom ? 70 : 38 },
     xAxis: {
       type: 'category',
       data: monthly.map(periodLabel),
-      axisLabel: { color: colors.muted },
+      triggerEvent: selectable,
+      axisLabel: { color: colors.muted, ...(daily ? { hideOverlap: true, fontSize: 12 } : {}) },
       axisLine: { lineStyle: { color: colors.line } },
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: colors.muted, formatter: usd },
+      axisLabel: {
+        color: colors.muted,
+        formatter: daily ? (cents) => cents % 100 === 0 ? wholeUsd.format(cents / 100) : usd(cents) : usd,
+      },
+      ...(daily ? { splitNumber: 4 } : {}),
       splitLine: { lineStyle: { color: colors.line } },
     },
-    dataZoom: zoom ? [{ type: 'inside' }, { type: 'slider', height: 22, bottom: 10 }] : [],
+    dataZoom: zoom ? [
+      { type: 'inside', ...zoomRange },
+      { type: 'slider', height: 22, bottom: 10, ...zoomRange },
+    ] : [],
     series: [
-      { name: 'Income', type: 'line', smooth: 0.22, showSymbol: false, color: colors.income, data: monthly.map((row) => row.earnedCents) },
-      { name: 'Spending', type: 'line', smooth: 0.22, showSymbol: false, color: colors.spend, data: monthly.map((row) => row.spentCents) },
-      { name: 'Net', type: 'line', smooth: 0.22, showSymbol: false, color: colors.accent, lineStyle: { type: 'dashed' }, data: monthly.map((row) => row.netCents) },
+      { name: 'Income', type: 'line', smooth: daily ? false : 0.22, ...points, color: colors.income, data: monthly.map((row) => row.earnedCents) },
+      {
+        name: 'Spending', type: 'line', smooth: daily ? false : 0.22, ...points, color: colors.spend,
+        ...(daily ? { lineStyle: { width: 2.5 }, areaStyle: { color: colors.spend, opacity: 0.09 } } : {}),
+        data: monthly.map((row) => row.spentCents),
+      },
+      { name: 'Net', type: 'line', smooth: daily ? false : 0.22, ...points, color: colors.accent, lineStyle: { type: 'dashed' }, data: monthly.map((row) => row.netCents) },
     ],
-    tooltip: { ...base(colors).tooltip, valueFormatter: usd },
+    tooltip: { ...base(colors).tooltip, valueFormatter: usd, ...(daily ? { confine: true } : {}) },
   });
 }
+
+const spendingPlotInsets = { top: 46, bottom: 28 };
 
 export function categoryOption(categories) {
   const rows = [...categories].sort((a, b) => b.currentCents - a.currentCents).slice(0, 10);
+  const hasAverage = rows.some((row) => row.averageCents != null);
   return (colors) => ({
     ...base(colors),
-    legend: { ...legend(colors, 2), data: ['This month', 'Prior monthly average'] },
-    grid: { left: 122, right: 26, top: 46, bottom: 28 },
+    legend: { ...legend(colors, 2), data: hasAverage ? ['This month', 'Prior monthly average'] : ['This month'] },
+    grid: { left: 122, right: 26, ...spendingPlotInsets },
     xAxis: { type: 'value', axisLabel: { color: colors.muted, formatter: usd }, splitLine: { lineStyle: { color: colors.line } } },
-    yAxis: { type: 'category', inverse: true, data: rows.map((row) => row.category), axisLabel: { color: colors.ink } },
+    yAxis: { type: 'category', inverse: true, triggerEvent: true, data: rows.map((row) => row.category), axisLabel: { color: colors.ink, fontSize: 13 } },
     series: [
       { name: 'This month', type: 'bar', color: colors.spend, data: rows.map((row) => row.currentCents) },
-      { name: 'Prior monthly average', type: 'bar', color: colors.income, data: rows.map((row) => row.averageCents) },
+      ...(hasAverage ? [{ name: 'Prior monthly average', type: 'bar', color: colors.income, data: rows.map((row) => row.averageCents) }] : []),
     ],
     tooltip: { ...base(colors).tooltip, valueFormatter: usd },
   });
 }
 
-export function sankeyOption(allocation, categories, goals) {
+export function allocationFlows(allocation, categories, goals) {
+  const summarize = (items, limit, remainderName) => {
+    const remainder = items.slice(limit).reduce((total, item) => total + item.value, 0);
+    return [...items.slice(0, limit), ...(remainder ? [{ name: remainderName, value: remainder }] : [])];
+  };
   const destinations = [
-    ...categories.filter((row) => row.totalCents > 0).slice(0, 6).map((row) => ({ name: row.category, value: row.totalCents })),
-    ...goals.filter((goal) => goal.savedCents > 0).slice(0, 4).map((goal) => ({ name: `Goal · ${goal.name}`, value: goal.savedCents })),
+    ...summarize(categories.filter((row) => row.totalCents > 0).map((row) =>
+      ({ name: row.category, value: row.totalCents })), 6, 'Other categories'),
+    ...summarize(goals.filter((goal) => goal.savedCents > 0).map((goal) =>
+      ({ name: `Goal · ${goal.name}`, value: goal.savedCents })), 4, 'Other goals'),
     ...(allocation.unallocatedSalaryCents ? [{ name: 'Unallocated salary', value: allocation.unallocatedSalaryCents }] : []),
   ];
   let salaryLeft = allocation.salaryCents;
   const links = [];
-  for (const item of destinations) {
+  for (const [targetId, item] of destinations.entries()) {
     const fromSalary = Math.min(salaryLeft, item.value);
-    if (fromSalary) links.push({ source: 'Salary', target: item.name, value: fromSalary });
-    if (item.value > fromSalary) links.push({ source: 'Other funds', target: item.name, value: item.value - fromSalary });
+    if (fromSalary) links.push({ source: 'Salary', target: item.name, targetId, value: fromSalary });
+    if (item.value > fromSalary) links.push({ source: 'Other funds', target: item.name, targetId, value: item.value - fromSalary });
     salaryLeft -= fromSalary;
   }
-  const sources = [{ name: 'Salary' }, ...(links.some((link) => link.source === 'Other funds') ? [{ name: 'Other funds' }] : [])];
+  return links;
+}
+
+export function sankeyOption(links) {
+  const sources = [...new Set(links.map((link) => link.source))];
+  const destinations = new Map();
+  for (const { target, targetId, value } of links) {
+    const name = `target-${targetId}`;
+    destinations.set(name, { name, displayName: target, value: (destinations.get(name)?.value ?? 0) + value });
+  }
+  const nodes = [...sources.map((name) => ({ name, displayName: name })), ...destinations.values()];
+  const edges = links.map(({ source, target, targetId, value }) => ({ source, target: `target-${targetId}`, targetLabel: target, value }));
   return (colors) => ({
     ...base(colors),
-    tooltip: { ...base(colors).tooltip, trigger: 'item', valueFormatter: usd },
-    legend: { ...legend(colors, 1), data: ['Allocation'] },
+    tooltip: {
+      ...base(colors).tooltip,
+      trigger: 'item',
+      triggerOn: 'mousemove|click',
+      confine: true,
+      formatter: ({ data, dataType, value }) => dataType === 'edge'
+        ? `${html(data.source)} → ${html(data.targetLabel)}<br><strong>${usd(data.value)}</strong>`
+        : `${html(data.displayName)} · <strong>${usd(value)}</strong>`,
+    },
+    legend: { show: false },
     series: [{
       name: 'Allocation',
       type: 'sankey',
-      data: [...sources, ...destinations.map(({ name }) => ({ name }))],
-      links,
+      ...spendingPlotInsets,
+      data: nodes,
+      links: edges,
       lineStyle: { color: 'gradient', opacity: 0.45 },
-      label: { color: colors.ink, fontSize: 11 },
+      right: '31%',
+      label: {
+        color: colors.ink, fontSize: 13, width: 145, overflow: 'truncate',
+        formatter: ({ data }) => destinations.has(data.name) ? `${data.displayName}\n${usd(data.value)}` : data.displayName,
+      },
       emphasis: { focus: 'adjacency' },
     }],
   });
@@ -255,7 +312,7 @@ export function goalOption(goal) {
   });
 }
 
-export function createChartManager(root) {
+export function createChartManager(root, onEvent = () => {}) {
   const instances = new Map();
   let specs = new Map();
   const mount = (nextSpecs) => {
@@ -275,6 +332,8 @@ export function createChartManager(root) {
         chart?.dispose();
         chart = echarts.init(host, null, { renderer: 'canvas' });
         instances.set(id, chart);
+        chart.on('click', (event) => onEvent(id, 'click', event, chart));
+        chart.on('datazoom', (event) => onEvent(id, 'datazoom', event, chart));
       }
       chart.setOption(option(colors), { notMerge: true });
       chart.resize();
