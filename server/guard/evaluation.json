@@ -1,35 +1,28 @@
 {
-  "modelVersion": "split-guard-nb-v1",
-  "modelRevision": "split-guard-nb-v1:4c0f68f499bf",
+  "modelVersion": "split-guard-deberta-v1",
+  "baseModel": "microsoft/deberta-v3-xsmall",
   "corpusSha256": "7d039a24a6083ed9ef0f806ebad56bbb976e3aeb8de05669173bfdc4996c239d",
-  "threshold": 0.999,
-  "trainingSamples": 3142,
+  "threshold": 0.599,
+  "trainingSamples": 3167,
   "validation": {
-    "samples": 996,
-    "truePositive": 108,
-    "falsePositive": 0,
-    "falseNegative": 18,
-    "trueNegative": 870,
-    "precision": 1,
-    "recall": 0.8571428571428571
+    "samples": 995,
+    "truePositive": 114,
+    "falsePositive": 2,
+    "falseNegative": 12,
+    "trueNegative": 867,
+    "precision": 0.9827586206896551,
+    "recall": 0.9047619047619048,
+    "falsePositiveRate": 0.0023014959723820483
   },
   "heldOut": {
     "samples": 1071,
-    "truePositive": 110,
-    "falsePositive": 1,
-    "falseNegative": 22,
-    "trueNegative": 938,
-    "precision": 0.990990990990991,
-    "recall": 0.8333333333333334
-  },
-  "splitValidation": {
-    "samples": 18,
-    "truePositive": 8,
-    "falsePositive": 0,
-    "falseNegative": 0,
-    "trueNegative": 10,
-    "precision": 1,
-    "recall": 1
+    "truePositive": 123,
+    "falsePositive": 4,
+    "falseNegative": 9,
+    "trueNegative": 935,
+    "precision": 0.968503937007874,
+    "recall": 0.9318181818181818,
+    "falsePositiveRate": 0.004259850905218318
   },
   "splitHeldOut": {
     "samples": 18,
@@ -37,16 +30,36 @@
     "falsePositive": 0,
     "falseNegative": 0,
     "trueNegative": 10,
-    "precision": 1,
-    "recall": 1
+    "precision": 1.0,
+    "recall": 1.0,
+    "falsePositiveRate": 0.0
   },
   "publicSmsHeldOut": {
     "samples": 1053,
-    "truePositive": 102,
+    "truePositive": 115,
+    "falsePositive": 4,
+    "falseNegative": 9,
+    "trueNegative": 925,
+    "precision": 0.9663865546218487,
+    "recall": 0.9274193548387096,
+    "falsePositiveRate": 0.004305705059203444
+  },
+  "moneyChat": {
+    "samples": 30,
+    "truePositive": 0,
     "falsePositive": 1,
-    "falseNegative": 22,
-    "trueNegative": 928,
-    "precision": 0.9902912621359223,
-    "recall": 0.8225806451612904
-  }
+    "falseNegative": 0,
+    "trueNegative": 29,
+    "precision": 0.0,
+    "recall": 0,
+    "falsePositiveRate": 0.03333333333333333,
+    "maxScore": 0.6889827251434326
+  },
+  "jack": {
+    "score": 0.9800082445144653,
+    "flagged": true
+  },
+  "modelRevision": "split-guard-deberta-v1:2e6bda15b4e8",
+  "artifactSha256": "2e6bda15b4e8900875d542eb1eccf4332b1932f5f12a02bf4557b7d2a12b24a0",
+  "artifactBytes": 87118088
 }

@@ -1,11 +1,12 @@
-# Guard v2 (C10, #75)
+# Guard v3 (C19, #113)
 
-Guard scores every newly stored comment locally with a bounded Naive Bayes
-classifier plus explicit instruction-override, outside-payment and
-credential-request rules. It stores the score, reason codes and artifact
-revision on the canonical comment. Identical comment retries return their
-original result and never duplicate events. Existing comments are not
-silently rescored or sent anywhere.
+Guard scores every newly stored comment with a quantized
+`microsoft/deberta-v3-xsmall` classifier. Explicit instruction-override,
+outside-payment and credential-request rules explain a model flag but never
+make the flagging decision while the model is healthy. It stores the score,
+reason codes and artifact revision on the canonical comment. Identical
+comment retries return their original result and never duplicate events.
+Existing comments are not silently rescored or sent anywhere.
 
 A flagged comment retains its escaped plain text and shows a warning with
 fixed explanations in the A12 thread/chat drawer. In the same comment
@@ -21,8 +22,9 @@ The alert toggle is per user and persisted in `guard_settings`. It never
 disables another member's alerts, group warning badges, session/scope checks,
 or required payment approval. This classifier is advisory: neither a ham
 score nor a warning authorizes, initiates, blocks or rewrites a payment.
-Comments have no path into Ask/Gemini or bank operations. If the local
-model cannot load, new comment writes return a safe 503 and roll back.
+Comments have no path into Ask/Gemini or bank operations. If the model cannot
+load, Guard logs one structured `GUARD_MODEL_FALLBACK` event and uses the
+three rules as a local fallback; comment posting continues.
 
 ## Guard API and UI
 
@@ -54,40 +56,38 @@ SMS data and the hand-written synthetic examples.
 
 ## Reproducible local model
 
-From the repository root or `server/`:
+The demo uses xsmall rather than small so it can train and run on an 8 GB
+M1 Mac. Create a Python 3.11 environment and, from `server/`, run:
 
 ```sh
+python3 -m pip install -r guard/requirements.txt
 npm run guard:train
 npm run guard:eval
 ```
 
-Training needs Python 3's standard library to download a pinned public ZIP;
-inference and evaluation use Node without added packages. The corpus hash
-is verified before caching. The raw dataset is ignored by git, with private
-filesystem permissions. Emails, URLs and numeric identifiers are replaced
-before feature extraction. The committed `model.json` contains bounded
-token/bigram weights, priors, threshold and a revision digest, not complete
-messages. It is loaded once server-side; inference makes no network calls
-and examines at most 160 features per comment.
+Training downloads the pinned base model and a checksum-verified public UCI
+SMS corpus, then adds only the committed synthetic Split examples. It freezes
+the embeddings and first six encoder layers, selects a high-precision
+threshold on validation data, exports ONNX and applies int8 dynamic
+quantization. Raw data, PyTorch checkpoints and the approximately 87 MB ONNX
+artifact stay under `guard/.cache/` and out of git. The committed manifest
+contains only model metadata and the artifact digest.
 
-Normalized duplicates are removed before splitting. SHA256 of normalized
-text fixes the public-data train/validation/test partitions (60/20/20);
-synthetic scenario partitions are explicit and checked for cross-partition
-duplicates. Vocabulary and weights use training only. Threshold selection
-prioritizes precision on validation, including the Split validation subset;
-it does not choose a threshold using individual test examples. The rules
-include the issue's stated attack patterns, so the hand-written benchmark
-is a functional/domain check, not an independent real-world scam study.
+At runtime the server loads the local artifact before listening and inference
+makes no network calls. `GUARD_MODEL_PATH` can point to another local export.
+After publishing the export to a public Hugging Face repository,
+`GUARD_MODEL_ID` enables first-start download and the Transformers.js cache.
+If neither is configured, the default is
+`guard/.cache/deberta-xsmall-onnx`.
 
-The committed `evaluation.json` reports the complete confusion matrices:
-1,071 test messages, 110 true flags, 1 false flag and 22 missed spam messages;
-precision **99.1%**, recall **83.3%**. The 18 synthetic Split test cases have
-8 correct flags and 10 correctly unflagged comments. The required Jack
-payment/instruction example is flagged with reasons; “Thanks Ben, paying
-you now” is not. These datasets do not prove production accuracy or catch
-every scam. Precision/recall must continue to be monitored on reviewed,
-consented feedback. `guard:eval` fails if test precision falls below 95% or
-there are too few positive detections to make a vacuous success claim.
+The committed `evaluation.json` reports held-out precision **96.85%** and
+recall **93.18%**. `guard:eval` loads the actual quantized artifact, reports
+those metrics and the normal-chat false-positive rate, checks the required
+Jack message, and fails if more than one of 30 normal money messages is
+flagged or warm inference exceeds 300 ms. On the training M1, the quantized
+model flagged Jack, flagged 0/30 normal messages, and had 9.19 ms maximum
+warm inference across that set. These small synthetic/domain checks do not
+prove production accuracy or catch every scam.
 
 ## Verification
 
