@@ -544,12 +544,18 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     const feed = transactionFeed;
     if (store.synced && !feed.rows && !feed.request && !feed.error) void loadTransactions();
     const head = heading('Transactions', 'Your transactions', 'Checking and card activity from Capital Two.');
+    const categories = [...new Set([...feed.categories, feed.category].filter(Boolean))];
+    const filterSelect = (key, label, options) => `<label class="tx-control tx-select${feed[key] ? ' is-active' : ''}"><span class="sr-only">${label}</span><select data-tx-filter="${key}">${options}</select>${icon('chevron-down')}</label>`;
     const filters = `<div class="sp-card tx-filters">
-      <label class="field">Account<select data-tx-filter="account"><option value="">All accounts</option><option value="checking" ${feed.account === 'checking' ? 'selected' : ''}>Checking</option><option value="credit_card" ${feed.account === 'credit_card' ? 'selected' : ''}>Credit card</option></select></label>
-      <label class="field">Category<select data-tx-filter="category"><option value="">All categories</option>${[...new Set([...feed.categories, feed.category].filter(Boolean))].map((category) => `<option ${feed.category === category ? 'selected' : ''}>${esc(category)}</option>`).join('')}</select></label>
-      <label class="check-label"><input type="checkbox" data-tx-filter="unsplit" ${feed.unsplit ? 'checked' : ''}>Not yet split</label>
-      <button type="button" class="secondary" data-action="overview-add-expense">Cash expense</button>
-      <span data-tx-selection>${transactionBatchButton()}</span>
+      <div class="tx-filter-group" role="group" aria-label="Filter transactions">
+        ${filterSelect('account', 'Account', `<option value="">All accounts</option><option value="checking" ${feed.account === 'checking' ? 'selected' : ''}>Checking</option><option value="credit_card" ${feed.account === 'credit_card' ? 'selected' : ''}>Credit card</option>`)}
+        ${filterSelect('category', 'Category', `<option value="">All categories</option>${categories.map((category) => `<option ${feed.category === category ? 'selected' : ''}>${esc(category)}</option>`).join('')}`)}
+        <label class="tx-control tx-toggle${feed.unsplit ? ' is-active' : ''}"><input type="checkbox" data-tx-filter="unsplit" ${feed.unsplit ? 'checked' : ''}>${icon('check')}Not yet split</label>
+      </div>
+      <div class="tx-filter-actions">
+        <button type="button" class="secondary cursor-interaction" data-action="overview-add-expense">${icon('banknote')}Cash expense</button>
+        <span data-tx-selection>${transactionBatchButton()}</span>
+      </div>
     </div>`;
     const status = feed.error
       ? `<p role="alert">${esc(feed.error.message)} <button type="button" class="secondary" data-action="tx-more">Try again</button></p>`
