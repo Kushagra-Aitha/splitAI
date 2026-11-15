@@ -26,6 +26,13 @@ try {
     assert.equal(parsed.expense, null);
     console.log(JSON.stringify({ status: 'ok', check }));
   }
+  check = 'intent-payment-clarification';
+  const clarification = await parseIntent("I need to pay Kushagra $1,000 for McDonald's");
+  assert.equal(clarification.intent, 'payment_clarification');
+  assert.equal(clarification.expense.cents, 100000);
+  assert.equal(clarification.expense.merchant, "McDonald's");
+  assert.deepEqual(clarification.expense.participantNames.map((name) => name.toLowerCase()), ['kushagra']);
+  console.log(JSON.stringify({ status: 'ok', check }));
   console.log(JSON.stringify({ status: 'ok', checks: ['antonios-extraction', 'intent-routing'], model: process.env.GEMINI_MODEL }));
 } catch (error) {
   // Assertion errors may contain actual provider output; expose no such data.

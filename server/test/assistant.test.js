@@ -27,6 +27,19 @@ test('Antonio’s and incomplete expenses match the C1 contract without any writ
   }
 });
 
+test('ambiguous repayment language is extracted for clarification without becoming an expense or payment', async () => {
+  const output = {
+    intent: 'payment_clarification',
+    expense: { merchant: "McDonald's", cents: 100000, participantNames: ['Kushagra'], groupHint: null },
+  };
+  assert.deepEqual(await parserFor(output)("I need to pay Kushagra $1,000 for McDonald's"), output);
+  const response = await createAssistantHandlers({ ...options, fetchImpl: async () => responseFor(output) })['ask.create']({
+    body: { message: "I need to pay Kushagra $1,000 for McDonald's" },
+  });
+  assert.equal(response.type, 'answer');
+  assert.equal(response.intent, 'payment_clarification');
+});
+
 test('read intents classify independently and wait for authoritative financial services', async () => {
   for (const { intent, message } of fixture.readIntents) {
     const output = { intent, expense: null };

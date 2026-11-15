@@ -48,6 +48,23 @@ test('Ask answers benign unsupported text and blocks only input classified as su
   assert.equal(guardCalls, 0);
   assert.equal(parserCalls, 1);
 
+  const clarification = createAskWorkflow({
+    ...dependencies,
+    classifyInput: async () => ({ flagged: false }),
+    parseIntent: async () => ({
+      intent: 'payment_clarification',
+      expense: { merchant: "McDonald's", cents: 100000, participantNames: ['Kushagra'], groupHint: null },
+    }),
+  });
+  const clarificationAnswer = await clarification({
+    actor,
+    body: { message: "I need to pay Kushagra $1,000 for McDonald's", requestKey: '90000000-0000-4000-8000-000000000003' },
+  });
+  assert.equal(clarificationAnswer.intent, 'payment_clarification');
+  assert.match(clarificationAnswer.answer, /Kushagra/u);
+  assert.match(clarificationAnswer.answer, /\$1,000\.00/u);
+  assert.match(clarificationAnswer.answer, /no expense or payment was created/iu);
+
   const suspicious = createAskWorkflow({
     ...dependencies,
     classifyInput: async () => ({ flagged: true }),
