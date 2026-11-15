@@ -1,3 +1,4 @@
+import { previousSettlementMemo, settlementMemo } from './settlement-labels.js';
 import { HttpError } from '../http.js';
 import { notify } from '../notifications/notify.js';
 
@@ -16,7 +17,7 @@ export async function reconcileSettlements(db, accountId, activity) {
       tx.amountCents === settlement.amountCents &&
       tx.counterpartyAccountId === settlement.payeeProviderId &&
       (settlement.reference ? tx.providerTransactionId === settlement.reference :
-        tx.description === `Split AI settlement ${settlement.id}`));
+        [settlementMemo(settlement.id), previousSettlementMemo(settlement.id)].includes(tx.description)));
     if (matches.length !== 1) continue;
     const tx = matches[0];
     const posted = tx.status === 'completed';

@@ -15,6 +15,7 @@ export const routes = Object.freeze([
   ['groups.update', 'POST', '/api/groups/:id/update'],
   ['groups.addMember', 'POST', '/api/groups/:id/members'],
   ['groups.leave', 'POST', '/api/groups/:id/leave'],
+  ['charges.explain', 'GET', '/api/groups/:id/explain/:kind/:entryId'],
   ['groups.get', 'GET', '/api/groups/:id'],
   ['activity.list', 'GET', '/api/groups/:id/activity'],
   ['comments.create', 'POST', '/api/groups/:id/comments'],

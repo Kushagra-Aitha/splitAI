@@ -1,3 +1,4 @@
+import { settlementDescription, settlementLabelJoin } from '../ledger/settlement-labels.js';
 // B3 · Spending and earnings buckets with TimescaleDB time_bucket.
 //
 // Rules:
@@ -130,7 +131,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
   // and, once split, the group it was split with.
   const recent = await db.query(
     `SELECT t.id, t.provider_transaction_id AS "providerTransactionId", t.kind, t.direction,
-            t.amount_cents AS "amountCents", t.description, t.merchant_name AS "merchantName",
+            t.amount_cents AS "amountCents", ${settlementDescription} AS description, CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName",
             ${effectiveCategory('t')} AS category, t.payment_method AS "paymentMethod", t.status, t.source,
             ${recurringColumns('t')},
             t.occurred_at AS "occurredAt", t.account_id AS "accountId", acct.kind AS "accountKind",
@@ -145,6 +146,7 @@ export async function getOverview(db, accountId, range, { recentLimit = 25 } = {
        LEFT JOIN bank_import_keys k ON k.account_id = t.account_id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
        LEFT JOIN expenses e ON e.bank_account_id = t.account_id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
        LEFT JOIN groups g ON g.id = e.group_id
+       ${settlementLabelJoin}
        ${recurringJoins('t', 'k')}
       WHERE ${inRange('t.')}
       ORDER BY t.occurred_at DESC, t.id

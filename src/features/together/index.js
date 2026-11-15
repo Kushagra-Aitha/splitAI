@@ -9,7 +9,7 @@ const bannerUrl = (kind) => photos[`./photos/${kind}.webp`] ?? photos['./photos/
 const groupTabs = ['Activity', 'Balances', 'Recurring'];
 
 export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
-  const activity = createActivity({ root, state, esc, money, announce });
+  const activity = createActivity({ root, state, esc, money, announce, openModal, closeButton });
   const avatars = (initials) => `<span class="avatar-stack" aria-hidden="true">${initials.slice(0, 5)
     .map((value) => `<span class="avatar">${esc(value)}</span>`).join('')}</span>`;
   let cached;
@@ -459,7 +459,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     onNotifications: activity.onNotifications,
     afterRender() {
       if (state.page === 'groups' && state.group && cached?.data && !cached.error) {
-        activity.mount(state.group, navigationTarget, tab);
+        activity.mount(state.group, navigationTarget, tab, cached.data.group.name);
         navigationTarget = null;
       } else activity.detach();
     },
