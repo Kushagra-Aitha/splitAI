@@ -91,18 +91,33 @@ export function createInsightsHandler({ withTransaction, now = () => new Date() 
       GROUP BY a.month, a.name, a.kind ORDER BY a.month, a.name, a.kind`, args);
       const recurring = recurringRows.map((r) => ({ ...r, cents: exactCents(r.cents) }));
       const { rows: schedules } = await db.query(`SELECT id, payee, amount_cents::text AS cents,
-        day_of_month AS day, next_due_on::text AS "nextDueOn" FROM capital_schedules
-        WHERE user_id = $1 AND account_id = ANY($2::uuid[]) AND kind = 'purchase'
-          AND status = 'active' AND day_of_month IS NOT NULL ORDER BY next_due_on, id LIMIT 100`, [actor.userId, args[0]]);
+        day_of_month AS day, next_due_on::text AS "nextDueOn", kind, frequency, category
+        FROM capital_schedules WHERE user_id = $1 AND account_id = ANY($2::uuid[])
+          AND status = 'active' ORDER BY next_due_on, id LIMIT 100`, [actor.userId, args[0]]);
       const [year, month] = range.to.split('-').map(Number), calendarEnd = addDays(range.to, 90);
       const dueDays = new Map();
-      for (const s of schedules) for (let i = 0; i <= 3; i++) {
-        const date = monthDate(year, month - 1 + i, s.day);
-        if (date < range.to || date < s.nextDueOn || date > calendarEnd) continue;
+      const addDueDay = (date, schedule) => {
+        if (date < range.to || date > calendarEnd || schedule.kind !== 'purchase') return;
         const old = dueDays.get(date) ?? { date, cents: 0, count: 0 };
-        old.cents = exactCents(String(BigInt(old.cents) + BigInt(s.cents))); old.count++;
+        old.cents = exactCents(String(BigInt(old.cents) + BigInt(schedule.cents))); old.count++;
         dueDays.set(date, old);
+      };
+      for (const schedule of schedules) {
+        if (!schedule.day) {
+          addDueDay(schedule.nextDueOn, schedule);
+          continue;
+        }
+        for (let i = 0; i <= 3; i++) {
+          const date = monthDate(year, month - 1 + i, schedule.day);
+          if (date >= schedule.nextDueOn) addDueDay(date, schedule);
+        }
       }
+      const upcomingSchedules = schedules.filter((schedule) =>
+        schedule.nextDueOn >= range.to && schedule.nextDueOn <= calendarEnd).map((schedule) => ({
+        id: schedule.id, name: schedule.payee, cents: exactCents(schedule.cents),
+        nextDueOn: schedule.nextDueOn, kind: schedule.kind, frequency: schedule.frequency,
+        category: schedule.category, recurring: schedule.kind === 'salary' || schedule.day !== null,
+      }));
       const { goals } = await listGoals(db, actor.userId);
       const progress = goals.slice(0, 20).map((goal) => {
         const g = progressForGoal(goal, at);
@@ -117,7 +132,8 @@ export function createInsightsHandler({ withTransaction, now = () => new Date() 
       });
       const allocation = buildAllocation(monthly, categories, progress);
       return { range, asOf: at.toISOString(), connected: accounts.length > 0, monthly, categories, baselineMonths,
-        merchants, recurring, calendar: { from: range.to, to: calendarEnd, days: [...dueDays.values()] },
+        merchants, recurring, upcomingSchedules,
+        calendar: { from: range.to, to: calendarEnd, days: [...dueDays.values()] },
         goals: progress, goalCount: goals.length, cards, allocation,
         limits: { categories: 100, merchants: 100, recurringMerchants: 20, goals: 20, schedules: 100 },
         hasActivity: monthly.some((m) => m.count > 0), hasDemoHistory: monthly.some((m) => m.demoCount > 0) };

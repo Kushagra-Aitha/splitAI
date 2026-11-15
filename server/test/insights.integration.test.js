@@ -56,6 +56,12 @@ test('live database: insights are actor-scoped, zero-filled and preserve fact la
     VALUES ($1,$2,'trip','Japan',100000,25000,'2027-06-01','2026-10-01') RETURNING id`, [actorId, checking]);
   await db.query(`INSERT INTO goal_movements(goal_id, actor_user_id, kind, amount_cents, request_key, created_at)
     VALUES ($1,$2,'contribution',25000,$3,'2026-10-01')`, [goal.id, actorId, randomUUID()]);
+  await db.query(`INSERT INTO capital_schedules(user_id, account_id, payee, amount_cents, day_of_month,
+    next_due_on, first_due_on, request_key, kind, frequency, category) VALUES
+    ($1,$2,'Rent',160000,15,'2026-11-15','2026-11-15',$3,'purchase','monthly','Housing'),
+    ($1,$2,'SGI',69,null,'2026-11-18','2026-11-18',$4,'purchase','monthly','Other'),
+    ($1,$2,'Acme',300000,null,'2026-11-15','2026-11-15',$5,'salary','biweekly','Salary')`,
+  [actorId, checking, randomUUID(), randomUUID(), randomUUID()]);
 
   const read = createInsightsHandler({ withTransaction, now: () => new Date('2026-11-15T01:00:00Z') });
   const result = await read({ actor: { userId: actorId } });
@@ -69,6 +75,12 @@ test('live database: insights are actor-scoped, zero-filled and preserve fact la
   assert.deepEqual(result.goals.map((goal) => goal.name), ['Japan']);
   assert.equal(result.cards[0].usedCents, 120000);
   assert.equal(result.cards[0].dueDate, null);
+  assert.deepEqual(result.upcomingSchedules.map((schedule) => schedule.name).sort(), ['Acme', 'Rent', 'SGI']);
+  assert.deepEqual(Object.fromEntries(result.upcomingSchedules.map((schedule) => [schedule.name, schedule.recurring])),
+    { Acme: true, Rent: true, SGI: false });
+  assert.equal(result.calendar.days.find((day) => day.date === '2026-11-15').cents, 160000);
+  assert.equal(result.calendar.days.find((day) => day.date === '2026-11-18').cents, 69);
+  assert.ok(!result.calendar.days.some((day) => day.cents === 300000));
   assert.match(result.allocation.note, /not bank outflows/);
   assert.equal(result.hasActivity, true);
 });

@@ -28,9 +28,16 @@ export const chartHost = (id, label, className = '') =>
   `<div class="echart ${className}" data-echart="${id}" role="img" aria-label="${label}"></div>`;
 
 function palette(root) {
-  const style = getComputedStyle(root);
-  const read = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
-  return {
+  // Custom-property computed values retain light-dark(...), which Canvas
+  // cannot parse. Resolve each token through a real color declaration first.
+  const probe = root.ownerDocument.createElement('span');
+  probe.hidden = true;
+  root.append(probe);
+  const read = (name, fallback) => {
+    probe.style.color = `var(${name}, ${fallback})`;
+    return getComputedStyle(probe).color || fallback;
+  };
+  const colors = {
     ink: read('--sp-ink', '#17201a'),
     muted: read('--sp-muted', '#68736b'),
     line: read('--sp-line', '#d8ddd9'),
@@ -40,6 +47,8 @@ function palette(root) {
     accent: read('--sp-pine-ink', '#225440'),
     soft: read('--sp-soft', '#eef2ef'),
   };
+  probe.remove();
+  return colors;
 }
 
 const base = (colors) => ({
@@ -167,7 +176,7 @@ export function goalOption(goal) {
   return (colors) => ({
     ...base(colors),
     tooltip: { ...base(colors).tooltip, trigger: 'item', formatter: `${goal.name}: ${percent}% funded` },
-    legend: { ...base(colors).legend, data: ['Saved'] },
+    legend: { show: false },
     series: [{
       name: 'Saved',
       type: 'gauge',
