@@ -8,6 +8,8 @@ import { ensureAccounts } from './accounts.js';
 import { createOperations, operationColumns } from './operations.js';
 import { createSchedules, scheduleColumns } from './schedules.js';
 import { PURCHASE_CATEGORIES } from './categories.js';
+import { cardAmountDue, nextStatementDueDate } from '../banking/card-due.js';
+import { today } from './input.js';
 
 const presets = Object.freeze([
   { payee: "Domino's", category: 'Food & drink' }, { payee: 'Amazon', category: 'Shopping' },
@@ -69,7 +71,8 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
     async summary(userId) {
       const results = await Promise.all([
         query(`SELECT id, account_type AS type, kind, linked_at IS NOT NULL AS "sharedWithSplit", account_mask AS mask, balance_cents AS "balanceCents",
-          available_cents AS "availableCents", credit_limit_cents AS "creditLimitCents", balance_as_of AS "asOf",
+          available_cents AS "availableCents", credit_limit_cents AS "creditLimitCents",
+          statement_due_day AS "statementDueDay", balance_as_of AS "asOf",
           provider_account_id IS NOT NULL AS connected FROM bank_accounts WHERE user_id = $1
           AND account_type IN ('Checking', 'Credit Card') ORDER BY account_type`, [userId]),
         query(`SELECT ${scheduleColumns} FROM capital_schedules WHERE user_id = $1 AND status <> 'deleted' ORDER BY next_due_on, id LIMIT 100`, [userId]),
@@ -85,7 +88,13 @@ export function createCapitalService({ query, withTransaction, nessie = defaultN
           ${settledJoin}
           WHERE a.user_id = $1 AND t.source = 'nessie' ORDER BY t.occurred_at DESC, t.id DESC LIMIT 40`, [userId]),
       ]);
-      const data = { accounts: results[0].rows, schedules: results[1].rows, operations: results[2].rows, transactions: results[3].rows, presets, categories: PURCHASE_CATEGORIES };
+      const asOf = today(typeof now === 'function' ? now() : new Date());
+      const accounts = results[0].rows.map((account) => account.kind === 'credit_card' ? {
+        ...account,
+        amountDueCents: cardAmountDue(account),
+        dueDate: nextStatementDueDate(account.statementDueDay, asOf),
+      } : account);
+      const data = { accounts, schedules: results[1].rows, operations: results[2].rows, transactions: results[3].rows, presets, categories: PURCHASE_CATEGORIES };
       // Reject unsafe integers before exposing balances or amounts to the UI.
       const validate = (value, key = '') => {
         if (Array.isArray(value)) return value.forEach((item) => validate(item, key));
