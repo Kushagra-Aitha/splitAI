@@ -30,6 +30,14 @@ export async function notify(db, { kind, sourceId }) {
       JOIN group_members m ON m.group_id = e.group_id AND m.user_id = e.actor_user_id AND m.left_at IS NULL
       JOIN group_comments c ON c.id = e.comment_id
       WHERE e.comment_id = $1 AND e.decision = 'flagged' AND e.actor_user_id <> c.author_user_id`;
+  } else if (kind === 'debt_reminder') {
+    targets = `SELECT r.recipient_user_id AS recipient, r.group_id, r.expense_id
+      FROM debt_reminders r JOIN group_members recipient ON recipient.group_id = r.group_id
+        AND recipient.user_id = r.recipient_user_id AND recipient.left_at IS NULL
+      JOIN group_members sender ON sender.group_id = r.group_id
+        AND sender.user_id = r.sender_user_id AND sender.left_at IS NULL
+      WHERE r.id = $1 AND r.status = 'sent'`;
+
   } else if (kind === 'guard_blocked') {
     targets = `SELECT actor_user_id AS recipient, NULL::uuid AS group_id, NULL::uuid AS expense_id
       FROM guard_events WHERE id = $1 AND decision = 'blocked'`;

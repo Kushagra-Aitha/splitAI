@@ -145,6 +145,7 @@ export function mountApp(root) {
     registerReview: together.registerReview, openGroup: together.openGroup });
   const guardFeature = createGuard({ ...context, openGroup: together.openGroup });
   const ask = createAsk({ ...context, draftTicket: together.draftTicket,
+    openSettlement: together.openSettlement,
     registerReview: together.registerReview, openGroupCreation: together.openGroupCreation });
   createNotifications({ ...context, icons, openGroup: together.openGroup,
     onRefresh(items) { together.onNotifications(items); guardFeature.onNotifications(items); } });

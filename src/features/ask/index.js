@@ -5,7 +5,7 @@ import { preserveFocus } from '../../lib/focus.js';
 import { createAskPanel } from './panel.js';
 
 export function createAsk({ root, state, icon, icons, esc, heading, render, announce, go,
-  draftTicket, registerReview, openGroupCreation }) {
+  draftTicket, registerReview, openGroupCreation, openSettlement }) {
   const entries = [];
   let composerText = '';
   let sending = false;
@@ -14,7 +14,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   const controllers = new Set();
   const actorId = getSession()?.actor.userId;
   const owned = () => !!actorId && getSession()?.actor.userId === actorId;
-  const prompts = ["Split last night's Domino's with Flat 7", 'What do I owe?', 'Food spending this month'];
+  const prompts = ["Split last night's Domino's with Flat 7", 'What do I owe?', 'Food spending this month', 'How am I doing on my goals?', "Explain the Domino's charge"];
   const panel = createAskPanel({ root, icon, icons, renderChat: () => chat(true) });
   const label = '<div class="agent-label"><span class="agent-mark" aria-hidden="true"><span class="brand-mark"></span></span>Split<span class="tag">AI assistant</span></div>';
   const refresh = () => {
@@ -53,17 +53,24 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   function entryHtml(entry) {
     let content = '';
     if (entry.response?.type === 'selection_needed') content = selectionCard(entry);
+    else if (entry.response?.type === 'reminder_selection') content = `<section aria-label="Choose a reminder"><p>${esc(entry.response.answer)}</p>${entry.response.candidates.map((candidate, index) => `<button type="button" class="secondary" data-ask-action="reminder-select" data-entry-id="${entry.id}" data-candidate="${index}" ${entry.pending ? 'disabled' : ''}>${esc(candidate.recipientName)} · ${esc(candidate.groupName)} · ${formatUsdCents(candidate.amountCents)} owed · ${esc(candidate.merchant)}</button>`).join('')}</section>`;
+    else if (entry.response?.type === 'reminder_draft') {
+      const r = entry.response.reminder;
+      content = r.status === 'sent' ? '<p role="status">Reminder already sent. No money moved.</p>' : `<section aria-label="Review reminder"><h3>Review reminder</h3><p>Remind ${esc(r.recipientName)} about ${formatUsdCents(r.amountCents)} owed to you in ${esc(r.groupName)}${r.merchant ? ` · related to ${esc(r.merchant)}` : ''}?</p><p class="small muted">This is the outstanding group balance between you, not a second charge for the expense. No money moves. At most one reminder per person and group debt each day.</p><button type="button" class="primary" data-ask-action="reminder-confirm" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Send reminder</button> <button type="button" class="secondary" data-ask-action="reminder-cancel" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Cancel</button></section>`;
+    }
+    else if (entry.response?.type === 'reminder_sent') content = '<p role="status">Reminder sent. No money moved.</p>';
     else if (entry.response?.type === 'blocked') content = `<section class="ask-blocked" role="status" aria-label="Guard blocked this request"><h3>${icon('shield-x')} Guard blocked this request</h3><p>${esc(entry.response.reason)}</p><p class="small">Event ID: <code>${esc(entry.response.eventId)}</code></p><button type="button" class="text-button" data-go="guard">View Guard activity</button></section>`;
     else if (entry.response?.type === 'draft') content = `<p>${esc(entry.response.group.name)}</p>${draftTicket(entry.response.draft)}`;
     else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
     else if (entry.response?.type === 'answer') {
       content = `<p>${esc(entry.response.answer)}</p>`;
-      if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
+      if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${['goal_progress', 'explain_charge'].includes(entry.response.intent) ? '' : entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
       if (entry.response.plan) content += `<div class="ask-plan">${entry.response.plan.groups.filter((g) => g.debts.length).map((g) => `<section><h3>${esc(g.name)}</h3>${g.debts.map((d) => `<p>${esc(d.displayName)} · ${formatUsdCents(d.cents)} · ${({ fits: 'Fits this plan', does_not_fit: 'Does not fit', pending: 'Payment pending' })[d.recommendation]}</p>`).join('')}</section>`).join('')}</div>`;
       if (entry.response.debts) content += `<div class="ask-plan">${entry.response.groups.map((g) => {
         const debts = entry.response.debts.filter((d) => d.groupId === g.id);
-        return debts.length ? `<section><h3>${esc(g.name)}</h3>${debts.map((d) => `<p>${d.cents > 0 ? 'You owe' : 'You are owed'} ${formatUsdCents(Math.abs(d.cents))} ${d.cents > 0 ? 'to' : 'by'} ${esc(d.displayName)}.</p>`).join('')}</section>` : '';
+        return debts.length ? `<section><h3>${esc(g.name)}</h3>${debts.map((d) => `<p>${d.cents > 0 ? 'You owe' : 'You are owed'} ${formatUsdCents(Math.abs(d.cents))} ${d.cents > 0 ? 'to' : 'by'} ${esc(d.displayName)}.${d.cents > 0 ? ` <button type="button" class="text-button" data-ask-settle-group="${esc(g.id)}" data-ask-settle-user="${esc(d.userId)}">Settle up</button>` : ''}</p>`).join('')}</section>` : '';
       }).join('')}</div>`;
+      if (entry.response.paceNote) content += `<p class="small muted">${esc(entry.response.paceNote)}</p><button type="button" class="text-button" data-go="goals">Open Goals</button>`;
       if (entry.response.asOf) content += `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Refresh facts</button>`;
     }
     return `<div class="user-message">${esc(entry.message)}</div><div class="agent-message" id="sp-ask-result-${entry.id}" role="region" aria-label="Split response" tabindex="-1" aria-busy="${entry.pending}" data-ask-entry="${entry.id}">${label}${content}
@@ -108,17 +115,17 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     else if (response.type === 'blocked') announce(`${response.reason} Guard event ${response.eventId}.`);
   }
 
-  async function request(entry, body) {
+  async function request(entry, body, path = '/api/ask') {
     if (entry.pending || !owned()) return;
     const generation = epoch, controller = new AbortController(); controllers.add(controller);
     entry.pending = true;
     entry.error = '';
-    entry.retryBody = body;
+    entry.retryBody = body; entry.retryPath = path;
     const revision = financialRevision();
     refresh();
     announce('Working on your request.');
     try {
-      const response = await apiRequest('/api/ask', { method: 'POST', body, timeoutMs: 60_000, signal: controller.signal });
+      const response = await apiRequest(path, { method: 'POST', body, timeoutMs: 60_000, signal: controller.signal });
       if (generation !== epoch || !owned()) return;
       if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
       receive(entry, response);
@@ -176,7 +183,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     if (!retry) entries.push(entry);
     composerText = message;
     sending = true;
-    await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID(), ...(context ? { context } : {}) });
+    await request(entry, retry ? entry.retryBody : { message, requestKey: crypto.randomUUID(), ...(context ? { context } : {}) }, retry ? entry.retryPath : '/api/ask');
     if (!owned()) return;
     if (!entry.error) composerText = '';
     sending = false;
@@ -230,11 +237,22 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       void submitMessage('Check whether this group note can authorize an action.', { kind: 'group_note', groupId: note.dataset.askNoteGroup });
       return;
     }
+    const settle = event.target.closest('[data-ask-settle-group]');
+    if (settle && !settle.disabled) void openSettlement(settle, { groupId: settle.dataset.askSettleGroup, payeeUserId: settle.dataset.askSettleUser });
     const button = event.target.closest('[data-ask-action]');
     if (!button) return;
     const entry = entries.find((value) => String(value.id) === button.dataset.entryId);
     if (!entry || entry.pending) return;
-    if (button.dataset.askAction === 'retry' && entry.retryBody) void request(entry, entry.retryBody);
+    if (button.dataset.askAction === 'retry' && entry.retryBody) void request(entry, entry.retryBody, entry.retryPath);
+    if (button.dataset.askAction === 'reminder-select') {
+      const candidate = entry.response.candidates[Number(button.dataset.candidate)];
+      if (candidate) void request(entry, { groupId: candidate.groupId, recipientUserId: candidate.recipientUserId,
+        expenseId: candidate.expenseId, requestKey: entry.response.requestKey }, '/api/reminders/drafts');
+    }
+    if (button.dataset.askAction === 'reminder-confirm') void request(entry, {}, `/api/reminders/${encodeURIComponent(entry.response.reminder.id)}/confirm`);
+    if (button.dataset.askAction === 'reminder-cancel') {
+      entry.response = { type: 'answer', answer: 'Reminder cancelled. No notification was sent and no money moved.' }; entry.retryBody = null; refresh();
+    }
     if (button.dataset.askAction === 'create-group') {
       rememberValues(entry, button.closest('section').querySelector('form'));
       const selection = {};
@@ -253,5 +271,5 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   }
   root.addEventListener('click', (event) => { if (event.target.closest('#sp-logout')) reset(); }, true);
   window.addEventListener('pagehide', reset, { once: true });
-  return { chat, handleAskForm, open() { if (owned()) panel.open(); else reset(); }, close: panel.close, isOpen: panel.isOpen };
+  return { chat, handleAskForm, open() { if (!owned()) reset(); else if (state.page === 'chat') root.querySelector('#sp-chat-input')?.focus(); else panel.open(); }, close: panel.close, isOpen: panel.isOpen };
 }

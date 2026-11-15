@@ -30,6 +30,8 @@ test('live database: atomic repeat-safe goal lifecycle uses the shared funds loc
   owned = true;
   await migrate({ log: () => {} });
   await seed({ log: () => {} });
+  // This suite tests already-shared accounts, independent of local Nessie IDs.
+  await db.query('UPDATE bank_accounts SET linked_at = now()');
   const query = (...args) => db.query(...args);
   const api = createGoalHandlers({ query, withTransaction });
   const actor = { userId: USERS.maya };

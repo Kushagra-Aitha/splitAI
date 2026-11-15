@@ -2,6 +2,7 @@ import { formatUsdCents } from '../../lib/money.js';
 
 export function notificationMessage(item) {
   const actor = item.actorName || 'A group member';
+  if (item.kind === 'debt_reminder' && Number.isSafeInteger(item.reminderCents)) return `${actor} reminded you: ${formatUsdCents(item.reminderCents)} owed in ${item.groupName || 'your group'}${item.merchant ? ` · related to ${item.merchant}` : ''}`;
   if (item.kind === 'guard_flagged') return `Guard flagged a suspicious comment from ${actor}`;
   if (item.kind === 'expense_added' && item.merchant && Number.isSafeInteger(item.totalCents)) {
     if (item.recurringOccurrence && Number.isSafeInteger(item.yourShareCents)) {

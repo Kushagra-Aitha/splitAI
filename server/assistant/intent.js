@@ -1,7 +1,7 @@
 import { HttpError } from '../http.js';
 
 export const MAX_MESSAGE_LENGTH = 500;
-const INTENTS = ['expense', 'affordability', 'debt_summary', 'spending_insight', 'unsupported'];
+const INTENTS = ['expense', 'affordability', 'debt_summary', 'spending_insight', 'goal_progress', 'reminder', 'unsupported'];
 const EXPENSE_KEYS = ['merchant', 'cents', 'participantNames', 'groupHint'];
 const CONTROL_CHARACTERS = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/u;
 
@@ -58,12 +58,13 @@ export function validateMessage(body) {
 
 export function validateIntent(value) {
   if (!hasExactKeys(value, ['intent', 'expense']) || !INTENTS.includes(value.intent)) throw invalidOutput();
-  if (value.intent !== 'expense') {
+  if (!['expense', 'reminder'].includes(value.intent)) {
     if (value.expense !== null) throw invalidOutput();
     return Object.freeze({ intent: value.intent, expense: null });
   }
   const expense = value.expense;
   if (!hasExactKeys(expense, EXPENSE_KEYS)) throw invalidOutput();
+  if (value.intent === 'reminder' && expense.cents !== null) throw invalidOutput();
   if (expense.cents !== null && (!Number.isSafeInteger(expense.cents) || expense.cents <= 0)) throw invalidOutput();
   if (!Array.isArray(expense.participantNames) || expense.participantNames.length > 20) throw invalidOutput();
   const participantNames = expense.participantNames.map((name) => {
@@ -73,7 +74,7 @@ export function validateIntent(value) {
   // Preserve repeated names: two people named Sam require explicit resolution
   // in C2. Dedupe here would silently alter the proposed split.
   return Object.freeze({
-    intent: 'expense',
+    intent: value.intent,
     expense: Object.freeze({
       merchant: textOrNull(expense.merchant, 60),
       cents: expense.cents,

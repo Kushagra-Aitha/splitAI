@@ -307,12 +307,12 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   }
 
-  async function reviewSettlement(button) {
-    const groupId = state.group;
-    const payeeUserId = button.dataset.settleWith;
-    const payee = cached.data.members.find((member) => member.userId === payeeUserId);
+  async function reviewSettlement(button, { groupId = state.group, payeeUserId = button.dataset.settleWith } = {}) {
     button.disabled = true;
     try {
+      const data = cached?.id === groupId && cached.data ? cached.data : await apiRequest(`/api/groups/${encodeURIComponent(groupId)}`);
+      const payee = data.members.find((member) => member.userId === payeeUserId);
+      if (!payee) throw new Error('This person is no longer available in the group.');
       const { review } = await apiRequest('/api/settlement-reviews', { method: 'POST', body: { groupId, payeeUserId } });
       if (!button.isConnected) return;
       if (button.closest('[role="dialog"]')) closeModal();
@@ -456,6 +456,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   }
 
   return { groups, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: groupForm, handleExpenseForm,
+    openSettlement: reviewSettlement,
     onNotifications: activity.onNotifications,
     afterRender() {
       if (state.page === 'groups' && state.group && cached?.data && !cached.error) {

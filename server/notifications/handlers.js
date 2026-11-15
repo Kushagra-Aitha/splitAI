@@ -18,8 +18,10 @@ export function createNotificationHandlers({ query }) {
           c.settlement_id AS "settlementId", e.merchant, e.total_cents::text AS "totalCents", es.share_cents::text AS "yourShareCents",
           recurring_operation.occurrence AS "recurringOccurrence", e.created_by = $1 AS "isExpensePayer",
           s.amount_cents::text AS "settlementCents", s.payer_user_id = $1 AS "isPayer",
-          payee.display_name AS "payeeName"
+          payee.display_name AS "payeeName", reminder.amount_cents::text AS "reminderCents"
         FROM notifications n LEFT JOIN groups g ON g.id = n.group_id
+        LEFT JOIN debt_reminders reminder ON n.kind = 'debt_reminder' AND reminder.id = n.source_id
+          AND reminder.group_id = n.group_id AND reminder.status = 'sent' AND reminder.recipient_user_id = $1
         LEFT JOIN expenses e ON e.id = n.expense_id AND e.group_id = n.group_id
         LEFT JOIN recurring_split_expenses recurring ON recurring.expense_id = e.id
         LEFT JOIN capital_operations recurring_operation ON recurring_operation.id = recurring.operation_id
@@ -29,7 +31,7 @@ export function createNotificationHandlers({ query }) {
           AND s.id = n.source_id AND s.group_id = n.group_id
         LEFT JOIN users u ON u.id = CASE WHEN n.kind = 'expense_added' THEN e.created_by
           WHEN n.kind IN ('comment_added', 'guard_flagged') THEN c.author_user_id WHEN s.id IS NOT NULL THEN s.payer_user_id
-          WHEN n.kind = 'guard_blocked' THEN n.recipient_user_id END
+          WHEN n.kind = 'guard_blocked' THEN n.recipient_user_id WHEN n.kind = 'debt_reminder' THEN reminder.sender_user_id END
         LEFT JOIN users payee ON payee.id = s.payee_user_id
         WHERE ${visible} ${before ? 'AND (n.created_at, n.id) < ($3::timestamptz, $4::uuid)' : ''}
         ORDER BY n.created_at DESC, n.id DESC LIMIT $2
@@ -39,7 +41,7 @@ export function createNotificationHandlers({ query }) {
       if (!Number.isSafeInteger(count) || count < 0) throw new HttpError(409, 'NOTIFICATION_STATE_INVALID', 'Notifications need to be refreshed.');
       const more = result.items.length > limit;
       const items = result.items.slice(0, limit);
-      for (const item of items) for (const field of ['totalCents', 'yourShareCents', 'settlementCents']) {
+      for (const item of items) for (const field of ['totalCents', 'yourShareCents', 'settlementCents', 'reminderCents']) {
         if (item[field] === null) continue;
         item[field] = Number(item[field]);
         if (!Number.isSafeInteger(item[field]) || item[field] < 0) throw new HttpError(409, 'NOTIFICATION_STATE_INVALID', 'Notifications need to be refreshed.');

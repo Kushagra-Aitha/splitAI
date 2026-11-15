@@ -109,8 +109,7 @@ test('live database: private, atomic and repeat-safe notifications with real ses
     const item = (await list('sam')).items.find((entry) => entry.sourceId === id);
     assert.equal(item.groupId, null); assert.equal(item.expenseId, null);
     assert.deepEqual(Object.keys(item).sort(), ['actorName', 'actorUserId', 'createdAt', 'expenseId', 'groupId', 'groupName',
-      'id', 'isExpensePayer', 'isPayer', 'kind', 'merchant', 'payeeName', 'readAt', 'recurringOccurrence', 'settlementCents', 'settlementId',
-      'sourceId', 'totalCents', 'yourShareCents']);
+      'id', 'isExpensePayer', 'isPayer', 'kind', 'merchant', 'payeeName', 'readAt', 'recurringOccurrence', 'reminderCents', 'settlementCents', 'settlementId', 'sourceId', 'totalCents', 'yourShareCents']);
     const before = (await list('sam')).unreadCount;
     await assert.rejects(withTransaction(async (tx) => {
       await recordGuardEvent(tx, { actorUserId: USERS.sam, reasonCode: 'UNTRUSTED_CONTEXT' });

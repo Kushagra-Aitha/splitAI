@@ -40,8 +40,11 @@ export const routes = Object.freeze([
   ['banking.transactionCategory', 'POST', '/api/banking/transactions/:id/category'],
   ['overview.get', 'GET', '/api/overview'],
   ['ask.create', 'POST', '/api/ask'],
+  ['reminders.draft', 'POST', '/api/reminders/drafts'],
+  ['reminders.confirm', 'POST', '/api/reminders/:id/confirm'],
   ['insight.get', 'GET', '/api/insight'],
   ['goals.list', 'GET', '/api/goals'],
+  ['goals.history', 'GET', '/api/goals/:id/history'],
   ['goals.create', 'POST', '/api/goals'],
   ['goals.move', 'POST', '/api/goals/:id/movements'],
 ].map(([name, method, path]) => Object.freeze({ name, method, path })));

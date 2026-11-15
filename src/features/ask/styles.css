@@ -72,3 +72,5 @@
   #split-common-ground .ask-selection input:not([type='checkbox']),
   #split-common-ground .ask-selection select { font-size: 16px; }
 }
+#split-common-ground[data-page='chat'] .ask-fab { display: none; }
+#split-common-ground [aria-label='Choose a reminder'] button { display: block; margin-top: 10px; width: 100%; text-align: left; }
