@@ -6,8 +6,7 @@ import { createVoiceTranscription } from '../assistant/voice-transcription.js';
 
 test('Gemini transcribes audio and returns 3.8 Flash TTS audio using the server credential', async () => {
   const calls = [];
-  const pcm = Buffer.alloc(48);
-  const ttsWav = Buffer.alloc(44 + pcm.length);
+  const ttsWav = Buffer.alloc(48);
   ttsWav.write('RIFF');
   ttsWav.write('WAVE', 8);
   const voice = createGeminiVoice({
@@ -16,7 +15,7 @@ test('Gemini transcribes audio and returns 3.8 Flash TTS audio using the server 
       calls.push({ url, ...request });
       return calls.length === 1
         ? Response.json({ candidates: [{ content: { parts: [{ text: 'Split pizza with Ben.' }] } }] })
-        : Response.json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/wav', data: ttsWav.toString('base64') } }] } }] });
+        : Response.json({ steps: [{ type: 'model_output', content: [{ type: 'audio', mime_type: 'audio/wav', data: ttsWav.toString('base64') }] }] });
     },
   });
   assert.equal(await voice.transcribe(Buffer.from('test WAV')), 'Split pizza with Ben.');
@@ -24,10 +23,12 @@ test('Gemini transcribes audio and returns 3.8 Flash TTS audio using the server 
   assert.equal(calls[0].headers['x-goog-api-key'], 'test-key');
   assert.match(calls[0].url, /gemini-3\.5-transcribe:generateContent$/);
   assert.equal(JSON.parse(calls[0].body).contents[0].parts[1].inlineData.mimeType, 'audio/wav');
-  assert.match(calls[1].url, /gemini-3\.8-flash-tts:generateContent$/);
+  assert.match(calls[1].url, /v1beta\/interactions$/);
   const request = JSON.parse(calls[1].body);
-  assert.equal(request.contents[0].parts[0].text.endsWith('Review your split.'), true);
-  assert.deepEqual(request.generationConfig.responseModalities, ['AUDIO']);
+  assert.equal(request.model, 'gemini-3.8-flash-tts');
+  assert.equal(request.store, false);
+  assert.equal(request.input[0].content[0].text, 'Review your split.');
+  assert.deepEqual(request.response_format, { type: 'audio', mime_type: 'audio/wav' });
 });
 
 test('missing Gemini configuration fails closed and transcription validates the WAV before provider use', async () => {
