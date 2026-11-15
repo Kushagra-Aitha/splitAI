@@ -43,6 +43,7 @@ export const routes = Object.freeze([
   ['reminders.draft', 'POST', '/api/reminders/drafts'],
   ['reminders.confirm', 'POST', '/api/reminders/:id/confirm'],
   ['insight.get', 'GET', '/api/insight'],
+  ['insights.get', 'GET', '/api/insights'],
   ['goals.list', 'GET', '/api/goals'],
   ['goals.history', 'GET', '/api/goals/:id/history'],
   ['goals.create', 'POST', '/api/goals'],
