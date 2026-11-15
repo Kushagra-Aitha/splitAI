@@ -7,6 +7,7 @@ import { createAssistantGuard, rejectedProposalReason } from './guard.js';
 import { chargeExplanationTarget } from '../ledger/explain-charge.js';
 import { bankQuery, matchPurchases } from './bank-match.js';
 import { answerGoalProgress } from './goal-progress.js';
+import { classifyGuardText } from '../guard/comments.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -163,7 +164,7 @@ async function advance(db, proposal, actor, selection) {
 }
 
 export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, prepareReminder, explainCharge,
-  guard = createAssistantGuard({ withTransaction }) }) {
+  guard = createAssistantGuard({ withTransaction }), classifyInput = classifyGuardText }) {
   const run = async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
       if (Object.hasOwn(body, 'message')) throw invalid('Send a message or a proposal selection, not both.');
@@ -188,6 +189,8 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
     const { rows: [existing] } = await query(`SELECT ${columns} FROM assistant_proposals
       WHERE actor_user_id = $1 AND request_key = $2`, [actor.userId, requestKey]);
     if (existing && existing.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
+    const classification = await classifyInput(message);
+    if (classification.flagged) return guard.block({ actor, reasonCode: 'UNTRUSTED_INSTRUCTION' });
     const merchant = !existing && explainCharge ? chargeExplanationTarget(message) : null;
     if (merchant) {
       const asOf = new Date().toISOString();
@@ -198,7 +201,13 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
     if (parsed.intent === 'goal_progress') return withTransaction((db) => answerGoalProgress(db, actor.userId));
     if (parsed.intent === 'reminder' && prepareReminder) return prepareReminder(actor, parsed.expense, requestKey);
     if (parsed.intent === 'reminder') throw new HttpError(503, 'REMINDERS_UNAVAILABLE', 'Reminders are not available yet.');
-    if (parsed.intent === 'unsupported') return guard.block({ actor, reasonCode: 'ASSISTANT_ACTION_UNSUPPORTED' });
+    if (parsed.intent === 'unsupported') {
+      return {
+        type: 'answer',
+        intent: 'unsupported',
+        answer: 'I can help with expenses, balances, spending, goals, reminders, and charge explanations. No changes were made.',
+      };
+    }
     if (parsed.intent !== 'expense') {
       if (answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });

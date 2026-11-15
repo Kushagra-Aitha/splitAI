@@ -52,7 +52,7 @@ async function modelProbability(text) {
   return spam.score;
 }
 
-export async function classifyComment(text) {
+export async function classifyGuardText(text) {
   try {
     return modelResult(text, await modelProbability(text), manifest);
   } catch {
@@ -60,6 +60,8 @@ export async function classifyComment(text) {
     return rulesOnlyResult(text);
   }
 }
+
+export const classifyComment = classifyGuardText;
 
 export async function warmGuard() {
   try {
