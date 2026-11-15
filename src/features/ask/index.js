@@ -444,7 +444,11 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   });
   root.addEventListener('click', (event) => {
     const prompt = event.target.closest('[data-ask-prompt]');
-    if (prompt && !sending) { composerText = prompts[Number(prompt.dataset.askPrompt)] || ''; refresh(); root.querySelector('#sp-chat-input')?.focus(); return; }
+    if (prompt && !sending) {
+      const message = prompts[Number(prompt.dataset.askPrompt)] || '';
+      if (message) void submitMessage(message);
+      return;
+    }
     const note = event.target.closest('[data-ask-note-group]');
     if (note) {
       go('chat');
