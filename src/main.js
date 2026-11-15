@@ -18,6 +18,7 @@ import './styles/ui.css';
 import './styles/session.css';
 import './styles/look.css';
 import './features/together/groups.css';
+import './features/together/chat.css';
 
 import { mountApp } from './app.js';
 import { initThemeToggle } from './theme.js';

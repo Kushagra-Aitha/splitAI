@@ -1,14 +1,16 @@
 import { apiRequest } from '../../api/session.js';
 import { GROUPS } from '../../../server/db/demo-ids.js';
 import { formatUsdCents, usdToCents } from '../../lib/money.js';
+import { createGroupChat } from './chat.js';
 import { createActivity } from './activity.js';
 
 const groupTypes = { trip: 'Trip', roommates: 'Roommates', friends: 'Friends', couple: 'Couple', event: 'Event', work: 'Work' };
 const photos = import.meta.glob('./photos/*.webp', { eager: true, import: 'default' });
 const bannerUrl = (kind) => photos[`./photos/${kind}.webp`] ?? photos['./photos/roommates.webp'];
-const groupTabs = ['Activity', 'Balances', 'Recurring'];
+const groupTabs = ['Activity', 'Balances', 'Recurring', 'Chat'];
 
-export function createTogether({ root, state, demo, icon, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
+export function createTogether({ root, state, demo, icon, icons, personAvatar, money, esc, heading, avatar, stack, shareFor, render, persist, announce, openModal, closeModal, closeButton, toast, go, tx }) {
+  const chat = createGroupChat({ root, icon, icons, personAvatar, money, esc, announce });
   const activity = createActivity({ root, state, esc, money, announce, openModal, closeButton });
   const avatars = (initials) => `<span class="avatar-stack" aria-hidden="true">${initials.slice(0, 5)
     .map((value) => `<span class="avatar">${esc(value)}</span>`).join('')}</span>`;
@@ -115,7 +117,6 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
           <button type="button" data-action="new-group-expense">Cash expense</button>
         </div></details>
         <button type="button" class="secondary" data-action="choose-settlement" ${payable.length ? '' : 'disabled'}>Settle up</button>
-        <button type="button" class="secondary" data-activity-action="chat">${icon('chat-circle')} Chat <span id="sp-group-unread"></span></button>
         <details class="group-menu"><summary class="secondary" aria-label="More group actions">⋯</summary><div>
           <button type="button" data-action="edit-group">Edit group</button>
           <button type="button" data-action="add-group-member">Add member</button>
@@ -128,9 +129,10 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
         <div class="group-tile-members">${avatars(members.map((member) => member.initials))}<span class="small">${members.length} ${members.length === 1 ? 'member' : 'members'}</span></div>
       </section>
       <div class="group-tabs" role="tablist" aria-label="Group sections">
-        ${groupTabs.map((label) => `<button type="button" role="tab" id="sp-group-tab-${label}" data-group-tab="${label}" aria-controls="sp-group-panel-${label}" aria-selected="${tab === label}" tabindex="${tab === label ? 0 : -1}">${label}</button>`).join('')}
+        ${groupTabs.map((label) => `<button type="button" role="tab" id="sp-group-tab-${label}" data-group-tab="${label}" aria-controls="sp-group-panel-${label}" aria-selected="${tab === label}" tabindex="${tab === label ? 0 : -1}">${label}${label === 'Chat' ? `<span data-group-chat-unread="${esc(group.id)}"></span>` : ''}</button>`).join('')}
       </div>
       <div id="sp-group-activity"></div>
+      <section id="sp-group-panel-Chat" role="tabpanel" aria-labelledby="sp-group-tab-Chat" ${tab === 'Chat' ? 'data-group-chat' : 'hidden'}></section>
       <section id="sp-group-panel-Balances" role="tabpanel" aria-labelledby="sp-group-tab-Balances" ${tab === 'Balances' ? '' : 'hidden'}>
         ${balanceRows ? `<ul class="sp-card group-balance-list">${balanceRows}</ul>` : '<p>All square with this group.</p>'}
         <section class="sp-card group-members"><h2>Members</h2><ul>${members.map((member) => `<li>${esc(member.displayName)}${member.isYou ? ' (you)' : ''}</li>`).join('')}</ul></section>
@@ -154,7 +156,8 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
 
   function showGroup(id, target = {}) {
     const fromView = root.querySelector('#sp-view').contains(root.ownerDocument.activeElement);
-    if (state.group !== id || target.focus) tab = 'Activity';
+    if (target.commentId && !target.expenseId && !target.settlementId) tab = 'Chat';
+    else if (state.group !== id || target.focus) tab = 'Activity';
     cached = undefined;
     navigationTarget = target.focus || fromView ? { ...target, groupId: id } : null;
     state.page = 'groups';
@@ -359,14 +362,16 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
   };
 
   root.addEventListener('keydown', (event) => {
+    chat.keydown(event);
     if (!event.target.dataset.groupTab) return;
     const index = groupTabs.indexOf(event.target.dataset.groupTab);
-    const next = { ArrowLeft: (index + 2) % 3, ArrowRight: (index + 1) % 3, Home: 0, End: 2 }[event.key];
+    const next = { ArrowLeft: (index + groupTabs.length - 1) % groupTabs.length, ArrowRight: (index + 1) % groupTabs.length, Home: 0, End: groupTabs.length - 1 }[event.key];
     if (next === undefined) return;
     event.preventDefault();
     selectTab(groupTabs[next]);
   });
 
+  root.addEventListener('input', chat.input);
   root.addEventListener('change', ({ target }) => {
     if (target.name === 'kind' && target.form?.id === 'sp-group-form' && !target.form.dataset.bannerChosen) {
       target.form.elements.banner.value = target.value;
@@ -376,7 +381,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
 
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button');
-    if (!b) return;
+    if (!b || chat.click(b)) return;
     b.closest('details.group-menu')?.removeAttribute('open');
     if (b.dataset.groupTab) { selectTab(b.dataset.groupTab); return; }
     if (b.hasAttribute('data-group-bank-expense')) {
@@ -445,7 +450,7 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
     }
   });
   function handleExpenseForm(form, fd) {
-    if (activity.handleForm(form)) return;
+    if (chat.handleForm(form, fd) || activity.handleForm(form)) return;
     if (form.id === 'sp-group-membership-form') { void submitMembership(form, fd); return; }
     if (form.id === 'sp-settlement-confirm') { void confirmSettlement(form); return; }
     if (['sp-group-form', 'sp-group-expense-form'].includes(form.id) || form.hasAttribute('data-expense-confirm')) {
@@ -457,12 +462,13 @@ export function createTogether({ root, state, demo, icon, money, esc, heading, a
 
   return { groups, draftTicket, registerReview, openGroup: showGroup, openGroupCreation: groupForm, handleExpenseForm,
     openSettlement: reviewSettlement,
-    onNotifications: activity.onNotifications,
+    onNotifications(items) { activity.onNotifications(items); chat.onNotifications(items); },
     afterRender() {
       if (state.page === 'groups' && state.group && cached?.data && !cached.error) {
         activity.mount(state.group, navigationTarget, tab, cached.data.group.name);
+        chat.mount(state.group, tab === 'Chat' ? navigationTarget?.commentId : null);
         navigationTarget = null;
-      } else activity.detach();
+      } else { activity.detach(); chat.detach(); }
     },
   };
 }

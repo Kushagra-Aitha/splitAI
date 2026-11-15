@@ -1,0 +1,42 @@
+#split-common-ground [data-group-chat] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: clamp(270px, calc(var(--chat-viewport, 100dvh) - 175px), 660px);
+  min-width: 0;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-paper);
+}
+#split-common-ground .group-chat-feed {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  padding: 12px;
+}
+#split-common-ground .group-chat-feed > ol { display: grid; gap: 5px; list-style: none; margin: 0; padding: 0; }
+#split-common-ground [data-chat-status]:empty { display: none; }
+#split-common-ground .group-chat-message { justify-self: start; max-width: min(82%, 36rem); min-width: 0; }
+#split-common-ground .group-chat-message.is-mine { justify-self: end; }
+#split-common-ground .group-chat-sender { display: flex; align-items: center; gap: 6px; font-size: .8rem; margin: 7px 0 4px; }
+#split-common-ground .is-mine .group-chat-sender { justify-content: flex-end; }
+#split-common-ground .group-chat-sender .avatar { border-radius: 50%; }
+#split-common-ground .group-chat-bubble { padding: 6px 10px; border: 1px solid var(--sp-line); background: var(--sp-paper); }
+#split-common-ground .is-mine .group-chat-bubble { background: var(--sp-soft); }
+#split-common-ground :is(.group-chat-text, .group-chat-warning, .group-chat-bubble .guard-message-text) {
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;
+}
+#split-common-ground .group-chat-warning { color: var(--sp-red); font-size: .78rem; }
+#split-common-ground .group-chat-bubble .guard-message { padding: 6px; border-radius: 0; }
+#split-common-ground .group-chat-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; font-size: .72rem; }
+#split-common-ground :is(.group-chat-day, .group-chat-system) { text-align: center; font-size: .78rem; padding: 5px; overflow-wrap: anywhere; }
+#split-common-ground .group-chat-day { font-weight: 700; }
+#split-common-ground .group-chat-system time { margin-left: 5px; opacity: .75; }
+#split-common-ground .group-chat-composer { position: relative; flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 8px; border-top: 1px solid var(--sp-line); }
+#split-common-ground .group-chat-composer textarea {
+  flex: 1; min-width: 0; margin: 0; resize: none; overflow-y: auto; font-size: 16px;
+  line-height: 1.35; padding: 8px; min-height: 40px; max-height: calc(6.75em + 18px); border-radius: 0;
+}
+#split-common-ground .group-chat-composer button[type="submit"] { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 0; }
+#split-common-ground .group-chat-jump { position: absolute; right: 12px; bottom: calc(100% + 6px); z-index: 1; border-radius: 0; }

@@ -9,7 +9,7 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
   let groupId = null, threadId = null, threadKind = null, host = null, items = [];
   let before = null, focus = null, nextCursor = null, loading = false, error = '', postError = '';
   let groupName = '';
-  let ledger = [], ledgerCursor = null, selectedTab = 'Activity', chatOpen = false, unread = 0;
+  let ledger = [], ledgerCursor = null, selectedTab = 'Activity';
   let controller, postController, generation = 0, posting = false, needsFocus = false, fingerprint = '';
   const drafts = new Map();
   const owned = () => !!actorId && getSession()?.actor.userId === actorId;
@@ -56,7 +56,7 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
   function render() {
     if (!active()) return;
     preserveFocus(host, () => {
-      const conversation = threadId || chatOpen ? `<div class="activity-heading"><h2 id="sp-activity-title" tabindex="-1">${threadId ? (threadKind === 'expense' ? 'Expense comments' : 'Settlement comments') : 'Group chat'}</h2>
+      const conversation = threadId ? `<div class="activity-heading"><h2 id="sp-activity-title" tabindex="-1">${threadId ? (threadKind === 'expense' ? 'Expense comments' : 'Settlement comments') : 'Group chat'}</h2>
         <div>${threadId ? '<button type="button" class="text-button" data-activity-action="group">Close thread</button>' : ''}
         <button type="button" id="sp-activity-refresh" class="text-button" data-activity-action="refresh" ${loading ? 'disabled' : ''}>Refresh</button></div></div>
 
@@ -73,26 +73,22 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
           <p role="alert">${esc(postError)}</p>
         </form>` : '';
       host.innerHTML = `<section id="sp-group-panel-Activity" role="tabpanel" aria-labelledby="sp-group-tab-Activity" ${selectedTab === 'Activity' ? '' : 'hidden'}>
-        ${!threadId && !chatOpen && error ? `<p role="alert">${esc(error)} <button type="button" class="text-button" data-activity-action="refresh">Retry</button></p>` : ''}
+        ${!threadId && error ? `<p role="alert">${esc(error)} <button type="button" class="text-button" data-activity-action="refresh">Retry</button></p>` : ''}
         <ul class="activity-list">${ledger.map(entry).join('')}</ul>
-        ${!ledger.length && (loading ? !threadId && !chatOpen : !error) ? `<p>${loading ? 'Loading activity…' : 'No shared expenses yet.'}</p>` : ''}
-        ${!threadId && !chatOpen && ledgerCursor ? `<button type="button" class="secondary" data-activity-action="ledger-older" ${loading ? 'disabled' : ''}>Load older activity</button>` : ''}
-        </section>
-        ${chatOpen ? `<aside class="group-chat-drawer" aria-label="Group chat">
-          <button type="button" class="secondary" data-activity-action="close">Close chat</button>${conversation}</aside>` : ''}`;
+        ${!ledger.length && (loading ? !threadId : !error) ? `<p>${loading ? 'Loading activity…' : 'No shared expenses yet.'}</p>` : ''}
+        ${!threadId && ledgerCursor ? `<button type="button" class="secondary" data-activity-action="ledger-older" ${loading ? 'disabled' : ''}>Load older activity</button>` : ''}
+        </section>`;
       if (threadId) {
         const panel = host.querySelector('[data-inline-thread]');
         if (panel) panel.innerHTML = conversation;
       }
-      const badge = root.querySelector('#sp-group-unread');
-      if (badge) badge.textContent = unread ? `(${unread})` : '';
 
     });
   }
   function abortRead() { generation++; controller?.abort(); controller = null; loading = false; }
   function reset() {
     abortRead(); postController?.abort(); postController = null;
-    ledger = []; ledgerCursor = null; chatOpen = false; unread = 0; groupId = null; threadId = null; threadKind = null; host = null; items = [];
+    ledger = []; ledgerCursor = null; groupId = null; threadId = null; threadKind = null; host = null; items = [];
     before = null; focus = null; nextCursor = null; error = ''; postError = '';
     drafts.clear(); posting = false; needsFocus = false; fingerprint = '';
   }
@@ -102,15 +98,15 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
     const token = generation, request = new AbortController(); controller = request;
     const params = new URLSearchParams();
     if (threadId) params.set(`${threadKind}Id`, threadId);
-    else params.set('view', chatOpen ? 'chat' : 'ledger');
-    if (before && (threadId || chatOpen || append)) params.set('before', before);
+    else params.set('view', 'ledger');
+    if (before && (threadId || append)) params.set('before', before);
     else if (focus) { params.set('focusId', focus.id); params.set('focusType', focus.type); }
     loading = true; error = ''; render();
     try {
       const data = await apiRequest(`/api/groups/${encodeURIComponent(groupId)}/activity?${params}`, { signal: request.signal });
       if (token !== generation || !active()) return;
       items = data.items;
-      if (!threadId && !chatOpen) {
+      if (!threadId) {
         before = null;
         ledger = append || focus ? [...new Map([...ledger, ...items].map((item) => [item.id, item])).values()] : items;
         if (!focus) ledgerCursor = data.nextCursor;
@@ -137,7 +133,7 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
     }
   }
   function selectThread(id, kind = null, target = null) {
-    abortRead(); threadId = id; threadKind = kind; chatOpen = !id; before = null; focus = target; items = [];
+    abortRead(); threadId = id; threadKind = kind; before = null; focus = target; items = [];
     nextCursor = null; postError = ''; needsFocus = true;
     void refresh();
   }
@@ -178,18 +174,16 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
   });
   root.addEventListener('click', (event) => {
     const button = event.target.closest('[data-thread-id], [data-activity-action], [data-explain-id]');
-    if (!active() || !button || (!host.contains(button) && button.dataset.activityAction !== 'chat')) return;
+    if (!active() || !button || !host.contains(button)) return;
     if (button.dataset.explainId) { void explain(button); return; }
     if (posting) return; // Keep the submitted comment bound to its expense.
     if (button.dataset.threadId) selectThread(button.dataset.threadId, button.dataset.threadKind);
-    else if (button.dataset.activityAction === 'chat') selectThread(null);
-    else if (['close', 'group'].includes(button.dataset.activityAction)) {
+    else if (button.dataset.activityAction === 'group') {
       const thread = threadId;
       abortRead();
-      threadId = null; threadKind = null; chatOpen = false; before = null; focus = null;
+      threadId = null; threadKind = null; before = null; focus = null;
       render();
       if (thread) [...host.querySelectorAll('[data-thread-id]')].find((button) => button.dataset.threadId === thread)?.focus();
-      else root.querySelector('[data-activity-action="chat"]')?.focus();
       void refresh();
     }
     else {
@@ -225,8 +219,6 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
         focus = { id: target.settlementId, type: 'settlement' };
         needsFocus = true;
         void refresh();
-      } else if (target?.commentId) {
-        selectThread(null, null, { id: target.commentId, type: 'comment' });
       } else if (changed) void refresh();
       else render();
     },
@@ -235,9 +227,6 @@ export function createActivity({ root, state, esc, money, announce, openModal, c
     onNotifications(notifications) {
       if (!active() || document.hidden) return;
       const relevant = notifications.filter((item) => item.groupId === groupId);
-      unread = relevant.filter((item) => item.kind === 'comment_added' && !item.expenseId && !item.settlementId && !item.readAt).length;
-      const badge = root.querySelector('#sp-group-unread');
-      if (badge) badge.textContent = unread ? `(${unread})` : '';
       const next = relevant.map((item) => item.id).join(',');
       if (next !== fingerprint && !loading && !posting) { fingerprint = next; void refresh(); }
     },
