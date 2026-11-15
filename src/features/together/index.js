@@ -132,7 +132,7 @@ export function createTogether({ root, state, demo, icon, icons, personAvatar, m
         ${groupTabs.map((label) => `<button type="button" role="tab" id="sp-group-tab-${label}" data-group-tab="${label}" aria-controls="sp-group-panel-${label}" aria-selected="${tab === label}" tabindex="${tab === label ? 0 : -1}">${label}${label === 'Chat' ? `<span data-group-chat-unread="${esc(group.id)}"></span>` : ''}</button>`).join('')}
       </div>
       <div id="sp-group-activity"></div>
-      <section id="sp-group-panel-Chat" role="tabpanel" aria-labelledby="sp-group-tab-Chat" ${tab === 'Chat' ? 'data-group-chat' : 'hidden'}></section>
+      <section id="sp-group-panel-Chat" role="tabpanel" aria-labelledby="sp-group-tab-Chat" data-chat-name="${esc(group.name)}" data-chat-members="${esc(members.map((member) => member.isYou ? 'You' : member.displayName).join(', '))}" ${tab === 'Chat' ? 'data-group-chat' : 'hidden'}></section>
       <section id="sp-group-panel-Balances" role="tabpanel" aria-labelledby="sp-group-tab-Balances" ${tab === 'Balances' ? '' : 'hidden'}>
         ${balanceRows ? `<ul class="sp-card group-balance-list">${balanceRows}</ul>` : '<p>All square with this group.</p>'}
         <section class="sp-card group-members"><h2>Members</h2><ul>${members.map((member) => `<li>${esc(member.displayName)}${member.isYou ? ' (you)' : ''}</li>`).join('')}</ul></section>

@@ -1,6 +1,7 @@
 import { apiRequest, getSession } from '../../api/session.js';
 import { preserveFocus } from '../../lib/focus.js';
 import { GUARD_REASONS } from '../../../shared/guard-reasons.js';
+import { toneFor } from '../../lib/avatar.js';
 
 const timeText = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 const dayText = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -53,24 +54,33 @@ export function createGroupChat({ root, esc, money, icon, icons, announce, perso
     return `${item.authorName} → ${item.payeeName} · ${amount} · ${item.status === 'failed' ? 'Payment failed' : 'Payment pending'}`;
   }
 
+  // A19 · Messaging layout: yours on the right, everyone else's on the left
+  // with their avatar and name on the first message of a run; time inside the
+  // bubble; days and money events as centred chips.
   function message(item, previous, firstOnDay) {
-    if (item.type !== 'comment') return `<li class="group-chat-system"><span>${esc(system(item))}</span> <time datetime="${esc(item.occurredAt)}">${timeText.format(new Date(item.occurredAt))}</time></li>`;
+    const time = `<time datetime="${esc(item.occurredAt)}">${timeText.format(new Date(item.occurredAt))}</time>`;
+    if (item.type !== 'comment') {
+      return `<li class="group-chat-system"><span>${icon(item.type === 'expense' ? 'receipt' : 'hand-coins')}${esc(system(item))}${time}</span></li>`;
+    }
     const mine = item.authorUserId === getSession()?.actor.userId;
     const first = firstOnDay || previous?.type !== 'comment' || previous.authorUserId !== item.authorUserId;
     const shown = model.revealed.has(item.id);
     const reason = item.guardReasons?.map((code) => GUARD_REASONS[code]).filter(Boolean).join(' ') || 'Guard flagged this message.';
-    const body = item.guardFlagged ? `<p class="group-chat-warning">${esc(reason)}</p>
+    const body = item.guardFlagged ? `<p class="group-chat-warning">${icon('shield-alert')}${esc(reason)}</p>
       <button class="guard-message ${shown ? '' : 'is-hidden'}" type="button" id="sp-chat-reveal-${esc(item.id)}"
         data-chat-reveal="${esc(item.id)}" aria-expanded="${shown}">
         <span class="guard-message-text"${shown ? '' : ' aria-hidden="true"'}>${esc(item.text)}</span>
         ${shown ? '' : '<span class="guard-message-cover">Tap to show the message</span>'}
       </button>` : `<p class="group-chat-text">${esc(item.text)}</p>`;
-    return `<li class="group-chat-message ${mine ? 'is-mine' : 'is-theirs'}" id="sp-group-message-${esc(item.id)}" tabindex="-1">
-      ${first ? `<div class="group-chat-sender">${personAvatar({ userId: item.authorUserId, displayName: item.authorName }, { label: false })}<strong>${mine ? 'You' : esc(item.authorName)}</strong></div>` : ''}
-      <div class="group-chat-bubble">${body}
-        <div class="group-chat-meta"><time datetime="${esc(item.occurredAt)}">${timeText.format(new Date(item.occurredAt))}</time>
-        ${item.delivery === 'pending' ? '<span>Sending…</span>' : item.delivery === 'failed' ?
-          `<span>Failed to send</span><button type="button" class="text-button" data-chat-retry="${esc(item.id)}">Retry</button>` : ''}</div>
+    const delivery = item.delivery === 'pending' ? '<span class="group-chat-state">Sending…</span>'
+      : item.delivery === 'failed' ? `<span class="group-chat-state is-failed">Not sent</span><button type="button" class="text-button" data-chat-retry="${esc(item.id)}">Retry</button>`
+        : mine ? `<span class="group-chat-state is-sent" aria-label="Sent">${icon('check')}</span>` : '';
+    const who = { userId: item.authorUserId, displayName: item.authorName };
+    return `<li class="group-chat-message ${mine ? 'is-mine' : 'is-theirs'}${first ? ' is-first' : ''}" id="sp-group-message-${esc(item.id)}" tabindex="-1">
+      ${mine ? '' : `<span class="group-chat-avatar">${first ? personAvatar(who, { label: false }) : ''}</span>`}
+      <div class="group-chat-bubble"${mine ? '' : ` aria-label="${esc(item.authorName)}"`}>
+        ${first && !mine ? `<span class="group-chat-author tone-${toneFor(item.authorUserId)}">${esc(item.authorName)}</span>` : ''}
+        ${body}<span class="group-chat-meta">${time}${delivery}</span>
       </div>
     </li>`;
   }
@@ -83,10 +93,11 @@ export function createGroupChat({ root, esc, money, icon, icons, announce, perso
       feed.querySelector('ol').innerHTML = items.map((item, index) => {
         const previous = items[index - 1];
         const newDay = !previous || dayKey(item.occurredAt) !== dayKey(previous.occurredAt);
-        return (newDay ? `<li class="group-chat-day">${esc(dayLabel(item.occurredAt))}</li>` : '') +
+        return (newDay ? `<li class="group-chat-day"><span>${esc(dayLabel(item.occurredAt))}</span></li>` : '') +
           message(item, previous, newDay);
       }).join('');
     });
+    icons();
     const status = host.querySelector('[data-chat-status]');
     status.textContent = model.error || (!model.loaded ? 'Loading messages…' : !items.length ? 'No messages yet.' : '');
     host.querySelector('[data-chat-jump]').hidden = !model.newMessages;
@@ -199,16 +210,23 @@ export function createGroupChat({ root, esc, money, icon, icons, announce, perso
         return;
       }
       if (next === host && !focusId) return;
+      const opening = !host;
       detach();
       if (model?.id !== id) model = { id, entries: new Map(), outbox: new Map(), revealed: new Set(), draft: '', atBottom: true };
       host = next;
-      host.innerHTML = `<div class="group-chat-feed" tabindex="0" aria-label="Group conversation">
+      const name = host.dataset.chatName || 'the group';
+      host.innerHTML = `<header class="group-chat-head">
+          ${personAvatar({ userId: id, displayName: name }, { label: false })}
+          <div><strong>${esc(name)}</strong><span>${esc(host.dataset.chatMembers || '')}</span></div>
+          <span class="group-chat-guard">${icon('shield-check')}Guard checks messages</span>
+        </header>
+        <div class="group-chat-feed" tabindex="0" aria-label="Conversation in ${esc(name)}">
         <p data-chat-status role="status"></p><ol></ol></div>
         <form class="group-chat-composer" id="sp-group-chat-form">
-          <button type="button" class="secondary group-chat-jump" data-chat-jump hidden>New messages ↓</button>
-          <label class="sr-only" for="sp-group-chat-text">Message the group</label>
-          <textarea id="sp-group-chat-text" name="text" rows="1" maxlength="500" placeholder="Message the group" required></textarea>
-          <button type="submit" class="primary icon-button" aria-label="Send message">${icon('arrow-up')}</button>
+          <button type="button" class="group-chat-jump" data-chat-jump hidden>New messages ${icon('chevron-down')}</button>
+          <label class="sr-only" for="sp-group-chat-text">Message ${esc(name)}</label>
+          <textarea id="sp-group-chat-text" name="text" rows="1" maxlength="500" placeholder="Message ${esc(name)}" required></textarea>
+          <button type="submit" class="primary" aria-label="Send message">${icon('arrow-up')}</button>
         </form>`;
       icons();
       feed = host.querySelector('.group-chat-feed');
@@ -217,6 +235,12 @@ export function createGroupChat({ root, esc, money, icon, icons, announce, perso
       resize(input);
       viewport();
       render({ pin: model.atBottom, restore: model.scroll });
+      // Opening the tab brings the whole conversation into view, like a chat app.
+      if (opening && !focusId) {
+        const tabs = root.querySelector('.group-tabs') ?? host;
+        const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: tabs.getBoundingClientRect().top + window.scrollY - 8, behavior: reduce ? 'auto' : 'smooth' });
+      }
       feed.addEventListener('scroll', () => {
         if (!active()) return;
         model.scroll = feed.scrollTop;

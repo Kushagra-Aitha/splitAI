@@ -1,42 +1,165 @@
+/* A19 · Group chat, laid out like a messaging app in Split's square style:
+   header, scrolling conversation, message bar pinned to the bottom. */
 #split-common-ground [data-group-chat] {
+  --chat-bg: light-dark(#efe8da, #161915);
+  --chat-theirs: var(--sp-paper);
+  --chat-mine: light-dark(#dbe8cf, #2a3826);
+  --chat-shadow: light-dark(#5a4b3524, #0008);
   position: relative;
   display: flex;
   flex-direction: column;
-  height: clamp(270px, calc(var(--chat-viewport, 100dvh) - 175px), 660px);
+  height: clamp(420px, calc(var(--chat-viewport, 100dvh) - 72px), 900px);
   min-width: 0;
+  margin-top: 8px;
   border: 1px solid var(--sp-line);
-  background: var(--sp-paper);
+  background: var(--chat-bg);
 }
+/* The floating Ask button would sit on the message bar. */
+#split-common-ground:has([data-group-chat]) .ask-fab { display: none; }
+
+/* Header */
+#split-common-ground .group-chat-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--sp-paper);
+  border-bottom: 1px solid var(--sp-line);
+}
+#split-common-ground .group-chat-head > div { display: grid; min-width: 0; flex: 1; }
+#split-common-ground .group-chat-head strong { font-size: .95rem; }
+#split-common-ground .group-chat-head > div span {
+  color: var(--sp-muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#split-common-ground .group-chat-guard { display: inline-flex; align-items: center; gap: 5px; color: var(--sp-muted); font-size: .74rem; white-space: nowrap; }
+#split-common-ground .group-chat-guard svg { width: 15px; height: 15px; color: var(--sp-pine-ink); }
+
+/* Conversation */
 #split-common-ground .group-chat-feed {
   flex: 1;
   min-height: 0;
   overflow: auto;
   overflow-anchor: none;
   overscroll-behavior: contain;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px clamp(10px, 4vw, 48px) 10px;
 }
-#split-common-ground .group-chat-feed > ol { display: grid; gap: 5px; list-style: none; margin: 0; padding: 0; }
+/* Few messages sit at the bottom, next to the message bar. */
+#split-common-ground .group-chat-feed > ol { margin-top: auto; }
+#split-common-ground .group-chat-feed:focus-visible { outline: 2px solid var(--sp-pine); outline-offset: -2px; }
+#split-common-ground .group-chat-feed > ol { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0; padding: 0; }
+#split-common-ground [data-chat-status] { text-align: center; color: var(--sp-muted); font-size: .85rem; margin: 24px 0; }
 #split-common-ground [data-chat-status]:empty { display: none; }
-#split-common-ground .group-chat-message { justify-self: start; max-width: min(82%, 36rem); min-width: 0; }
-#split-common-ground .group-chat-message.is-mine { justify-self: end; }
-#split-common-ground .group-chat-sender { display: flex; align-items: center; gap: 6px; font-size: .8rem; margin: 7px 0 4px; }
-#split-common-ground .is-mine .group-chat-sender { justify-content: flex-end; }
-#split-common-ground .group-chat-sender .avatar { border-radius: 50%; }
-#split-common-ground .group-chat-bubble { padding: 6px 10px; border: 1px solid var(--sp-line); background: var(--sp-paper); }
-#split-common-ground .is-mine .group-chat-bubble { background: var(--sp-soft); }
-#split-common-ground :is(.group-chat-text, .group-chat-warning, .group-chat-bubble .guard-message-text) {
+
+#split-common-ground .group-chat-message { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+#split-common-ground .group-chat-message.is-first { margin-top: 8px; }
+#split-common-ground .group-chat-message.is-mine { justify-content: flex-end; }
+#split-common-ground .group-chat-avatar { flex: none; width: 30px; }
+#split-common-ground .group-chat-avatar .avatar { width: 30px; height: 30px; font-size: 11px; border-radius: 50%; }
+
+#split-common-ground .group-chat-bubble {
+  position: relative;
+  display: flow-root;
+  max-width: min(34rem, 72%);
+  min-width: 0;
+  padding: 6px 9px 6px 10px;
+  background: var(--chat-theirs);
+  color: var(--sp-ink);
+  box-shadow: 0 1px 1px var(--chat-shadow);
+  font-size: .9rem;
+  line-height: 1.38;
+}
+#split-common-ground .is-mine .group-chat-bubble { background: var(--chat-mine); }
+/* Square tail on the first message of a run. */
+#split-common-ground .is-first .group-chat-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-bottom: 9px solid transparent;
+}
+#split-common-ground .is-theirs.is-first .group-chat-bubble::before { left: -8px; border-right: 8px solid var(--chat-theirs); }
+#split-common-ground .is-mine.is-first .group-chat-bubble::before { right: -8px; border-left: 8px solid var(--chat-mine); }
+
+#split-common-ground .group-chat-author { display: block; font-size: .78rem; font-weight: 700; margin-bottom: 1px; }
+#split-common-ground .group-chat-author.tone-0 { color: light-dark(#4f6a43, #b6d0a6); }
+#split-common-ground .group-chat-author.tone-1 { color: light-dark(#7a6a12, #e2d27a); }
+#split-common-ground .group-chat-author.tone-2 { color: light-dark(#9a4456, #f0b4c0); }
+#split-common-ground .group-chat-author.tone-3 { color: light-dark(#94531c, #f2c48e); }
+#split-common-ground .group-chat-author.tone-4 { color: light-dark(#34607f, #a9cbe6); }
+#split-common-ground .group-chat-author.tone-5 { color: light-dark(#6a4a86, #d4bdea); }
+
+#split-common-ground :is(.group-chat-text, .group-chat-bubble .guard-message-text) {
   white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;
 }
-#split-common-ground .group-chat-warning { color: var(--sp-red); font-size: .78rem; }
-#split-common-ground .group-chat-bubble .guard-message { padding: 6px; border-radius: 0; }
-#split-common-ground .group-chat-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; font-size: .72rem; }
-#split-common-ground :is(.group-chat-day, .group-chat-system) { text-align: center; font-size: .78rem; padding: 5px; overflow-wrap: anywhere; }
-#split-common-ground .group-chat-day { font-weight: 700; }
-#split-common-ground .group-chat-system time { margin-left: 5px; opacity: .75; }
-#split-common-ground .group-chat-composer { position: relative; flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 8px; border-top: 1px solid var(--sp-line); }
+#split-common-ground .group-chat-text { display: inline; }
+/* Time sits on the last line of text when it fits, as in messaging apps. */
+#split-common-ground .group-chat-meta {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 7px 0 -3px 12px;
+  color: var(--sp-muted);
+  font-size: .68rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+#split-common-ground .group-chat-state.is-sent svg { width: 13px; height: 13px; color: var(--sp-pine-ink); }
+#split-common-ground .group-chat-state.is-failed { color: var(--sp-red); font-weight: 600; }
+#split-common-ground .group-chat-meta .text-button { min-height: 0; padding: 0; font-size: .68rem; }
+
+#split-common-ground .group-chat-warning {
+  display: flex; gap: 5px; align-items: flex-start; margin: 0 0 5px; color: var(--sp-red); font-size: .78rem;
+}
+#split-common-ground .group-chat-warning svg { flex: none; width: 15px; height: 15px; margin-top: 1px; }
+#split-common-ground .group-chat-bubble .guard-message { display: block; width: 100%; padding: 6px; border-radius: 0; text-align: left; }
+
+/* Day separators and money events: centred chips. */
+#split-common-ground :is(.group-chat-day, .group-chat-system) { display: flex; justify-content: center; margin: 10px 0 4px; }
+#split-common-ground :is(.group-chat-day, .group-chat-system) > span {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 90%;
+  padding: 4px 10px; background: var(--sp-paper); box-shadow: 0 1px 1px var(--chat-shadow);
+  font-size: .74rem; color: var(--sp-muted); overflow-wrap: anywhere; text-align: center;
+}
+#split-common-ground .group-chat-day > span { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: .68rem; }
+#split-common-ground .group-chat-system svg { flex: none; width: 14px; height: 14px; }
+#split-common-ground .group-chat-system time { opacity: .75; }
+#split-common-ground .group-chat-system time::before { content: '·'; margin-right: 6px; }
+
+/* Message bar */
+#split-common-ground .group-chat-composer {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--sp-paper);
+  border-top: 1px solid var(--sp-line);
+}
 #split-common-ground .group-chat-composer textarea {
   flex: 1; min-width: 0; margin: 0; resize: none; overflow-y: auto; font-size: 16px;
-  line-height: 1.35; padding: 8px; min-height: 40px; max-height: calc(6.75em + 18px); border-radius: 0;
+  line-height: 1.35; padding: 10px 12px; min-height: 44px; max-height: calc(6.75em + 22px); border-radius: 0;
+  border: 1px solid var(--sp-line); background: var(--chat-bg); color: var(--sp-ink);
 }
-#split-common-ground .group-chat-composer button[type="submit"] { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 0; }
-#split-common-ground .group-chat-jump { position: absolute; right: 12px; bottom: calc(100% + 6px); z-index: 1; border-radius: 0; }
+#split-common-ground .group-chat-composer textarea:focus { outline: 2px solid var(--sp-pine); outline-offset: -1px; }
+#split-common-ground .group-chat-composer button[type="submit"] { flex: none; width: 44px; min-height: 44px; height: 44px; padding: 0; border-radius: 0; }
+#split-common-ground .group-chat-composer button[type="submit"] svg { width: 20px; height: 20px; }
+#split-common-ground .group-chat-jump {
+  position: absolute; right: 16px; bottom: calc(100% + 10px); z-index: 1;
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px;
+  background: var(--sp-paper); color: var(--sp-ink); font-size: .78rem; font-weight: 600;
+  border: 1px solid var(--sp-line); box-shadow: 0 2px 6px var(--chat-shadow);
+}
+#split-common-ground .group-chat-jump svg { width: 14px; height: 14px; }
+
+@media (max-width: 760px) {
+  /* Leave room for the bottom navigation. */
+  #split-common-ground [data-group-chat] { height: clamp(380px, calc(var(--chat-viewport, 100dvh) - 150px), 760px); margin-inline: -4px; }
+  #split-common-ground .group-chat-bubble { max-width: 82%; }
+  #split-common-ground .group-chat-guard { display: none; }
+}
