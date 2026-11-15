@@ -636,16 +636,89 @@
   #split-common-ground .sync-chip.is-syncing .sync-now svg { animation: none; }
 }
 
+/* B18 · One filter row: dropdowns and the "Not yet split" toggle share the
+   button style, height and baseline with Cash expense and Split selected. */
 #split-common-ground .tx-filters {
   display: flex;
-  align-items: end;
+  align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 16px;
 }
-
-#split-common-ground .tx-filters .field { margin: 0; }
-#split-common-ground .tx-filters .check-label { align-self: center; }
+#split-common-ground .tx-filter-group,
+#split-common-ground .tx-filter-actions,
+#split-common-ground .tx-filter-actions [data-tx-selection] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+#split-common-ground .tx-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 41px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-paper);
+  color: var(--sp-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+#split-common-ground .tx-control:hover { background: var(--sp-soft); }
+#split-common-ground .tx-control svg { width: 16px; height: 16px; flex-shrink: 0; }
+#split-common-ground .tx-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  min-height: 39px;
+  padding: 0 38px 0 15px;
+  cursor: pointer;
+}
+#split-common-ground .tx-select select:focus { outline: none; }
+#split-common-ground .tx-select svg {
+  position: absolute;
+  right: 13px;
+  pointer-events: none;
+}
+#split-common-ground .tx-toggle { padding: 0 15px; }
+#split-common-ground .tx-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+#split-common-ground .tx-toggle svg { opacity: 0; width: 0; margin-right: -8px; }
+#split-common-ground .tx-toggle.is-active svg { opacity: 1; width: 16px; margin-right: 0; }
+#split-common-ground .tx-control.is-active {
+  background: var(--sp-pressed, var(--sp-soft));
+  box-shadow: inset 0 3px 6px var(--sp-pressed-shadow, transparent);
+}
+#split-common-ground .tx-control:has(:focus-visible) {
+  outline: 2px solid var(--sp-pine);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  /* Phone: account | category, not yet split | cash expense, split selected. */
+  #split-common-ground .tx-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+  #split-common-ground .tx-filter-group,
+  #split-common-ground .tx-filter-actions,
+  #split-common-ground .tx-filter-actions [data-tx-selection] { display: contents; }
+  #split-common-ground .tx-control { min-height: 44px; min-width: 0; }
+  #split-common-ground .tx-select select { width: 100%; min-height: 42px; }
+  #split-common-ground .tx-toggle { justify-content: center; }
+  #split-common-ground .tx-filter-actions [data-action="split-selected"] { grid-column: 1 / -1; width: 100%; }
+}
 #split-common-ground .tx-select-row {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
