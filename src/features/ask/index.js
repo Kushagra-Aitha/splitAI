@@ -3,6 +3,7 @@ import { usdToCents, centsToUsdText, formatUsdCents } from '../../lib/money.js';
 import { financialRevision, subscribeFinancialChanges } from '../../api/financial-state.js';
 import { preserveFocus } from '../../lib/focus.js';
 import { canReadAloud, readAloud, stopReading } from '../../lib/read-aloud.js';
+import { createRecordedTalk } from './recorded-talk.js';
 import { createPushToTalk } from './push-to-talk.js';
 import { createAskPanel } from './panel.js';
 
@@ -23,8 +24,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   let speakReplies = false;
   let pointer = null;
   let heldKey = null;
-  const voice = createPushToTalk({
-    Recognition: [window.SpeechRecognition, window.webkitSpeechRecognition].find((candidate) => typeof candidate === 'function'),
+  const voiceCallbacks = {
     onState(value) {
       voiceState = value;
       if (value !== 'idle') voiceMessage = '';
@@ -46,7 +46,13 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       }
     },
     onError: announceVoice,
+  };
+  const recorder = createRecordedTalk(voiceCallbacks);
+  const voice = recorder.supported ? recorder : createPushToTalk({
+    ...voiceCallbacks,
+    Recognition: [window.SpeechRecognition, window.webkitSpeechRecognition].find((candidate) => typeof candidate === 'function'),
   });
+  const micHeld = () => voiceState === 'permission' || voiceState === 'listening';
 
   function askVisible() {
     return owned() && !document.hidden && (panel.isOpen() || state.page === 'chat') &&
@@ -55,12 +61,13 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
 
   function voiceStatus() {
     if (!voice.supported) return 'This browser session has no speech recognition. You can still type.';
+    if (voiceState === 'permission') return 'Opening microphone…';
     return voiceState === 'listening' ? 'Listening…' : voiceState === 'processing' ? 'Transcribing…' : voiceMessage;
   }
 
   function paintVoice() {
     for (const button of root.querySelectorAll('[data-ask-mic]')) {
-      button.setAttribute('aria-pressed', String(voiceState === 'listening'));
+      button.setAttribute('aria-pressed', String(micHeld()));
       button.disabled = !voice.supported || sending || voiceState === 'processing';
     }
     for (const status of root.querySelectorAll('[data-ask-voice-status]')) status.textContent = voiceStatus();
@@ -172,14 +179,14 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       <textarea rows="2" id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" ${sending ? 'disabled' : ''} required>${esc(composerText)}</textarea>
       <button type="button" class="icon-button ask-mic" id="sp-ask-mic" data-ask-mic
         aria-label="${voice.supported ? 'Microphone, hold to talk' : 'Microphone unavailable'}"
-        aria-pressed="${voiceState === 'listening'}" aria-describedby="sp-ask-voice-status"
+        aria-pressed="${micHeld()}" aria-describedby="sp-ask-voice-status"
         ${!voice.supported || sending || voiceState === 'processing' ? 'disabled' : ''}>${icon('microphone')}</button>
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
       <div class="ask-voice-options">
         ${canReadAloud() ? `<button type="button" class="text-button" id="sp-ask-speech" data-ask-speech aria-pressed="${speakReplies}">${icon('speaker-high')} Spoken replies ${speakReplies ? 'on' : 'off'}</button>` : ''}
         <span class="small" id="sp-ask-voice-status" data-ask-voice-status role="status">${esc(voiceStatus())}</span>
       </div>
-      <p id="sp-chat-help" class="chat-footnote">Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
+      <p id="sp-chat-help" class="chat-footnote">${recorder.supported ? 'Hold the mic to talk. Recordings go to Gemini for transcription. ' : ''}Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
   }
 
   function receive(entry, response) {
@@ -331,7 +338,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   root.addEventListener('click', (event) => {
     if (event.target.closest('[data-ask-mic]') && event.detail === 0) {
       // Assistive activation can be a click with no down/up events.
-      if (voiceState === 'listening') voice.release();
+      if (micHeld()) voice.release();
       else startVoice();
     }
     if (event.target.closest('[data-ask-speech]')) {
@@ -340,7 +347,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       refresh();
     }
   });
-  window.addEventListener('blur', stopVoice);
+  window.addEventListener('blur', () => { if (voiceState !== 'permission') stopVoice(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopVoice(); });
 
   root.addEventListener('keydown', event => {

@@ -31,7 +31,7 @@ export function createGeminiClient({ apiKey, model, fetchImpl = fetch, timeoutMs
   let active = 0;
   let windowStart = now();
   let requests = 0;
-  return async ({ instructions, input, schema }) => {
+  return async ({ instructions, input, schema, inlineAudio }) => {
     if (!apiKey?.trim() || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(model || '')) {
       throw new HttpError(503, 'ASSISTANT_NOT_CONFIGURED', 'Split is not available yet. Enter the expense manually.');
     }
@@ -51,7 +51,7 @@ export function createGeminiClient({ apiKey, model, fetchImpl = fetch, timeoutMs
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: instructions }] },
-          contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+          contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }, ...(inlineAudio ? [{ inlineData: inlineAudio }] : [])] }],
           generationConfig: {
             maxOutputTokens: 2048,
             candidateCount: 1,
