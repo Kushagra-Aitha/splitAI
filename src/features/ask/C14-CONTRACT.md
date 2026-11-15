@@ -1,6 +1,6 @@
 # C14 delivery status and integration contract
 
-Independent C14 functionality is implemented on `feat/ask-reminders`:
+C14 functionality is implemented on `feat/ask-reminders`:
 - B13's standalone Ask route and floating panel share the same conversation/controller.
   On the Ask page, the floating opener focuses the composer instead of creating a
   second copy of the page's form IDs.
@@ -51,13 +51,16 @@ The text says "$X owed in Group · related to Merchant" so it cannot imply that 
 net balance across several expenses is an unpaid balance on just one purchase.
 B16's grouped, clickable panel remains in place. No new polling was added.
 
-## A16 dependency still open
+## A16 integration
 
-Issue #91 supplies the reusable charge-explanation service needed for "Explain
-the Domino's charge." This branch does not duplicate that service or claim C14
-fully complete. Add that integration after A16 lands, retaining canonical facts,
-current membership/ownership and its deterministic provider-unavailable fallback.
-No Gemini key, account ID or bank transaction rows are added to model input here.
+Merged A16 PR #103 provides `createChargeExplanation().byMerchant`. The Ask
+workflow recognizes the explicit Explain-the-charge question and calls that
+shared service before intent classification. Its code-computed factual sentences
+remain available through A16's deterministic fallback when Gemini is unavailable.
+Multiple matching confirmed expenses require choosing Explain in the correct
+ledger; another user's inaccessible groups are excluded. A snapshot timestamp
+lets normal financial invalidation discard an explanation after its facts change.
+No new financial write or duplicate explanation service is introduced.
 
 ## Verification and limitations
 
@@ -69,3 +72,7 @@ updates for explicit B12 sharing and current metadata fields. A further focused
 case covers pending payment suppression and atomic notification rollback.
 No browser acceptance is claimed. Gemini quota was exhausted at the last live
 probe; injected structured-output checks do not certify live provider availability.
+
+A16/B15 final integration: 21 focused database checks passed across reminder/explanation,
+notifications, bank data and Ask purchase matching. Backend regression: 95 passed,
+16 gated checks skipped. Production build/diff passed. Browser checks were not run.

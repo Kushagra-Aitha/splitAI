@@ -15,6 +15,7 @@ import { createGoalHandlers } from './goals/handlers.js';
 import { createGuardEventsHandler } from './guard/events.js';
 import { createGuardSettings } from './guard/settings.js';
 import { createSettlementConfirmation } from './ledger/confirm-settlement.js';
+import { createChargeExplanation } from './ledger/explain-charge.js';
 import { createLedgerHandlers } from './ledger/handlers.js';
 import { createRecurringSplits } from './ledger/recurring-splits.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
@@ -26,16 +27,18 @@ const answerFinancial = createFinancialAnswers({ withTransaction, explain: creat
 const db = { query: (...args) => getPool().query(...args), withTransaction };
 const recurringSplits = createRecurringSplits(db);
 const reminders = createReminderHandlers(db);
+const chargeExplanation = createChargeExplanation({ withTransaction, explain: createFactExplainer({ generate }) });
 export const capitalService = createCapitalService({ ...db, generateRecurringSplits: recurringSplits.generate });
 
 export const handlers = Object.freeze({
   ...createCapitalHandlers(capitalService),
   ...recurringSplits.handlers,
+  'charges.explain': chargeExplanation.byId,
   ...createActivityHandlers({ withTransaction }),
   'ask.create': createAskWorkflow({
     prepareReminder: reminders.prepare,
     parseIntent: createIntentParser({ generate }),
-    query: (...args) => getPool().query(...args), withTransaction, answerFinancial,
+    query: (...args) => getPool().query(...args), withTransaction, answerFinancial, explainCharge: chargeExplanation.byMerchant,
   }),
   'insight.get': (context) => answerFinancial({ ...context, intent: 'spending_insight' }),
   ...bankingHandlers,

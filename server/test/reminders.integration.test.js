@@ -6,6 +6,7 @@ import { createLedgerHandlers } from '../ledger/handlers.js';
 import { createGoalHandlers } from '../goals/handlers.js';
 import { createNotificationHandlers } from '../notifications/handlers.js';
 import { createAskWorkflow } from '../assistant/workflow.js';
+import { createChargeExplanation } from '../ledger/explain-charge.js';
 
 test('live database: reminders require confirmation and durable daily limits; goals history is scoped and paginated', {
   skip: process.env.RUN_REMINDERS_DB_TESTS !== '1',
@@ -91,6 +92,24 @@ test('live database: reminders require confirmation and durable daily limits; go
     const fallback = await reminders.prepare(actor, { merchant: 'Dinner', cents: null, participantNames: ['Sam'], groupHint: g.name }, randomUUID());
     assert.equal(fallback.type, 'reminder_selection'); assert.equal(fallback.candidates.length, 2);
     assert.match(fallback.answer, /No expense matched/);
+  });
+  await t.test('Ask uses A16 canonical explanations without a model classification and recovers from provider failure', async () => {
+    const g = await group(), e = await expense(g);
+    await db.query("UPDATE expenses SET merchant = 'C14 Cafe' WHERE id = $1", [e.id]);
+    const explanation = createChargeExplanation({ withTransaction, explain: async () => { throw new Error('Synthetic provider unavailable'); } });
+    const ask = createAskWorkflow({ ...deps, explainCharge: explanation.byMerchant,
+      parseIntent: async () => { throw new Error('Explanation must not need intent classification'); } });
+    const before = (await db.query('SELECT count(*)::int AS count FROM expenses')).rows[0].count;
+    const result = await ask({ actor, body: { message: 'Explain the C14 Cafe charge', requestKey: randomUUID() } });
+    assert.equal(result.intent, 'explain_charge'); assert.ok(Number.isFinite(Date.parse(result.asOf)));
+    assert.ok(result.answer.includes('$30.00')); assert.ok(result.answer.includes('$15.00')); assert.ok(result.answer.includes(g.name));
+    const foreign = await ask({ actor: { userId: USERS.alex }, body: { message: 'Explain the C14 Cafe charge', requestKey: randomUUID() } });
+    assert.ok(!foreign.answer.includes('$30.00')); assert.ok(!foreign.answer.includes(g.name));
+    const other = await expense(g);
+    await db.query("UPDATE expenses SET merchant = 'C14 Cafe' WHERE id = $1", [other.id]);
+    const ambiguous = await ask({ actor, body: { message: 'Explain the C14 Cafe charge', requestKey: randomUUID() } });
+    assert.match(ambiguous.answer, /multiple matching/);
+    assert.equal((await db.query('SELECT count(*)::int AS count FROM expenses')).rows[0].count, before + 1);
   });
   await t.test('goal history paginates without exposing another user and Ask reports canonical saved money', async () => {
     await db.query('UPDATE bank_accounts SET balance_cents = 100000, available_cents = 100000, linked_at = now(), balance_as_of = now() WHERE id = $1', [ACCOUNTS.maya]);

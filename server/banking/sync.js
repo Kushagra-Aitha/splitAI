@@ -137,6 +137,13 @@ export async function syncForUser(db, userId) {
   const results = [];
   for (const account of accounts) results.push(await syncAccount(account, { merchants }));
   const checking = results.find((r) => r.kind === 'checking') ?? results[0];
+  // Capital Two (C13) also writes acknowledged transactions directly, so a
+  // sync can find nothing new while the page is still behind. The newest
+  // import time lets the app refresh whenever activity changed, by anyone.
+  const { rows: [latest] } = await db.query(
+    `SELECT max(k.imported_at) AS at FROM bank_import_keys k WHERE k.account_id = ANY($1::uuid[])`,
+    [accounts.map((account) => account.id)],
+  );
   const sum = (key) => results.reduce((total, r) => total + r[key], 0);
   return {
     ...checking,
@@ -144,6 +151,7 @@ export async function syncForUser(db, userId) {
     updated: sum('updated'),
     unchanged: sum('unchanged'),
     changed: results.some((r) => r.changed),
+    latestActivityAt: latest?.at ? new Date(latest.at).toISOString() : null,
     accounts: results,
   };
 }

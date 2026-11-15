@@ -4,6 +4,7 @@ import { createLedgerHandlers } from '../ledger/handlers.js';
 import { createAskHandler } from './ask.js';
 import { validateIntent, validateMessage } from './intent.js';
 import { createAssistantGuard, rejectedProposalReason } from './guard.js';
+import { chargeExplanationTarget } from '../ledger/explain-charge.js';
 import { bankQuery, matchPurchases } from './bank-match.js';
 import { answerGoalProgress } from './goal-progress.js';
 
@@ -161,7 +162,7 @@ async function advance(db, proposal, actor, selection) {
   return { type: 'draft', proposalId: proposal.id, draft, group: groupOptions.find((group) => group.id === groupId) };
 }
 
-export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, prepareReminder,
+export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, prepareReminder, explainCharge,
   guard = createAssistantGuard({ withTransaction }) }) {
   const run = async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
@@ -187,6 +188,11 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
     const { rows: [existing] } = await query(`SELECT ${columns} FROM assistant_proposals
       WHERE actor_user_id = $1 AND request_key = $2`, [actor.userId, requestKey]);
     if (existing && existing.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
+    const merchant = !existing && explainCharge ? chargeExplanationTarget(message) : null;
+    if (merchant) {
+      const asOf = new Date().toISOString();
+      return { ...await explainCharge({ actor, merchant }), asOf };
+    }
     // No DB connection or transaction is held across the model request.
     const parsed = validateIntent(existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message));
     if (parsed.intent === 'goal_progress') return withTransaction((db) => answerGoalProgress(db, actor.userId));
