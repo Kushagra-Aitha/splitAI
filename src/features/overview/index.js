@@ -1151,7 +1151,7 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     }
     if (b.dataset.action === 'insight-read' && insight.revision === financialRevision()) {
       const onError = () => announce('Couldn’t read the summary aloud.');
-      if (!readAloud(insight.data?.answer, { owner: 'insight', onError })) onError();
+      if (!readAloud(insight.data?.answer, { owner: 'insight', onError, onBasic: () => announce('Using basic voice') })) onError();
     }
     if (b.dataset.action === 'insight-retry') {
       insight.revision = -1;
