@@ -874,3 +874,26 @@
   #split-common-ground .upcoming-schedule { grid-template-columns: 30px minmax(0, 1fr); }
   #split-common-ground .upcoming-schedule > .money { grid-column: 2; }
 }
+
+/* B17 · Settled with Split */
+#split-common-ground .tx-badge.is-settled { background: light-dark(#e6e1f2, #2e2a3a); color: light-dark(#4b3f72, #c9bff0); }
+#split-common-ground .settled-split h2 { display: flex; align-items: center; gap: 8px; }
+#split-common-ground .settled-split h2 svg { width: 20px; height: 20px; }
+#split-common-ground .settled-split-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--sp-line);
+  border: 1px solid var(--sp-line);
+}
+#split-common-ground .settled-split-grid > div {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 14px 16px;
+  background: var(--sp-paper);
+}
+@media (max-width: 640px) {
+  #split-common-ground .settled-split-grid { grid-template-columns: 1fr; }
+}
+#split-common-ground .settled-split-grid .display { font-size: 1.7rem; line-height: 1.1; }

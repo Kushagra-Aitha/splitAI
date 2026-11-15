@@ -8,6 +8,7 @@
 // also uses for funds, so a balance refresh never interleaves with a reserve.
 import { withTransaction } from '../db/pool.js';
 import { reconcileSettlements } from '../ledger/reconcile-settlements.js';
+import { allocateMissingSettlements } from '../ledger/settlement-categories.js';
 import { lockAccount } from './funds.js';
 import {
   listLinkedAccountsForUser,
@@ -137,6 +138,8 @@ export async function syncForUser(db, userId) {
   const results = [];
   for (const account of accounts) results.push(await syncAccount(account, { merchants }));
   const checking = results.find((r) => r.kind === 'checking') ?? results[0];
+  // B17: settlements confirmed before categories existed get them now.
+  const allocated = await allocateMissingSettlements(db, userId);
   // Capital Two (C13) also writes acknowledged transactions directly, so a
   // sync can find nothing new while the page is still behind. The newest
   // import time lets the app refresh whenever activity changed, by anyone.
@@ -150,7 +153,7 @@ export async function syncForUser(db, userId) {
     inserted: sum('inserted'),
     updated: sum('updated'),
     unchanged: sum('unchanged'),
-    changed: results.some((r) => r.changed),
+    changed: results.some((r) => r.changed) || allocated > 0,
     latestActivityAt: latest?.at ? new Date(latest.at).toISOString() : null,
     accounts: results,
   };

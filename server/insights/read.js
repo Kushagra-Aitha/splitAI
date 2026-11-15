@@ -1,7 +1,8 @@
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from '../banking/overview.js';
-import { effectiveCategory, isSalary, recurringJoins } from '../banking/details.js';
+import { isSalary, recurringJoins } from '../banking/details.js';
 import { listGoals } from '../goals/read.js';
+import { spendingLines } from '../ledger/settlement-categories.js';
 import { progressForGoal } from '../assistant/goal-progress.js';
 import { monthDate, today, addDays } from '../capital-two/input.js';
 
@@ -36,6 +37,9 @@ const inRange = `t.account_id = ANY($1::uuid[]) AND ${counted}
   AND t.occurred_at >= ($2::date::timestamp AT TIME ZONE '${TIME_ZONE}')
   AND t.occurred_at < (($3::date + 1)::timestamp AT TIME ZONE '${TIME_ZONE}')`;
 const monthSQL = `to_char(t.occurred_at AT TIME ZONE '${TIME_ZONE}', 'YYYY-MM')`;
+// B17: purchases plus settlements (paid counts, received reduces spending).
+const lines = spendingLines(inRange);
+const lineMonth = `to_char(l.occurred_at AT TIME ZONE '${TIME_ZONE}', 'YYYY-MM')`;
 
 export function createInsightsHandler({ withTransaction, now = () => new Date() }) {
   return async ({ actor }) => {
@@ -49,27 +53,37 @@ export function createInsightsHandler({ withTransaction, now = () => new Date() 
       const args = [accounts.map((a) => a.id), range.from, range.to];
       const { rows } = await db.query(`SELECT ${monthSQL} AS month,
         coalesce(sum(t.amount_cents) FILTER (WHERE t.kind = 'deposit' AND t.direction = 'credit'), 0)::text AS "earnedCents",
-        coalesce(sum(t.amount_cents) FILTER (WHERE t.kind = 'purchase' AND t.direction = 'debit'), 0)::text AS "spentCents",
         coalesce(sum(t.amount_cents) FILTER (WHERE ${isSalary()}), 0)::text AS "salaryCents",
         count(*) FILTER (WHERE t.source = 'demo')::int AS "demoCount", count(*)::int AS count
         FROM bank_transactions t WHERE ${inRange} AND t.kind IN ('purchase', 'deposit')
         GROUP BY 1 ORDER BY 1`, args);
+      const { rows: spentRows } = await db.query(`SELECT ${lineMonth} AS month, sum(l.cents)::text AS cents
+        FROM ${lines} l GROUP BY 1`, args);
       const monthly = range.months.map((month) => {
         const row = rows.find((r) => r.month === month);
-        const earnedCents = exactCents(row?.earnedCents ?? '0'), spentCents = exactCents(row?.spentCents ?? '0');
+        const spent = spentRows.find((r) => r.month === month);
+        const earnedCents = exactCents(row?.earnedCents ?? '0'), spentCents = Math.max(0, exactCents(spent?.cents ?? '0'));
         return { month, earnedCents, spentCents, netCents: exactCents(String(BigInt(earnedCents) - BigInt(spentCents))),
           salaryCents: exactCents(row?.salaryCents ?? '0'), count: row?.count ?? 0, demoCount: row?.demoCount ?? 0 };
       });
       // Averages use prior calendar months with recorded activity. Missing
       // historical data is not treated as evidence of zero spending.
       const baselineMonths = monthly.filter((m) => m.month !== currentMonth && m.count > 0).length;
-      const category = `coalesce(${effectiveCategory()}, 'Other')`;
-      const { rows: categoryRows } = await db.query(`SELECT ${category} AS category,
-        sum(t.amount_cents)::text AS "totalCents",
-        coalesce(sum(t.amount_cents) FILTER (WHERE ${monthSQL} = $4), 0)::text AS "currentCents",
-        coalesce(sum(t.amount_cents) FILTER (WHERE ${monthSQL} <> $4), 0)::text AS "priorCents"
-        FROM bank_transactions t WHERE ${inRange} AND t.kind = 'purchase' AND t.direction = 'debit'
-        GROUP BY 1 ORDER BY sum(t.amount_cents) DESC, 1 LIMIT 100`, [...args, currentMonth]);
+      const { rows: categoryRows } = await db.query(`SELECT l.category,
+        sum(l.cents)::text AS "totalCents",
+        greatest(0, coalesce(sum(l.cents) FILTER (WHERE ${lineMonth} = $4), 0))::text AS "currentCents",
+        greatest(0, coalesce(sum(l.cents) FILTER (WHERE ${lineMonth} <> $4), 0))::text AS "priorCents"
+        FROM ${lines} l
+        GROUP BY 1 HAVING sum(l.cents) > 0 ORDER BY sum(l.cents) DESC, 1 LIMIT 100`, [...args, currentMonth]);
+      const { rows: [settled] } = await db.query(`SELECT
+        coalesce(sum(l.cents) FILTER (WHERE l.cents > 0), 0)::text AS "paidCents",
+        coalesce(-sum(l.cents) FILTER (WHERE l.cents < 0), 0)::text AS "receivedCents",
+        coalesce(sum(l.cents) FILTER (WHERE l.cents > 0 AND ${lineMonth} = $4), 0)::text AS "currentPaidCents",
+        coalesce(-sum(l.cents) FILTER (WHERE l.cents < 0 AND ${lineMonth} = $4), 0)::text AS "currentReceivedCents",
+        count(DISTINCT l.id)::int AS count
+        FROM ${lines} l WHERE l.settled`, [...args, currentMonth]);
+      const settledWithSplit = Object.fromEntries(Object.entries(settled).map(([key, value]) =>
+        [key, key === 'count' ? value : exactCents(value)]));
       const categories = categoryRows.map((r) => ({ category: r.category, totalCents: exactCents(r.totalCents),
         currentCents: exactCents(r.currentCents), averageCents: baselineMonths ? roundedDivide(r.priorCents, baselineMonths) : null }));
       const { rows: merchantRows } = await db.query(`SELECT coalesce(t.merchant_name, t.description, 'Unknown merchant') AS name,
@@ -134,7 +148,7 @@ export function createInsightsHandler({ withTransaction, now = () => new Date() 
       return { range, asOf: at.toISOString(), connected: accounts.length > 0, monthly, categories, baselineMonths,
         merchants, recurring, upcomingSchedules,
         calendar: { from: range.to, to: calendarEnd, days: [...dueDays.values()] },
-        goals: progress, goalCount: goals.length, cards, allocation,
+        goals: progress, goalCount: goals.length, cards, allocation, settledWithSplit,
         limits: { categories: 100, merchants: 100, recurringMerchants: 20, goals: 20, schedules: 100 },
         hasActivity: monthly.some((m) => m.count > 0), hasDemoHistory: monthly.some((m) => m.demoCount > 0) };
     });
