@@ -79,7 +79,7 @@ export function createApp({ config, handlers = {}, serveStatic, now, onError = (
       if (!['GET', 'HEAD'].includes(req.method)) {
         requireSameOrigin(req, config.origin);
         sessions.requireCsrf(req, session);
-        body = await readJson(req);
+        body = await readJson(req, route.name === 'ask.transcribe' ? 650_000 : undefined);
       }
       const handler = handlers[route.name];
       if (!handler) throw new HttpError(501, 'NOT_IMPLEMENTED', 'This feature is not available yet.');

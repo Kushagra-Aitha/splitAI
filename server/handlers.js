@@ -1,3 +1,4 @@
+import { createVoiceTranscription } from './assistant/voice-transcription.js';
 // Feature handler registry: one line per slice. createApp() rejects any name
 // that is not in routes.js. Keep imports alphabetical to avoid merge conflicts.
 import { createActivityHandlers } from './activity/handlers.js';
@@ -37,6 +38,7 @@ export const handlers = Object.freeze({
   ...recurringSplits.handlers,
   'charges.explain': chargeExplanation.byId,
   ...createActivityHandlers({ withTransaction }),
+  'ask.transcribe': createVoiceTranscription(generate),
   'ask.create': createAskWorkflow({
     prepareReminder: reminders.prepare,
     parseIntent: createIntentParser({ generate }),
