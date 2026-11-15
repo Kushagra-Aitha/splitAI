@@ -36,7 +36,7 @@ export function createAskPanel({ root, icon, icons, renderChat }) {
   }
   function close({ restoreFocus = true } = {}) {
     if (!isOpen()) return;
-    layer.hidden = true; panel.inert = false; background(modalOpen());
+    layer.hidden = true; body.replaceChildren(); panel.inert = false; background(modalOpen());
     root.ownerDocument.documentElement.style.overflow = previousOverflow;
     root.querySelector('[data-ask-open]')?.setAttribute('aria-expanded', 'false');
     if (restoreFocus && returnTo?.isConnected && !returnTo.closest('[inert]')) returnTo.focus({ preventScroll: true });
