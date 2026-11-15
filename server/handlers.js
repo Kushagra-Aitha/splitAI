@@ -31,7 +31,7 @@ import { createReminderHandlers } from './reminders/handlers.js';
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
 const voice = createGeminiVoice({ apiKey: process.env.GEMINI_API_KEY, ttsModel: process.env.GEMINI_TTS_MODEL });
 const limitVoice = createVoiceLimit();
-const transcribeVoice = createVoiceTranscription({ transcribe: voice.transcribe, limit: limitVoice });
+const transcribeVoice = createVoiceTranscription(generate, { limit: limitVoice });
 
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
 const db = { query: (...args) => getPool().query(...args), withTransaction };

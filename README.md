@@ -189,7 +189,7 @@ erDiagram
 - **Intent and extraction with JSON Schema.** Every call sets `responseMimeType: application/json` and a `responseJsonSchema`. The reply is validated again in code (`server/assistant/intent.js`): unknown fields, fractional or unsafe cents, wrong types, control characters and contradictory intent/expense pairs are rejected.
 - **No tools, minimal input.** The model gets only the user's message. No account IDs, balances, credentials or history, and no function calling. Responses that contain function calls or inline data are rejected.
 - **Grounded explanations.** For affordability, debts, spending and "explain this charge", application code computes every figure and writes each factual sentence. Gemini only returns an ordering of the sentence IDs it was given, and the server checks that the ordering contains each ID exactly once.
-- **Speech-to-text and spoken replies.** Recorded WAV audio goes to Gemini's transcription model; spoken replies use Gemini 3.8 Flash TTS. Provider calls stay server-side, audio and text are size-limited, and browser speech synthesis remains the fallback when Gemini voice is unavailable.
+- **Speech-to-text and spoken replies.** Recorded WAV audio is sent inline to the configured Gemini model for transcript extraction; spoken replies use Gemini 3.8 Flash TTS. Provider calls stay server-side, audio and text are size-limited, and browser speech synthesis remains the fallback when Gemini voice is unavailable.
 - **Cost and latency limits.** At most 4 concurrent and 30 requests per minute per process, a 25-second timeout, no automatic retries, and `thinkingLevel: minimal` for the extraction model.
 
 ### Nessie (Capital Two)
