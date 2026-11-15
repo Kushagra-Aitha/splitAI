@@ -50,20 +50,29 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       <button id="sp-ask-create-${entry.id}" type="button" class="secondary" data-ask-action="create-group" data-entry-id="${entry.id}">Create a group</button></div></fieldset></form></section>`;
   }
 
+  function goalAnswers(goals) {
+    const labels={funded:'Target reached',no_date:'At your own pace',on_track:'On track · estimate',short:'Below target pace · estimate'};
+    return `<div class="ask-goal-list">${goals.map(g=>{
+      if(!Number.isSafeInteger(g.savedCents)||!Number.isSafeInteger(g.targetCents)||g.targetCents<=0)return '<p>Goal details need a refresh.</p>';
+      const percent=Number(BigInt(g.savedCents)*100n/BigInt(g.targetCents));
+      return `<section class="ask-goal-answer"><div class="ask-goal-heading"><h3>${esc(g.name)}</h3><span class="tag">${esc(labels[g.status]||'Saved progress')}</span></div><p class="ask-goal-amount"><strong>${formatUsdCents(g.savedCents)}</strong> <span>of ${formatUsdCents(g.targetCents)}</span></p><progress max="100" value="${Math.min(100,percent)}" aria-label="${esc(g.name)} ${percent}% funded"></progress><p class="small muted">${g.targetDate ? `Target ${esc(new Date(g.targetDate+'T12:00:00Z').toLocaleDateString())}` : 'No target date set'}${Number.isSafeInteger(g.requiredCentsPerDay)&&g.remainingCents>0 ? ` · ${formatUsdCents(g.requiredCentsPerDay)} per day needed` : ''}</p></section>`;
+    }).join('')}</div>`;
+  }
+
   function entryHtml(entry) {
     let content = '';
     if (entry.response?.type === 'selection_needed') content = selectionCard(entry);
-    else if (entry.response?.type === 'reminder_selection') content = `<section aria-label="Choose a reminder"><p>${esc(entry.response.answer)}</p>${entry.response.candidates.map((candidate, index) => `<button type="button" class="secondary" data-ask-action="reminder-select" data-entry-id="${entry.id}" data-candidate="${index}" ${entry.pending ? 'disabled' : ''}>${esc(candidate.recipientName)} · ${esc(candidate.groupName)} · ${formatUsdCents(candidate.amountCents)} owed · ${esc(candidate.merchant)}</button>`).join('')}</section>`;
+    else if (entry.response?.type === 'reminder_selection') content = `<section class="ask-reminder-choices" aria-label="Choose a reminder"><p>${esc(entry.response.answer)}</p>${entry.response.candidates.map((candidate, index) => `<button type="button" class="secondary" data-ask-action="reminder-select" data-entry-id="${entry.id}" data-candidate="${index}" ${entry.pending ? 'disabled' : ''}>${esc(candidate.recipientName)} · ${esc(candidate.groupName)} · ${formatUsdCents(candidate.amountCents)} owed · ${esc(candidate.merchant)}</button>`).join('')}</section>`;
     else if (entry.response?.type === 'reminder_draft') {
       const r = entry.response.reminder;
-      content = r.status === 'sent' ? '<p role="status">Reminder already sent. No money moved.</p>' : `<section aria-label="Review reminder"><h3>Review reminder</h3><p>Remind ${esc(r.recipientName)} about ${formatUsdCents(r.amountCents)} owed to you in ${esc(r.groupName)}${r.merchant ? ` · related to ${esc(r.merchant)}` : ''}?</p><p class="small muted">This is the outstanding group balance between you, not a second charge for the expense. No money moves. At most one reminder per person and group debt each day.</p><button type="button" class="primary" data-ask-action="reminder-confirm" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Send reminder</button> <button type="button" class="secondary" data-ask-action="reminder-cancel" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Cancel</button></section>`;
+      content = r.status === 'sent' ? '<p role="status">Reminder already sent. No money moved.</p>' : `<section class="ask-reminder-review" aria-label="Review reminder"><h3>Review reminder</h3><p>Remind ${esc(r.recipientName)} about ${formatUsdCents(r.amountCents)} owed to you in ${esc(r.groupName)}${r.merchant ? ` · related to ${esc(r.merchant)}` : ''}?</p><p class="small muted">This is the outstanding group balance between you, not a second charge for the expense. No money moves. At most one reminder per person and group debt each day.</p><button type="button" class="primary" data-ask-action="reminder-confirm" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>${entry.pending ? 'Sending reminder…' : 'Send reminder'}</button> <button type="button" class="secondary" data-ask-action="reminder-cancel" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Cancel</button></section>`;
     }
-    else if (entry.response?.type === 'reminder_sent') content = '<p role="status">Reminder sent. No money moved.</p>';
+    else if (entry.response?.type === 'reminder_sent') content = `<div class="ask-success" role="status">${icon('check')}<div><h3>Reminder sent</h3><p>No money moved.</p></div></div>`;
     else if (entry.response?.type === 'blocked') content = `<section class="ask-blocked" role="status" aria-label="Guard blocked this request"><h3>${icon('shield-x')} Guard blocked this request</h3><p>${esc(entry.response.reason)}</p><p class="small">Event ID: <code>${esc(entry.response.eventId)}</code></p><button type="button" class="text-button" data-go="guard">View Guard activity</button></section>`;
     else if (entry.response?.type === 'draft') content = `<p>${esc(entry.response.group.name)}</p>${draftTicket(entry.response.draft)}`;
     else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
     else if (entry.response?.type === 'answer') {
-      content = `<p>${esc(entry.response.answer)}</p>`;
+      content = entry.response.goals?.length ? `<p>Here’s your confirmed savings progress.</p>${goalAnswers(entry.response.goals)}` : `<p class="ask-answer-copy">${esc(entry.response.answer)}</p>`;
       if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${['goal_progress', 'explain_charge'].includes(entry.response.intent) ? '' : entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
       if (entry.response.plan) content += `<div class="ask-plan">${entry.response.plan.groups.filter((g) => g.debts.length).map((g) => `<section><h3>${esc(g.name)}</h3>${g.debts.map((d) => `<p>${esc(d.displayName)} · ${formatUsdCents(d.cents)} · ${({ fits: 'Fits this plan', does_not_fit: 'Does not fit', pending: 'Payment pending' })[d.recommendation]}</p>`).join('')}</section>`).join('')}</div>`;
       if (entry.response.debts) content += `<div class="ask-plan">${entry.response.groups.map((g) => {
@@ -74,18 +83,18 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       if (entry.response.asOf) content += `<button type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}" ${entry.pending ? 'disabled' : ''}>Refresh facts</button>`;
     }
     return `<div class="user-message">${esc(entry.message)}</div><div class="agent-message" id="sp-ask-result-${entry.id}" role="region" aria-label="Split response" tabindex="-1" aria-busy="${entry.pending}" data-ask-entry="${entry.id}">${label}${content}
-      ${entry.pending ? '<p role="status">Working on your request…</p>' : ''}
+      ${entry.pending ? '<p class="ask-working" role="status"><span aria-hidden="true">● ● ●</span> Working on your request…</p>' : ''}
       <p id="sp-ask-error-${entry.id}" role="alert" aria-atomic="true" tabindex="-1">${esc(entry.error)}</p>
       ${entry.error && entry.retryBody ? `<button id="sp-ask-retry-${entry.id}" type="button" class="text-button" data-ask-action="retry" data-entry-id="${entry.id}">Retry</button>` : ''}</div>`;
   }
 
   function chat(compact = false) {
-    return (compact ? '' : heading('Ask Split', 'Money talk. Less awkward.', 'Review a shared expense before saving it.')) +
-      `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message">${label}<p>Tell me what you spent and who to split it with.</p></div>`}</div>
+    return (compact ? '' : heading('Ask Split', 'Let’s talk money.', 'Check a balance, plan a goal, or prepare a shared expense.')) +
+      `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message ask-welcome">${label}<h2>A little clarity, before your next move.</h2><p>Ask what you owe, check your goals, or review a charge. You stay in charge of every action.</p></div>`}</div>
       <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(prompt)}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
-      <input id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" value="${esc(composerText)}" ${sending ? 'disabled' : ''} required>
+      <textarea rows="2" id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" ${sending ? 'disabled' : ''} required>${esc(composerText)}</textarea>
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
-      <p id="sp-chat-help" class="chat-footnote">Only your confirmation saves an expense. No money is transferred.</p></div>`;
+      <p id="sp-chat-help" class="chat-footnote">Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
   }
 
   function receive(entry, response) {
@@ -112,6 +121,9 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       });
       announce('Expense draft ready. Review the shares before confirming.');
     } else if (response.type === 'selection_needed') announce('Choose the expense group, members, and missing details.');
+    else if (response.type === 'reminder_draft') announce('Reminder ready to review. Nothing has been sent.');
+    else if (response.type === 'reminder_sent') announce('Reminder sent. No money moved.');
+    else if (response.type === 'reminder_selection') announce('Choose the person and group balance for the reminder.');
     else if (response.type === 'blocked') announce(`${response.reason} Guard event ${response.eventId}.`);
   }
 
@@ -201,6 +213,9 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     }
   }
 
+  root.addEventListener('keydown', event => {
+    if(event.target.id==='sp-chat-input'&&event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();if(!sending)event.target.form.requestSubmit();}
+  });
   root.addEventListener('input', (event) => {
     if (event.target.id === 'sp-chat-input') composerText = event.target.value;
     const form = event.target.closest('form[data-ask-selection]');
