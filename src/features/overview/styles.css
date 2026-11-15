@@ -661,3 +661,64 @@
 #split-common-ground .tx-select-row + .tx-select-row { border-top: 1px solid var(--sp-line); }
 #split-common-ground .tx-select-row .transaction { flex-wrap: wrap; border: 0; }
 #split-common-ground .tx-select-row .tx-split-tag { white-space: normal; }
+
+/* ---------- B15 · Bank data in Split ---------- */
+#split-common-ground .tx-badge {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 7px;
+  font-size: 11px; font-weight: 650; vertical-align: 1px; background: var(--sp-soft); color: var(--sp-muted);
+}
+#split-common-ground .tx-badge svg { width: 12px; height: 12px; }
+#split-common-ground .tx-badge.is-salary { background: light-dark(#e2eddc, #2c3a27); color: var(--sp-income); }
+#split-common-ground .tx-badge.is-recurring { background: var(--sp-nav); color: var(--sp-pine-ink); }
+#split-common-ground .tx-category {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 0; padding: 1px 4px; margin: -1px 0;
+  border: 1px dashed var(--sp-line); background: transparent; box-shadow: none; color: inherit; font: inherit; cursor: pointer;
+}
+#split-common-ground .tx-category:hover { border-style: solid; border-color: var(--sp-pine-ink); color: var(--sp-ink); }
+#split-common-ground .tx-category svg { width: 11px; height: 11px; }
+
+#split-common-ground .category-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 14px 0; padding: 0; border: 0; }
+#split-common-ground .category-choice-row {
+  display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 8px 12px;
+  border: 1px solid var(--sp-line); background: var(--sp-paper); cursor: pointer;
+}
+#split-common-ground .category-choice-row:has(input:checked) { border-color: var(--sp-pine-ink); background: var(--sp-nav); }
+#split-common-ground .category-choice-row .muted { margin-left: auto; font-size: 11px; }
+
+#split-common-ground .money-extras { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; margin: -6px 0 26px; }
+#split-common-ground .money-extras > :only-child { grid-column: 1 / -1; }
+#split-common-ground .split-card {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: center;
+  padding: 14px; border: 1px solid var(--sp-line); background: var(--sp-paper);
+}
+#split-common-ground .split-card-art {
+  position: relative; aspect-ratio: 1.586; padding: 14px 16px; overflow: hidden; color: #fff;
+  border-radius: 12px !important; background: linear-gradient(130deg, #bf593f, #743e45);
+  box-shadow: 0 10px 22px #17264026;
+}
+#split-common-ground .split-card-brand { position: absolute; top: 12px; left: 16px; font-weight: 700; letter-spacing: -0.02em; }
+#split-common-ground .split-card-chip {
+  position: absolute; top: 42%; left: 16px; width: 30px; height: 22px; border-radius: 4px !important;
+  background: linear-gradient(135deg, #f5d98b, #c9a24a);
+}
+#split-common-ground .split-card-number { position: absolute; bottom: 12px; left: 16px; font-family: 'DM Sans', monospace; letter-spacing: 0.08em; }
+#split-common-ground .split-card-kind { position: absolute; bottom: 12px; right: 16px; font-size: 11px; font-weight: 700; text-transform: uppercase; opacity: 0.85; }
+#split-common-ground .split-card-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+#split-common-ground .split-card-facts > div { display: flex; flex-direction: column; gap: 2px; }
+#split-common-ground .split-card-facts strong { font-size: 20px; }
+#split-common-ground .split-card-used { grid-column: 1 / -1; }
+#split-common-ground .split-card-used .category-track { margin: 4px 0; }
+#split-common-ground .split-card.is-compact { grid-template-columns: 180px minmax(0, 1fr); }
+#split-common-ground .salary-line {
+  display: flex; align-items: center; gap: 12px; padding: 16px 18px; border: 1px solid var(--sp-line); background: var(--sp-paper);
+}
+#split-common-ground .salary-line > svg { width: 26px; height: 26px; color: var(--sp-income); flex-shrink: 0; }
+#split-common-ground .salary-line > span { display: flex; flex-direction: column; gap: 3px; }
+#split-common-ground .insight-cards { margin-bottom: 22px; }
+#split-common-ground .insight-cards .split-card + .split-card { margin-top: 10px; }
+@media (max-width: 760px) {
+  #split-common-ground .money-extras { grid-template-columns: 1fr; }
+  #split-common-ground .split-card, #split-common-ground .split-card.is-compact { grid-template-columns: 1fr; }
+  #split-common-ground .split-card-art { max-width: 300px; }
+  #split-common-ground .category-choices { grid-template-columns: 1fr; }
+}

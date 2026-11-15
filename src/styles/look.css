@@ -32,8 +32,12 @@
 .session-gate .session-mark::after {
   border-radius: 10px !important;
 }
-#split-common-ground .capital-bank :is(.bank-card-front, .bank-card-back) {
-  border-radius: 14px !important;
+#split-common-ground .capital-bank :is(.bank-card-front, .bank-card-back),
+#split-common-ground .split-card-art {
+  border-radius: 12px !important;
+}
+#split-common-ground .split-card-chip {
+  border-radius: 4px !important;
 }
 
 /* ---------- Hover and focus ---------- */
