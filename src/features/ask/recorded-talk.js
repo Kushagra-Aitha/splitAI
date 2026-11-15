@@ -59,11 +59,11 @@ export function createRecordedTalk({ onState, onTranscript, onError }) {
       if (!blob.size) throw new Error('No audio was recorded. Hold the mic while speaking.');
       const audio = await toWav(blob, session.context);
       if (current !== session) return;
-      const { transcript } = await apiRequest('/api/ask/transcribe', {
+      const { transcript, basic } = await apiRequest('/api/voice/transcribe', {
         method: 'POST', body: { audio }, timeoutMs: 35_000, signal: session.controller.signal,
       });
       if (finish(session)) {
-        if (transcript) onTranscript(transcript);
+        if (transcript) onTranscript(transcript, { basic });
         else onError('No speech was heard. Try again or type a message.');
       }
     } catch (error) {

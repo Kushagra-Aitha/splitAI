@@ -265,3 +265,18 @@ test('one origin serves the app and API, but never secrets, source maps, or syml
     assert.equal((await request(pathname)).status, 404, pathname);
   }
 });
+
+test('voice speech requires a session and CSRF and returns audio or basic voice', async (t) => {
+  const request = await start(t, { handlers: {
+    'voice.speak': ({ body }) => body.text === 'play' ? Buffer.from([1, 2, 3]) : null,
+  } });
+  assert.equal((await request('/api/voice/speak', { method: 'POST' })).status, 401);
+  const auth = await login(request);
+  const options = mutation(auth, { text: 'play' });
+  const invalid = { ...options, headers: { ...options.headers, 'X-CSRF-Token': 'bad-token' } };
+  assert.equal((await request('/api/voice/speak', invalid)).status, 403);
+  const result = await request('/api/voice/speak', options);
+  assert.equal(result.headers.get('Content-Type'), 'audio/mpeg');
+  assert.deepEqual(Buffer.from(await result.arrayBuffer()), Buffer.from([1, 2, 3]));
+  assert.equal((await request('/api/voice/speak', mutation(auth, { text: 'basic' }))).status, 204);
+});

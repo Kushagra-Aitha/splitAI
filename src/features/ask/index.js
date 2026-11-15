@@ -31,7 +31,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       else { pointer = null; heldKey = null; }
       paintVoice();
     },
-    onTranscript(transcript) {
+    onTranscript(transcript, { basic = false } = {}) {
       if (!askVisible() || sending) return;
       if (composerText.trim()) {
         composerText = `${composerText.trim()} ${transcript}`.slice(0, 500);
@@ -42,7 +42,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
         refresh();
         announceVoice('Voice input reached 500 characters. Review it before sending.');
       } else {
-        void submitMessage(transcript);
+        void submitMessage(transcript, null, basic);
       }
     },
     onError: announceVoice,
@@ -186,7 +186,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
         ${canReadAloud() ? `<button type="button" class="text-button" id="sp-ask-speech" data-ask-speech aria-pressed="${speakReplies}">${icon('speaker-high')} Spoken replies ${speakReplies ? 'on' : 'off'}</button>` : ''}
         <span class="small" id="sp-ask-voice-status" data-ask-voice-status role="status">${esc(voiceStatus())}</span>
       </div>
-      <p id="sp-chat-help" class="chat-footnote">${recorder.supported ? 'Hold the mic to talk. Recordings go to Gemini for transcription. ' : ''}Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
+      <p id="sp-chat-help" class="chat-footnote">${recorder.supported ? 'Hold the mic to talk. Recordings are sent for transcription. ' : ''}Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
   }
 
   function receive(entry, response) {
@@ -234,7 +234,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       if (response.asOf && revision !== financialRevision()) throw new Error('Your financial facts changed while Split was answering. Refresh to get the current figures.');
       receive(entry, response);
       if (speakReplies && askVisible() && voiceState === 'idle') {
-        readAloud(replyText(response), { owner: 'ask', onError: () => announceVoice('Couldn’t read the reply aloud.') });
+        readAloud(replyText(response), { owner: 'ask', onBasic: () => announceVoice('Using basic voice') });
       }
     } catch (error) {
       if (generation !== epoch || controller.signal.aborted) return;
@@ -280,12 +280,12 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     return { proposalId: entry.response.proposalId, selection };
   }
 
-  async function submitMessage(text, context = null) {
+  async function submitMessage(text, context = null, basic = false) {
     const message = text.trim();
     if (!message || sending) return;
     voice.cancel();
-    voiceMessage = '';
-    stopReading('ask');
+    voiceMessage = basic ? 'Using basic voice' : '';
+    stopReading();
     const previous = entries.at(-1);
     const retry = previous?.error && previous.message === message && previous.retryBody?.message === message &&
       JSON.stringify(previous.retryBody?.context ?? null) === JSON.stringify(context);

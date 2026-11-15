@@ -79,13 +79,18 @@ export function createApp({ config, handlers = {}, serveStatic, now, onError = (
       if (!['GET', 'HEAD'].includes(req.method)) {
         requireSameOrigin(req, config.origin);
         sessions.requireCsrf(req, session);
-        body = await readJson(req, route.name === 'ask.transcribe' ? 650_000 : undefined);
+        body = await readJson(req, ['ask.transcribe', 'voice.transcribe'].includes(route.name) ? 650_000 : undefined);
       }
       const handler = handlers[route.name];
       if (!handler) throw new HttpError(501, 'NOT_IMPLEMENTED', 'This feature is not available yet.');
       const result = await handler(Object.freeze({
         actor: session.actor, body, params: route.params, query: url.searchParams, requestId,
       }));
+      if (route.name === 'voice.speak') {
+        if (!result) { res.writeHead(204); return res.end(); }
+        res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': result.length });
+        return res.end(result);
+      }
       return sendJson(res, 200, result);
     } catch (error) {
       if (res.destroyed || res.writableEnded) return;

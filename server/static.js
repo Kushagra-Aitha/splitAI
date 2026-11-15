@@ -15,7 +15,7 @@ export async function createStaticFiles(directory) {
   const index = await readFile(path.join(root, 'index.html'));
   const hashes = [...index.toString().matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
     .map((match) => `'sha256-${createHash('sha256').update(match[1]).digest('base64')}'`);
-  const csp = `default-src 'self'; script-src 'self' ${hashes.join(' ')}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`;
+  const csp = `default-src 'self'; script-src 'self' ${hashes.join(' ')}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`;
 
   return async (req, res, pathname) => {
     if (!['GET', 'HEAD'].includes(req.method)) {

@@ -16,9 +16,9 @@ export function getSession() {
 
 // Later feature modules use relative URLs and the same trusted session. Never
 // put provider credentials, a selected actor, or session tokens in storage.
-export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_000, signal } = {}) {
+export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_000, signal, audio = false } = {}) {
   if (!path.startsWith('/api/') || path.includes('\\')) throw new Error('Use a relative API path.');
-  const headers = { Accept: 'application/json' };
+  const headers = { Accept: audio ? 'audio/mpeg, application/json' : 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!['GET', 'HEAD'].includes(method) && session) headers['X-CSRF-Token'] = session.csrfToken;
   const response = await fetch(path, {
@@ -28,6 +28,7 @@ export async function apiRequest(path, { method = 'GET', body, timeoutMs = 15_00
   });
   if (response.status === 401) session = null;
   if (response.status === 204) return null;
+  if (audio && response.ok && response.headers.get('content-type') === 'audio/mpeg') return response.blob();
   const data = await response.json();
   if (!response.ok) {
     throw new ApiError(response.status, data.error?.code || 'REQUEST_FAILED', data.error?.message || 'The request failed.');

@@ -39,6 +39,8 @@ export const routes = Object.freeze([
   ['banking.transactions', 'GET', '/api/banking/transactions'],
   ['banking.transactionCategory', 'POST', '/api/banking/transactions/:id/category'],
   ['overview.get', 'GET', '/api/overview'],
+  ['voice.transcribe', 'POST', '/api/voice/transcribe'],
+  ['voice.speak', 'POST', '/api/voice/speak'],
   ['ask.transcribe', 'POST', '/api/ask/transcribe'],
   ['ask.create', 'POST', '/api/ask'],
   ['reminders.draft', 'POST', '/api/reminders/drafts'],

@@ -1,3 +1,6 @@
+import { HttpError } from './http.js';
+import { createElevenLabs } from './assistant/elevenlabs.js';
+import { createVoiceLimit } from './assistant/voice-limit.js';
 import { createVoiceTranscription } from './assistant/voice-transcription.js';
 // Feature handler registry: one line per slice. createApp() rejects any name
 // that is not in routes.js. Keep imports alphabetical to avoid merge conflicts.
@@ -25,6 +28,10 @@ import { createInsightsHandler } from './insights/read.js';
 import { createReminderHandlers } from './reminders/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
+const voice = createElevenLabs({ apiKey: process.env.ELEVENLABS_API_KEY, voiceId: process.env.ELEVENLABS_VOICE_ID });
+const limitVoice = createVoiceLimit();
+const transcribeVoice = createVoiceTranscription(generate, { transcribe: voice.transcribe, limit: limitVoice });
+
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
 const db = { query: (...args) => getPool().query(...args), withTransaction };
 const recurringSplits = createRecurringSplits(db);
@@ -38,7 +45,16 @@ export const handlers = Object.freeze({
   ...recurringSplits.handlers,
   'charges.explain': chargeExplanation.byId,
   ...createActivityHandlers({ withTransaction }),
-  'ask.transcribe': createVoiceTranscription(generate),
+  'ask.transcribe': transcribeVoice,
+  'voice.transcribe': transcribeVoice,
+  'voice.speak': async ({ actor, body }) => {
+    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    if (!text || text.length > 600) {
+      throw new HttpError(422, 'INVALID_VOICE_TEXT', 'Send up to 600 characters to read aloud.');
+    }
+    limitVoice(actor.userId);
+    try { return await voice.speak(text); } catch { return null; }
+  },
   'ask.create': createAskWorkflow({
     prepareReminder: reminders.prepare,
     parseIntent: createIntentParser({ generate }),
