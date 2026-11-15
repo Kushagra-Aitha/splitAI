@@ -88,7 +88,7 @@ export function createApp({ config, handlers = {}, serveStatic, now, onError = (
       }));
       if (route.name === 'voice.speak') {
         if (!result) { res.writeHead(204); return res.end(); }
-        res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': result.length });
+        res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': result.length });
         return res.end(result);
       }
       return sendJson(res, 200, result);

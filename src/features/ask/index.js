@@ -44,13 +44,10 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   let voiceState = 'idle';
   let voiceMessage = '';
   let speakReplies = false;
-  let pointer = null;
-  let heldKey = null;
   const voiceCallbacks = {
     onState(value) {
       voiceState = value;
       if (value !== 'idle') voiceMessage = '';
-      else { pointer = null; heldKey = null; }
       paintVoice();
     },
     onTranscript(transcript, { basic = false } = {}) {
@@ -74,7 +71,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     ...voiceCallbacks,
     Recognition: [window.SpeechRecognition, window.webkitSpeechRecognition].find((candidate) => typeof candidate === 'function'),
   });
-  const micHeld = () => voiceState === 'permission' || voiceState === 'listening';
+  const micActive = () => voiceState === 'permission' || voiceState === 'listening';
 
   function askVisible() {
     return owned() && !document.hidden && (panel.isOpen() || state.page === 'chat') &&
@@ -89,7 +86,10 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
 
   function paintVoice() {
     for (const button of root.querySelectorAll('[data-ask-mic]')) {
-      button.setAttribute('aria-pressed', String(micHeld()));
+      button.setAttribute('aria-pressed', String(micActive()));
+      button.setAttribute('aria-label', voice.supported
+        ? (micActive() ? 'Stop voice recording' : 'Start voice recording')
+        : 'Microphone unavailable');
       button.disabled = !voice.supported || sending || voiceState === 'processing';
     }
     for (const status of root.querySelectorAll('[data-ask-voice-status]')) status.textContent = voiceStatus();
@@ -231,15 +231,15 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(promptLabel(prompt))}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
       <textarea rows="2" id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" ${sending ? 'disabled' : ''} required>${esc(composerText)}</textarea>
       <button type="button" class="icon-button ask-mic" id="sp-ask-mic" data-ask-mic
-        aria-label="${voice.supported ? 'Microphone, hold to talk' : 'Microphone unavailable'}"
-        aria-pressed="${micHeld()}" aria-describedby="sp-ask-voice-status"
+        aria-label="${voice.supported ? (micActive() ? 'Stop voice recording' : 'Start voice recording') : 'Microphone unavailable'}"
+        aria-pressed="${micActive()}" aria-describedby="sp-ask-voice-status"
         ${!voice.supported || sending || voiceState === 'processing' ? 'disabled' : ''}>${icon('microphone')}</button>
       <button type="submit" class="icon-button send" aria-label="Send message" ${sending ? 'disabled' : ''}>${icon('arrow-up')}</button></form>
       <div class="ask-voice-options">
         ${canReadAloud() ? `<button type="button" class="text-button" id="sp-ask-speech" data-ask-speech aria-pressed="${speakReplies}">${icon('speaker-high')} Spoken replies ${speakReplies ? 'on' : 'off'}</button>` : ''}
         <span class="small" id="sp-ask-voice-status" data-ask-voice-status role="status">${esc(voiceStatus())}</span>
       </div>
-      <p id="sp-chat-help" class="chat-footnote">${recorder.supported ? 'Hold the mic to talk. Recordings are sent for transcription. ' : ''}Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
+      <p id="sp-chat-help" class="chat-footnote">${voice.supported ? 'Click the mic to start voice input, then click again to stop. ' : ''}Enter to send · Shift + Enter for a new line. Expenses and reminders need confirmation; payments have a separate review.</p></div>`;
   }
 
   function receive(entry, response) {
@@ -419,34 +419,10 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     }
   }
 
-  root.addEventListener('pointerdown', (event) => {
-    const button = event.target.closest('[data-ask-mic]');
-    if (!button || event.button !== 0 || !event.isPrimary || !startVoice()) return;
-    event.preventDefault();
-    pointer = event.pointerId;
-    button.focus();
-  });
-  window.addEventListener('pointerup', (event) => {
-    if (event.pointerId === pointer) voice.release();
-  });
-  window.addEventListener('pointercancel', (event) => {
-    if (event.pointerId === pointer) voice.cancel();
-  });
-  root.addEventListener('keydown', (event) => {
-    if (!event.target.closest('[data-ask-mic]') || ![' ', 'Enter'].includes(event.key)) return;
-    event.preventDefault();
-    if (!event.repeat && startVoice()) heldKey = event.key;
-  });
-  window.addEventListener('keyup', (event) => {
-    if (event.key !== heldKey) return;
-    event.preventDefault();
-    heldKey = null;
-    voice.release();
-  });
   root.addEventListener('click', (event) => {
-    if (event.target.closest('[data-ask-mic]') && event.detail === 0) {
-      // Assistive activation can be a click with no down/up events.
-      if (micHeld()) voice.release();
+    if (event.target.closest('[data-ask-mic]')) {
+      if (voiceState === 'permission') voice.cancel();
+      else if (voiceState === 'listening') voice.release();
       else startVoice();
     }
     if (event.target.closest('[data-ask-speech]')) {

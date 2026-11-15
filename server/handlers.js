@@ -1,5 +1,5 @@
 import { HttpError } from './http.js';
-import { createElevenLabs } from './assistant/elevenlabs.js';
+import { createGeminiVoice } from './assistant/gemini-voice.js';
 import { createVoiceLimit } from './assistant/voice-limit.js';
 import { createVoiceTranscription } from './assistant/voice-transcription.js';
 // Feature handler registry: one line per slice. createApp() rejects any name
@@ -29,9 +29,9 @@ import { createInsightsHandler } from './insights/read.js';
 import { createReminderHandlers } from './reminders/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
-const voice = createElevenLabs({ apiKey: process.env.ELEVENLABS_API_KEY, voiceId: process.env.ELEVENLABS_VOICE_ID });
+const voice = createGeminiVoice({ apiKey: process.env.GEMINI_API_KEY, ttsModel: process.env.GEMINI_TTS_MODEL });
 const limitVoice = createVoiceLimit();
-const transcribeVoice = createVoiceTranscription(generate, { transcribe: voice.transcribe, limit: limitVoice });
+const transcribeVoice = createVoiceTranscription({ transcribe: voice.transcribe, limit: limitVoice });
 
 const answerFinancial = createFinancialAnswers({ withTransaction, explain: createFactExplainer({ generate }) });
 const db = { query: (...args) => getPool().query(...args), withTransaction };

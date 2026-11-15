@@ -11,7 +11,7 @@ The rule the whole system is built around: **the AI never moves money, and never
 | | |
 | --- | --- |
 | **Database** | Tiger Cloud (TimescaleDB): one service, `bank_transactions` as a hypertable, 27 tables, 20 versioned migrations |
-| **AI** | Gemini (intent + extraction with JSON Schema output, grounded explanations, fallback speech-to-text), ElevenLabs (speech-to-text and voice replies) |
+| **AI** | Gemini (intent + extraction with JSON Schema output, grounded explanations, speech-to-text, and voice replies) |
 | **Bank** | Capital One Nessie API, through **Capital Two**, our sandbox bank |
 | **Hosting** | Vultr Cloud Compute, Nginx + Let's Encrypt in front of a single Node origin |
 | **Quality** | ~200 automated tests in 46 files, 49 authenticated API routes, 53 reviewed and merged pull requests |
@@ -58,14 +58,14 @@ flowchart LR
   end
 
   GEM["Gemini<br/>JSON Schema output"]
-  EL["ElevenLabs<br/>Scribe STT · TTS"]
+  VOICE["Gemini<br/>STT · 3.8 Flash TTS"]
   NES["Nessie API<br/>Capital Two"]
 
   UI -- "HTTPS · HttpOnly cookie + CSRF" --> NGINX
   NGINX -- "proxy to 127.0.0.1" --> HTTP
   HTTP --> ASK & GUARD & LEDGER & BANK
   ASK -- "message only, no tools" --> GEM
-  ASK -- "audio / reply text" --> EL
+  ASK -- "audio / reply text" --> VOICE
   LEDGER -- "transfers" --> NES
   BANK -- "read accounts + activity" --> NES
   WORKER -- "purchases · deposits · schedules" --> NES
@@ -189,12 +189,8 @@ erDiagram
 - **Intent and extraction with JSON Schema.** Every call sets `responseMimeType: application/json` and a `responseJsonSchema`. The reply is validated again in code (`server/assistant/intent.js`): unknown fields, fractional or unsafe cents, wrong types, control characters and contradictory intent/expense pairs are rejected.
 - **No tools, minimal input.** The model gets only the user's message. No account IDs, balances, credentials or history, and no function calling. Responses that contain function calls or inline data are rejected.
 - **Grounded explanations.** For affordability, debts, spending and "explain this charge", application code computes every figure and writes each factual sentence. Gemini only returns an ordering of the sentence IDs it was given, and the server checks that the ordering contains each ID exactly once.
-- **Fallback speech-to-text.** If ElevenLabs is unavailable, recorded audio is sent to Gemini as `inlineData` and transcribed under the same schema rules.
+- **Speech-to-text and spoken replies.** Recorded WAV audio goes to Gemini's transcription model; spoken replies use Gemini 3.8 Flash TTS. Provider calls stay server-side, audio and text are size-limited, and browser speech synthesis remains the fallback when Gemini voice is unavailable.
 - **Cost and latency limits.** At most 4 concurrent and 30 requests per minute per process, a 25-second timeout, no automatic retries, and `thinkingLevel: minimal` for the extraction model.
-
-### ElevenLabs
-
-- Push-to-talk audio is transcribed with **Scribe v2**; replies are spoken with **Flash v2.5**. Both run server-side with the key never sent to the browser, with a 6.5-second timeout and a 1 MB audio cap. If voice is unavailable, Split falls back to Gemini transcription and the browser's built-in speech.
 
 ### Nessie (Capital Two)
 
@@ -291,7 +287,7 @@ Requires Node 22.15+ (24 recommended) and a Tiger Cloud service (or local Postgr
 npm install
 npm --prefix server install
 cp server/.env.example server/.env      # set DATABASE_URL, DB_SCHEMA, DEMO_PASSWORD,
-                                        # GEMINI_API_KEY, GEMINI_MODEL, NESSIE_*, ELEVENLABS_*
+                                        # GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TTS_MODEL, NESSIE_*
 npm --prefix server run db:setup        # migrate + seed demo users
 npm run build
 npm --prefix server start               # http://localhost:3001
