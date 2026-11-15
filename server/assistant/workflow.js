@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { HttpError } from '../http.js';
 import { createLedgerHandlers } from '../ledger/handlers.js';
 import { createAskHandler } from './ask.js';
-import { validateIntent, validateMessage } from './intent.js';
+import { validateConversation, validateIntent, validateMessage } from './intent.js';
 import { createAssistantGuard, rejectedProposalReason } from './guard.js';
 import { chargeExplanationTarget } from '../ledger/explain-charge.js';
 import { bankQuery, matchPurchases } from './bank-match.js';
@@ -23,9 +23,15 @@ function clarifyPayment(expense = null) {
   const amount = Number.isSafeInteger(expense?.cents) ? usd(expense.cents) : null;
   const subject = [amount, merchant ? `for ${merchant}` : null].filter(Boolean).join(' ');
   return {
-    type: 'answer',
+    type: 'clarification',
     intent: 'payment_clarification',
     answer: `I haven’t matched this to a logged transaction, and no expense or payment was created. Did ${person ? `${person} pay` : 'someone else pay'}${merchant ? ` for ${merchant}` : ''} and you want to settle${amount ? ` ${amount}` : ''}, or did you pay and want to split${subject ? ` ${subject}` : ' the purchase'}? Use Settle up for a debt, or mention the card or bank transaction to match a purchase.`,
+    choices: [
+      { label: person ? `${person} paid — check what I owe` : 'Someone else paid — check what I owe',
+        message: person ? `What do I owe ${person}?` : 'What do I owe?' },
+      { label: 'I paid — record a split',
+        message: `I paid${amount ? ` ${amount}` : ''}${merchant ? ` at ${merchant}` : ''} and want to split it${person ? ` with ${person}` : ''}.` },
+    ],
   };
 }
 
@@ -176,7 +182,7 @@ async function advance(db, proposal, actor, selection) {
   return { type: 'draft', proposalId: proposal.id, draft, group: groupOptions.find((group) => group.id === groupId) };
 }
 
-export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, prepareReminder, explainCharge,
+export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, conversationalReads, prepareReminder, explainCharge,
   guard = createAssistantGuard({ withTransaction }) }) {
   const run = async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
@@ -194,8 +200,11 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
         return advance(db, proposal, actor, body.selection);
       });
     }
-    if (!body || Object.keys(body).some((key) => !['message', 'requestKey', 'context'].includes(key))) throw invalid('Send only a message, request key, and optional group-note context.');
+    if (!body || Object.keys(body).some((key) => !['message', 'requestKey', 'context', 'conversation'].includes(key))) {
+      throw invalid('Send only a message, request key, bounded conversation topics, and optional group-note context.');
+    }
     const message = validateMessage(body);
+    const conversation = validateConversation(body.conversation);
     const requestKey = id(body.requestKey, 'request key');
     if (Object.hasOwn(body, 'context')) return guard.reviewNote({ actor, context: body.context });
     const messageHash = hash(message);
@@ -205,14 +214,27 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
     const merchant = !existing && explainCharge ? chargeExplanationTarget(message) : null;
     if (merchant) {
       const asOf = new Date().toISOString();
-      return { ...await explainCharge({ actor, merchant }), asOf };
+      return { ...await explainCharge({ actor, merchant }), asOf,
+        conversation: { intent: 'explain_charge', merchant, category: null, from: null, to: null } };
     }
     // No DB connection or transaction is held across the model request.
-    const parsed = validateIntent(existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message));
+    const parsed = validateIntent(existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message, conversation));
     if (parsed.intent === 'goal_progress') return withTransaction((db) => answerGoalProgress(db, actor.userId));
     if (parsed.intent === 'reminder' && prepareReminder) return prepareReminder(actor, parsed.expense, requestKey);
     if (parsed.intent === 'reminder') throw new HttpError(503, 'REMINDERS_UNAVAILABLE', 'Reminders are not available yet.');
     if (parsed.intent === 'payment_clarification') return clarifyPayment(parsed.expense);
+    if (parsed.intent === 'explain_charge' && explainCharge) {
+      const previousMerchant = [...conversation].reverse().find((topic) => topic.merchant)?.merchant;
+      if (!previousMerchant) {
+        return { type: 'clarification', intent: 'explain_charge',
+          answer: 'Which merchant charge do you want explained?', choices: [] };
+      }
+      const asOf = new Date().toISOString();
+      return { ...await explainCharge({ actor, merchant: previousMerchant }), asOf,
+        conversation: { intent: 'explain_charge', merchant: previousMerchant, category: null, from: null, to: null } };
+    }
+    if (parsed.intent === 'transactions' && conversationalReads) return conversationalReads.transactions({ actor, query: parsed.query });
+    if (parsed.intent === 'spending_guidance' && conversationalReads) return conversationalReads.spendingGuidance({ actor, query: parsed.query });
     if (parsed.intent === 'unsupported') {
       if (paymentLanguage.test(message)) return clarifyPayment();
       return {
