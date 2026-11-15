@@ -3,9 +3,23 @@ import { HttpError } from '../http.js';
 const merchantKey = (value) => value.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/gu, '');
 const shift = (date, days) => new Date(Date.parse(`${date}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
+/** Deterministic parse for Ask chips / free-text “split my … purchase with …”. */
+export function bankSplitTarget(message) {
+  const text = typeof message === 'string' ? message.trim() : '';
+  const match = /^(?:i\s+need\s+to\s+|please\s+)?split\s+my\s+(?:last\s+)?(.+?)\s+(?:card\s+)?purchase\s+with\s+(.+?)[?.!]*$/iu.exec(text);
+  if (!match) return null;
+  const merchant = match[1].trim();
+  const groupHint = match[2].trim();
+  if (!merchant || merchant.length > 60 || !groupHint || groupHint.length > 80) return null;
+  return { merchant, groupHint };
+}
+
 export function bankQuery(message, extraction, now = new Date()) {
-  if (!extraction.merchant || /\bcash\b/iu.test(message) ||
-      !/\b(?:last night|yesterday|today|this month|last (?:purchase|transaction)|bank transaction|card purchase)\b/iu.test(message)) return null;
+  if (!extraction.merchant || /\bcash\b/iu.test(message)) return null;
+  // Prefer bank amounts whenever the user is splitting a named purchase without typing dollars.
+  const explicitWindow = /\b(?:last night|yesterday|today|this month|last (?:purchase|transaction)|bank transaction|card purchase)\b/iu.test(message);
+  const splitWithoutAmount = extraction.cents == null && /\b(?:split|purchase|charge|transaction)\b/iu.test(message);
+  if (!explicitWindow && !splitWithoutAmount) return null;
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(now);
   const merchant = merchantKey(extraction.merchant);
   if (!merchant) throw new HttpError(422, 'BANK_MERCHANT_AMBIGUOUS', 'Choose the purchase from Transactions, or use a more specific merchant name.');
@@ -13,6 +27,23 @@ export function bankQuery(message, extraction, now = new Date()) {
   return { merchant, cents: extraction.cents,
     from: yesterday ? shift(date, -1) : /\btoday\b/iu.test(message) ? date : /\bthis month\b/iu.test(message) ? `${date.slice(0, 8)}01` : shift(date, -30),
     to: yesterday ? date : shift(date, 1) };
+}
+
+/** Actor-scoped: a confirmed chat/bank expense already linked for this merchant. */
+export async function findLinkedMerchantExpense(db, actorId, merchant) {
+  const key = merchantKey(merchant);
+  if (!key) return null;
+  const { rows: [row] } = await db.query(`
+    SELECT e.merchant, e.total_cents AS "totalCents", g.name AS "groupName"
+    FROM expenses e
+    JOIN groups g ON g.id = e.group_id
+    JOIN group_members m ON m.group_id = g.id AND m.user_id = $1 AND m.left_at IS NULL
+    WHERE e.status = 'confirmed'
+      AND regexp_replace(lower(e.merchant), '[^a-z0-9]', '', 'g') = $2
+      AND (e.created_by = $1 OR e.bank_account_id IN (SELECT id FROM bank_accounts WHERE user_id = $1))
+    ORDER BY e.confirmed_at DESC NULLS LAST, e.id DESC
+    LIMIT 1`, [actorId, key]);
+  return row ?? null;
 }
 
 export async function matchPurchases(db, actorId, criteria, selected, draftId = null) {

@@ -6,8 +6,14 @@ const INTENTS = ['expense', 'affordability', 'debt_summary', 'spending_insight',
   'explain_charge', 'goal_progress', 'reminder', 'payment_clarification', 'unsupported'];
 const EXPENSE_KEYS = ['merchant', 'cents', 'participantNames', 'groupHint'];
 const QUERY_KEYS = ['merchant', 'category', 'direction', 'status', 'from', 'to', 'limit'];
-const CONTEXT_KEYS = ['intent', 'merchant', 'category', 'from', 'to'];
+const CONTEXT_KEYS = ['intent', 'merchant', 'category', 'from', 'to', 'focus'];
+const FOCUS_KEYS = ['categories', 'merchants'];
+export const MAX_FOCUS_LABELS = 5;
 const CONTROL_CHARACTERS = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/u;
+
+export function emptyFocus() {
+  return Object.freeze({ categories: Object.freeze([]), merchants: Object.freeze([]) });
+}
 
 // The provider schema improves output consistency. validateIntent is the
 // authoritative boundary: provider output never becomes trusted by declaration.
@@ -110,6 +116,23 @@ function validateQuery(value) {
   return query;
 }
 
+function validateFocus(value) {
+  if (!hasExactKeys(value, FOCUS_KEYS) || !Array.isArray(value.categories) || !Array.isArray(value.merchants) ||
+      value.categories.length > MAX_FOCUS_LABELS || value.merchants.length > MAX_FOCUS_LABELS) {
+    throw invalidOutput();
+  }
+  const label = (entry, maxLength) => {
+    if (typeof entry !== 'string' || !entry.trim() || entry.length > maxLength || CONTROL_CHARACTERS.test(entry)) {
+      throw invalidOutput();
+    }
+    return entry.trim();
+  };
+  return Object.freeze({
+    categories: Object.freeze(value.categories.map((entry) => label(entry, 40))),
+    merchants: Object.freeze(value.merchants.map((entry) => label(entry, 60))),
+  });
+}
+
 export function validateConversation(value) {
   if (value === undefined) return Object.freeze([]);
   if (!Array.isArray(value) || value.length > MAX_CONVERSATION_TURNS) {
@@ -126,6 +149,7 @@ export function validateConversation(value) {
         category: textOrNull(item.category, 40),
         from: dateOrNull(item.from),
         to: dateOrNull(item.to),
+        focus: validateFocus(item.focus),
       });
     } catch {
       throw new HttpError(422, 'INVALID_ASK_CONTEXT', 'Ask conversation context is invalid.');

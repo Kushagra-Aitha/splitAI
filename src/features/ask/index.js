@@ -18,10 +18,18 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   const controllers = new Set();
   const actorId = getSession()?.actor.userId;
   const contextKey = 'split.ask.session-context';
-  const emptyTopic = { intent: 'unsupported', merchant: null, category: null, from: null, to: null };
+  const emptyFocus = () => ({ categories: [], merchants: [] });
+  const validFocus = (value) => value && typeof value === 'object' && !Array.isArray(value) &&
+    Array.isArray(value.categories) && Array.isArray(value.merchants) &&
+    value.categories.length <= 5 && value.merchants.length <= 5 &&
+    value.categories.every((entry) => typeof entry === 'string' && entry.trim()) &&
+    value.merchants.every((entry) => typeof entry === 'string' && entry.trim()) &&
+    Object.keys(value).length === 2;
   const validTopic = (value) => value && typeof value === 'object' && !Array.isArray(value) &&
-    Object.keys(emptyTopic).every((key) => Object.hasOwn(value, key)) && Object.keys(value).length === 5 &&
-    typeof value.intent === 'string' && ['merchant', 'category', 'from', 'to'].every((key) => value[key] === null || typeof value[key] === 'string');
+    ['intent', 'merchant', 'category', 'from', 'to', 'focus'].every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).length === 6 && typeof value.intent === 'string' &&
+    ['merchant', 'category', 'from', 'to'].every((key) => value[key] === null || typeof value[key] === 'string') &&
+    validFocus(value.focus);
   const loadTopics = () => {
     try {
       const stored = JSON.parse(sessionStorage.getItem(contextKey) || 'null');
@@ -122,7 +130,11 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     else if (state.page === 'chat') preserveFocus(root, render);
   };
   function rebuildPrompts() {
-    prompts = buildAskPrompts({ topics, ...promptProfile });
+    const exclude = entries.map((entry) => entry.message).filter((value) => typeof value === 'string').slice(-4);
+    prompts = buildAskPrompts({ topics, ...promptProfile, exclude });
+  }
+  function promptLabel(prompt) {
+    return typeof prompt === 'string' ? prompt : prompt?.label;
   }
   async function refreshPrompts() {
     if (!owned()) return;
@@ -193,9 +205,11 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     else if (entry.response?.type === 'draft') content = `<p>${esc(entry.response.group.name)}</p>${draftTicket(entry.response.draft)}`;
     else if (entry.expense) content = `<div class="saved-ticket"><p class="success-stamp">Expense saved.</p><p>${formatUsdCents(entry.expense.totalCents)} · ${esc(entry.groupName)}</p><button type="button" class="text-button" data-group-id="${esc(entry.expense.groupId)}">View group ledger</button></div>`;
     else if (entry.response?.type === 'answer') {
-      content = entry.response.goals?.length ? `<p>Here’s your confirmed savings progress.</p>${goalAnswers(entry.response.goals)}` : `<p class="ask-answer-copy">${esc(entry.response.answer)}</p>`;
-      if (entry.response.transactions?.length) content += `<div class="ask-plan">${entry.response.transactions.map((transaction) =>
-        `<section><h3>${esc(transaction.merchant)}</h3><p>${formatUsdCents(transaction.amountCents)} · ${esc(transaction.category)} · ${esc(transaction.status)} · ${esc(new Date(transaction.occurredAt).toLocaleDateString())}</p></section>`).join('')}</div>`;
+      if (entry.response.goals?.length) content = `<p>Here’s your confirmed savings progress.</p>${goalAnswers(entry.response.goals)}`;
+      else if (entry.response.transactions?.length) {
+        content = `<div class="ask-plan" aria-label="${esc(entry.response.answer)}">${entry.response.transactions.map((transaction) =>
+          `<section><h3>${esc(transaction.merchant)}</h3><p>${formatUsdCents(transaction.amountCents)} · ${esc(transaction.category)} · ${esc(transaction.status)} · ${esc(new Date(transaction.occurredAt).toLocaleDateString())}</p></section>`).join('')}</div>`;
+      } else content = `<p class="ask-answer-copy">${esc(entry.response.answer)}</p>`;
       if (entry.response.asOf) content += `<p class="small muted">Snapshot: ${esc(new Date(entry.response.asOf).toLocaleString())}${['goal_progress', 'explain_charge'].includes(entry.response.intent) ? '' : entry.response.balanceAsOf ? ` · Bank balance: ${esc(new Date(entry.response.balanceAsOf).toLocaleString())}` : ' · Bank balance not synced'}</p>`;
       if (entry.response.plan) content += `<div class="ask-plan">${entry.response.plan.groups.filter((g) => g.debts.length).map((g) => `<section><h3>${esc(g.name)}</h3>${g.debts.map((d) => `<p>${esc(d.displayName)} · ${formatUsdCents(d.cents)} · ${({ fits: 'Fits this plan', does_not_fit: 'Does not fit', pending: 'Payment pending' })[d.recommendation]}</p>`).join('')}</section>`).join('')}</div>`;
       if (entry.response.debts) content += `<div class="ask-plan">${entry.response.groups.map((g) => {
@@ -214,7 +228,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   function chat(compact = false) {
     return (compact ? '' : heading('Ask Split', 'Let’s talk money.', 'Check a balance, plan a goal, or prepare a shared expense.')) +
       `<div class="chat-thread">${entries.length ? entries.map(entryHtml).join('') : `<div class="agent-message ask-welcome">${label}<h2>A little clarity, before your next move.</h2><p>Ask what you owe, check your goals, or review a charge. You stay in charge of every action.</p></div>`}</div>
-      <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(prompt)}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
+      <div class="composer-area"><div class="ask-prompts" aria-label="Suggested questions">${prompts.map((prompt, index) => `<button type="button" class="text-button" data-ask-prompt="${index}" ${sending ? 'disabled' : ''}>${esc(promptLabel(prompt))}</button>`).join('')}</div><form class="composer" id="sp-chat-form" aria-busy="${sending}"><label for="sp-chat-input" class="sr-only">Message Split</label>
       <textarea rows="2" id="sp-chat-input" name="message" aria-describedby="sp-chat-help" placeholder="Spent $42 at Antonio’s, split with Sam and Priya" autocomplete="off" maxlength="500" ${sending ? 'disabled' : ''} required>${esc(composerText)}</textarea>
       <button type="button" class="icon-button ask-mic" id="sp-ask-mic" data-ask-mic
         aria-label="${voice.supported ? 'Microphone, hold to talk' : 'Microphone unavailable'}"
@@ -235,18 +249,22 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       (['selection_needed', 'draft'].includes(response.type) ? 'expense' : null);
     if (intent && response.type !== 'blocked') {
       const range = response.spending?.range;
+      const focus = validFocus(supplied?.focus) ? supplied.focus : emptyFocus();
       const topic = {
         intent,
         merchant: supplied?.merchant ?? response.extraction?.merchant ?? response.draft?.merchant ?? null,
-        category: supplied?.category ?? null,
+        category: supplied?.category ?? response.category ?? null,
         from: supplied?.from ?? range?.from ?? null,
         to: supplied?.to ?? range?.to ?? null,
+        focus,
       };
       if (validTopic(topic)) {
         topics = [...topics, topic].slice(-4);
         try { sessionStorage.setItem(contextKey, JSON.stringify({ actorId, topics })); } catch {}
-        rebuildPrompts();
       }
+      rebuildPrompts();
+    } else if (entry.message) {
+      rebuildPrompts();
     }
     if (response.type === 'selection_needed' && response.requiresBankPurchase && response.selectedBankRef && entry.values) {
       entry.values.merchant = response.extraction.merchant;
@@ -337,7 +355,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     return { proposalId: entry.response.proposalId, selection };
   }
 
-  async function submitMessage(text, context = null, basic = false) {
+  async function submitMessage(text, context = null, basic = false, action = null) {
     const message = text.trim();
     if (!message || sending) return;
     voice.cancel();
@@ -345,7 +363,8 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     stopReading();
     const previous = entries.at(-1);
     const retry = previous?.error && previous.message === message && previous.retryBody?.message === message &&
-      JSON.stringify(previous.retryBody?.context ?? null) === JSON.stringify(context);
+      JSON.stringify(previous.retryBody?.context ?? null) === JSON.stringify(context) &&
+      JSON.stringify(previous.retryBody?.action ?? null) === JSON.stringify(action);
     const entry = retry ? previous : { id: ++nextId, message, pending: false, error: '' };
     if (!retry) entries.push(entry);
     composerText = message;
@@ -355,12 +374,39 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
       requestKey: crypto.randomUUID(),
       ...(!context && topics.length ? { conversation: topics } : {}),
       ...(context ? { context } : {}),
+      ...(action ? { action } : {}),
     }, retry ? entry.retryPath : '/api/ask');
     if (!owned()) return;
     if (!entry.error) composerText = '';
     sending = false;
     refresh();
     focusResponse(entry);
+  }
+
+  function submitPrompt(prompt) {
+    if (!prompt) return;
+    if (typeof prompt === 'string') {
+      void submitMessage(prompt);
+      return;
+    }
+    if (prompt.action?.type === 'expense_help') {
+      const seed = prompt.action.groupName
+        ? `Spent $42 at , split with  in ${prompt.action.groupName}`
+        : 'Spent $42 at Antonio’s, split with Sam and Priya';
+      composerText = seed;
+      refresh();
+      const input = root.querySelector('#sp-chat-input');
+      if (input) {
+        input.focus();
+        const cursor = seed.indexOf(',') >= 0 ? Math.max(seed.indexOf('at ') + 3, 0) : seed.length;
+        input.setSelectionRange(cursor, cursor);
+      }
+      announce(prompt.action.groupName
+        ? `Add the merchant and people for ${prompt.action.groupName}, then send.`
+        : 'Edit the example expense, then send.');
+      return;
+    }
+    void submitMessage(prompt.label, null, false, prompt.action);
   }
 
   function handleAskForm(form, fd) {
@@ -445,8 +491,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
   root.addEventListener('click', (event) => {
     const prompt = event.target.closest('[data-ask-prompt]');
     if (prompt && !sending) {
-      const message = prompts[Number(prompt.dataset.askPrompt)] || '';
-      if (message) void submitMessage(message);
+      submitPrompt(prompts[Number(prompt.dataset.askPrompt)]);
       return;
     }
     const note = event.target.closest('[data-ask-note-group]');
@@ -494,6 +539,7 @@ export function createAsk({ root, state, icon, icons, esc, heading, render, anno
     if (clearContext) {
       topics = [];
       try { sessionStorage.removeItem(contextKey); } catch {}
+      rebuildPrompts();
     }
   }
   root.addEventListener('click', (event) => { if (event.target.closest('#sp-logout')) reset({ clearContext: true }); }, true);

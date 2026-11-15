@@ -46,7 +46,10 @@ try {
   }
   check = 'intent-context-follow-up';
   const followUp = await parseIntent('What about those?', [
-    { intent: 'transactions', merchant: 'Dominos', category: null, from: '2026-11-01', to: '2026-11-14' },
+    {
+      intent: 'transactions', merchant: 'Dominos', category: null, from: '2026-11-01', to: '2026-11-14',
+      focus: { categories: [], merchants: ['Dominos'] },
+    },
   ]);
   assert.equal(followUp.intent, 'transactions');
   assert.equal(followUp.query.merchant, 'Dominos');

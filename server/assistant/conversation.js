@@ -1,5 +1,6 @@
 import { HttpError } from '../http.js';
 import { TIME_ZONE } from '../banking/overview.js';
+import { MAX_FOCUS_LABELS } from './intent.js';
 import { readFinancialFacts } from './facts.js';
 
 const money = (cents) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -25,8 +26,13 @@ export async function readAskTransactions({ withTransaction, actorId, filter, no
       SELECT t.id, t.direction, t.kind, t.amount_cents::text AS "amountCents",
         coalesce(nullif(btrim(t.merchant_name), ''), nullif(btrim(t.description), ''), 'Transaction') AS merchant,
         coalesce(nullif(btrim(t.category_override), ''), nullif(btrim(t.category), ''), 'Other') AS category,
-        t.status, t.occurred_at AS "occurredAt"
-      FROM bank_accounts a JOIN bank_transactions t ON t.account_id = a.id
+        t.status, t.occurred_at AS "occurredAt",
+        a.kind AS "accountKind", a.account_mask AS "accountMask", g.name AS "splitGroupName"
+      FROM bank_accounts a
+      JOIN bank_transactions t ON t.account_id = a.id
+      LEFT JOIN bank_import_keys k ON k.account_id = a.id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
+      LEFT JOIN expenses e ON e.bank_account_id = a.id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
+      LEFT JOIN groups g ON g.id = e.group_id
       WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
         AND ($2::text IS NULL OR coalesce(t.merchant_name, t.description, '') ILIKE '%' || $2 || '%')
         AND ($3::text IS NULL OR coalesce(t.category_override, t.category, 'Other') ILIKE '%' || $3 || '%')
@@ -43,15 +49,6 @@ export async function readAskTransactions({ withTransaction, actorId, filter, no
     }
     return { transactions, range: { from, to, timeZone: TIME_ZONE }, asOf: now.toISOString() };
   });
-}
-
-function transactionFacts(result) {
-  return Object.fromEntries(result.transactions.map((row, index) => {
-    const date = localDate(new Date(row.occurredAt));
-    const direction = row.direction === 'credit' ? 'credit' : 'debit';
-    return [`transaction_${index + 1}`,
-      `${date}: ${row.merchant}, ${money(row.amountCents)} ${direction}, ${row.category}, ${row.status}.`];
-  }));
 }
 
 function guidanceFacts(facts, category = null) {
@@ -110,18 +107,65 @@ Do not tell the user to send, transfer, approve, or confirm money. Return only s
   };
 }
 
+function uniqueLabels(values, maxLength) {
+  const seen = new Set();
+  const labels = [];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const label = value.trim();
+    if (!label || label.length > maxLength) continue;
+    const key = label.toLocaleLowerCase('en-US');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(label);
+    if (labels.length >= MAX_FOCUS_LABELS) break;
+  }
+  return labels;
+}
+
+function transactionFocus(transactions, category) {
+  return Object.freeze({
+    categories: Object.freeze(uniqueLabels([
+      category,
+      ...transactions.map((row) => row.category),
+    ], 40)),
+    merchants: Object.freeze(uniqueLabels(transactions.map((row) => row.merchant), 60)),
+  });
+}
+
+function spendingFocus(facts, requestedCategory) {
+  const rows = facts.spending.breakdown.categories
+    .slice()
+    .sort((left, right) => right.cents - left.cents)
+    .slice(0, MAX_FOCUS_LABELS);
+  const categories = uniqueLabels([
+    requestedCategory,
+    ...rows.map((row) => row.category),
+  ], 40);
+  return {
+    category: requestedCategory || categories[0] || null,
+    focus: Object.freeze({
+      categories: Object.freeze(categories),
+      merchants: Object.freeze([]),
+    }),
+  };
+}
+
 export function createConversationalReads({ withTransaction, respond, now = () => new Date() }) {
   return {
     transactions: async ({ actor, query }) => {
       const result = await readAskTransactions({ withTransaction, actorId: actor.userId, filter: query, now: now() });
-      const facts = transactionFacts(result);
-      const answer = result.transactions.length
-        ? await respond(facts)
+      const count = result.transactions.length;
+      const answer = count
+        ? `Here ${count === 1 ? 'is 1 transaction' : `are ${count} transactions`} from ${result.range.from} through ${result.range.to}.`
         : `I couldn’t find matching transactions from ${result.range.from} through ${result.range.to}. Try another merchant, category, or date range.`;
       return {
         type: 'answer', intent: 'transactions', answer, transactions: result.transactions,
-        asOf: result.asOf, conversation: { intent: 'transactions', merchant: query.merchant,
-          category: query.category, from: result.range.from, to: result.range.to },
+        asOf: result.asOf, conversation: {
+          intent: 'transactions', merchant: query.merchant, category: query.category,
+          from: result.range.from, to: result.range.to,
+          focus: transactionFocus(result.transactions, query.category),
+        },
       };
     },
     spendingGuidance: async ({ actor, query }) => {
@@ -130,11 +174,14 @@ export function createConversationalReads({ withTransaction, respond, now = () =
       if (query.to) params.set('to', query.to);
       const facts = await readFinancialFacts({ withTransaction, actorId: actor.userId, query: params, now: now() });
       const cards = guidanceFacts(facts, query.category);
+      const digest = spendingFocus(facts, query.category);
       return {
         type: 'answer', intent: 'spending_guidance', answer: await respond(cards),
         asOf: facts.asOf, balanceAsOf: facts.funds.balanceAsOf, spending: facts.spending,
-        conversation: { intent: 'spending_guidance', merchant: null, category: query.category,
-          from: facts.spending.range.from, to: facts.spending.range.to },
+        conversation: {
+          intent: 'spending_guidance', merchant: null, category: digest.category,
+          from: facts.spending.range.from, to: facts.spending.range.to, focus: digest.focus,
+        },
       };
     },
   };

@@ -41,7 +41,10 @@ test('ambiguous repayment language is extracted for clarification without becomi
 });
 
 test('bounded conversation topics resolve follow-ups without accepting raw history or financial facts', async () => {
-  const topics = [{ intent: 'transactions', merchant: 'Dominos', category: 'food', from: '2026-11-01', to: '2026-11-14' }];
+  const topics = [{
+    intent: 'transactions', merchant: 'Dominos', category: 'food', from: '2026-11-01', to: '2026-11-14',
+    focus: { categories: ['food'], merchants: ['Dominos'] },
+  }];
   assert.deepEqual(validateConversation(topics), topics);
   let input;
   const parse = createIntentParser({ ...options, generate: async (request) => {
@@ -55,8 +58,12 @@ test('bounded conversation topics resolve follow-ups without accepting raw histo
   assert.deepEqual(input.conversation, topics);
   for (const conversation of [
     [{ ...topics[0], amountCents: 5000 }],
+    [{ intent: 'transactions', merchant: 'Dominos', category: 'food', from: '2026-11-01', to: '2026-11-14' }],
+    [{ ...topics[0], focus: { categories: ['Housing'], merchants: [], amountCents: 80000 } }],
+    [{ ...topics[0], focus: { categories: Array.from({ length: 6 }, (_, i) => `Cat${i}`), merchants: [] } }],
     Array.from({ length: 5 }, () => topics[0]),
-    [{ intent: 'transactions', merchant: null, category: null, from: 'not-a-date', to: null }],
+    [{ intent: 'transactions', merchant: null, category: null, from: 'not-a-date', to: null,
+      focus: { categories: [], merchants: [] } }],
   ]) assert.throws(() => validateConversation(conversation), (error) => error.status === 422 && error.code === 'INVALID_ASK_CONTEXT');
 });
 
