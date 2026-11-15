@@ -12,6 +12,7 @@
     "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
+    "echarts": "6.1.0",
     "three": "0.160.0"
   },
   "devDependencies": {

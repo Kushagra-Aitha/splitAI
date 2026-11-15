@@ -20,6 +20,7 @@ import { createLedgerHandlers } from './ledger/handlers.js';
 import { createRecurringSplits } from './ledger/recurring-splits.js';
 import { createSettlementLookup } from './ledger/reconcile-settlements.js';
 import { createNotificationHandlers } from './notifications/handlers.js';
+import { createInsightsHandler } from './insights/read.js';
 import { createReminderHandlers } from './reminders/handlers.js';
 
 const generate = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL });
@@ -31,6 +32,7 @@ const chargeExplanation = createChargeExplanation({ withTransaction, explain: cr
 export const capitalService = createCapitalService({ ...db, generateRecurringSplits: recurringSplits.generate });
 
 export const handlers = Object.freeze({
+  'insights.get': createInsightsHandler({ withTransaction }),
   ...createCapitalHandlers(capitalService),
   ...recurringSplits.handlers,
   'charges.explain': chargeExplanation.byId,

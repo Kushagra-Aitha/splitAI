@@ -722,3 +722,70 @@
   #split-common-ground .split-card-art { max-width: 300px; }
   #split-common-ground .category-choices { grid-template-columns: 1fr; }
 }
+
+/* ---------- C16 · Insights charts ---------- */
+#split-common-ground .echart { width: 100%; min-width: 0; height: 330px; }
+#split-common-ground .echart-home { height: 260px; }
+#split-common-ground .echart-category { height: 390px; }
+#split-common-ground .echart-sankey { height: 380px; }
+#split-common-ground .echart-recurring { height: 340px; }
+#split-common-ground .echart-calendar { height: 300px; }
+#split-common-ground .echart-goal { width: 118px; height: 118px; }
+#split-common-ground .insights-section { margin-top: 28px; }
+#split-common-ground .insights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+#split-common-ground .insight-facts {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 10px 0 0;
+  color: var(--sp-muted);
+  font-size: 12px;
+}
+#split-common-ground .insight-category-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+#split-common-ground .insight-category-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-paper);
+  color: var(--sp-ink);
+}
+#split-common-ground .insight-category-link svg { width: 13px; height: 13px; }
+#split-common-ground .insights-goals,
+#split-common-ground .insight-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+#split-common-ground .insight-goal { display: flex; align-items: center; gap: 16px; }
+#split-common-ground .insight-goal h3,
+#split-common-ground .insight-goal p { margin: 3px 0; }
+#split-common-ground .insight-credit-card .display { margin: 12px 0 8px; font-size: clamp(28px, 4vw, 42px); }
+#split-common-ground .insight-credit-card .category-track { display: block; margin-bottom: 10px; }
+#split-common-ground .insight-sort { width: min(180px, 100%); margin: 0; }
+#split-common-ground .insight-merchant-head,
+#split-common-ground .merchant-ledger .merchant-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, .35fr) minmax(90px, .35fr);
+  gap: 12px;
+  align-items: center;
+}
+#split-common-ground .insight-merchant-head { padding: 8px 12px; border-bottom: 1px solid var(--sp-line); }
+#split-common-ground .insight-merchant-head > :last-child,
+#split-common-ground .merchant-ledger .merchant-row > :last-child { text-align: right; }
+@media (max-width: 760px) {
+  #split-common-ground .insights-grid,
+  #split-common-ground .insights-goals,
+  #split-common-ground .insight-card-grid { grid-template-columns: 1fr; }
+  #split-common-ground .echart { height: 300px; }
+  #split-common-ground .echart-category,
+  #split-common-ground .echart-sankey { height: 360px; }
+}
