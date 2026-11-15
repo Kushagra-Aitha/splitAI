@@ -7,6 +7,7 @@ import { closePool, getPool, withTransaction } from './db/pool.js';
 import { capitalService, handlers } from './handlers.js';
 import { startCapitalWorker } from './capital-two/worker.js';
 import { createStaticFiles } from './static.js';
+import { warmGuard } from './guard/comments.js';
 
 try {
   const config = loadConfig();
@@ -17,6 +18,7 @@ try {
   const onSignup = (actor) => provisionBankAccount({ withTransaction }, actor.userId)
     .catch((error) => console.error(JSON.stringify({ event: 'BANK_PROVISION_FAILED', status: error.status ?? null })));
   const server = createApp({ config, handlers, serveStatic, authStore, onSignup, onError: (event) => console.error(JSON.stringify(event)) });
+  await warmGuard();
   server.on('error', (error) => {
     console.error(`API could not start (${error.code}). Check the configured host and port.`);
     process.exitCode = 1;

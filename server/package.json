@@ -10,8 +10,8 @@
     "start": "node --env-file-if-exists=.env index.js",
     "dev": "node --env-file-if-exists=.env --watch index.js",
     "test": "node --test",
-    "guard:train": "python3 guard/fetch-sms.py && node guard/train.js",
-    "guard:eval": "node guard/train.js --eval",
+    "guard:train": "python3 guard/fetch-sms.py && python3 guard/train-deberta.py",
+    "guard:eval": "node guard/benchmark.js",
     "smoke:gemini": "node --env-file-if-exists=.env scripts/smoke-gemini.js",
     "smoke:ask": "node --env-file-if-exists=.env scripts/smoke-ask.js",
     "smoke:insight": "node --env-file-if-exists=.env scripts/smoke-insight.js",
@@ -28,6 +28,7 @@
     "banking:funds-check": "node scripts/funds-race-check.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
     "pg": "^8.13.1"
   }
 }

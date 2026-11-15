@@ -20,15 +20,21 @@ export function ruleReasons(text) {
   return rules.filter(([, regex]) => [...value.matchAll(regex)].some((match) => !negated(value, match.index))).map(([reason]) => reason);
 }
 
-export function score(text, model) {
-  const features = tokens(text); let ham = model.priors[0], spam = model.priors[1];
-  for (const feature of features) {
-    if (!Object.hasOwn(model.weights, feature)) continue;
-    ham += model.weights[feature][0]; spam += model.weights[feature][1];
-  }
-  const difference = spam - ham;
-  const probability = difference >= 0 ? 1 / (1 + Math.exp(-difference)) : Math.exp(difference) / (1 + Math.exp(difference));
+const rounded = (value) => Math.round(value * 1_000_000) / 1_000_000;
+
+export function modelResult(text, probability, model) {
+  const flagged = probability >= model.threshold;
+  const reasons = flagged ? ruleReasons(text) : [];
+  if (flagged && !reasons.length) reasons.push('SPAM_PATTERN');
+  return { flagged, score: rounded(probability), reasons, modelVersion: model.revision };
+}
+
+export function rulesOnlyResult(text) {
   const reasons = ruleReasons(text);
-  if (!reasons.length && probability >= model.threshold) reasons.push('SPAM_PATTERN');
-  return { flagged: !!reasons.length, score: Math.round(probability * 1_000_000) / 1_000_000, reasons, modelVersion: model.revision || model.version };
+  return {
+    flagged: reasons.length > 0,
+    score: reasons.length ? 1 : 0,
+    reasons,
+    modelVersion: 'split-guard-rules-v1',
+  };
 }

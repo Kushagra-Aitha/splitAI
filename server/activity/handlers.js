@@ -170,7 +170,7 @@ export function createActivityHandlers({ withTransaction }) {
         const { rows: [rate] } = await db.query(`SELECT count(*)::int AS n FROM group_comments
           WHERE group_id = $1 AND author_user_id = $2 AND created_at > clock_timestamp() - interval '1 minute'`, [params.id, actor.userId]);
         if (rate.n >= 20) throw new HttpError(429, 'COMMENT_RATE_LIMITED', 'Please wait a minute before posting more comments.');
-        const classification = classifyComment(text);
+        const classification = await classifyComment(text);
         const { rows: [comment] } = await db.query(`INSERT INTO group_comments
           (group_id, expense_id, author_user_id, text, request_key, guard_flagged, guard_score, guard_reasons, guard_model_version, settlement_id)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
