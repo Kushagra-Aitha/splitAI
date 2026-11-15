@@ -276,7 +276,7 @@ test('voice speech requires a session and CSRF and returns audio or basic voice'
   const invalid = { ...options, headers: { ...options.headers, 'X-CSRF-Token': 'bad-token' } };
   assert.equal((await request('/api/voice/speak', invalid)).status, 403);
   const result = await request('/api/voice/speak', options);
-  assert.equal(result.headers.get('Content-Type'), 'audio/mpeg');
+  assert.equal(result.headers.get('Content-Type'), 'audio/wav');
   assert.deepEqual(Buffer.from(await result.arrayBuffer()), Buffer.from([1, 2, 3]));
   assert.equal((await request('/api/voice/speak', mutation(auth, { text: 'basic' }))).status, 204);
 });

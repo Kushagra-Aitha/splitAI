@@ -170,7 +170,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 <header>
   <div class="eyebrow">Split · System design</div>
   <h1>A real bank underneath, a time-series ledger at the core.</h1>
-  <p class="lede">Split runs on its own bank, <strong>Capital Two</strong>, built on Capital One's <strong>Nessie</strong> API. Every account, purchase, deposit and transfer is a real Nessie operation. Every dollar lands in <strong>Tiger Data</strong>, which also does the locking, deduplication and request tracking that keep money correct. Gemini and ElevenLabs handle language and voice, and never touch money.</p>
+  <p class="lede">Split runs on its own bank, <strong>Capital Two</strong>, built on Capital One's <strong>Nessie</strong> API. Every account, purchase, deposit and transfer is a real Nessie operation. Every dollar lands in <strong>Tiger Data</strong>, which also does the locking, deduplication and request tracking that keep money correct. Gemini handles language and voice, and never touches money.</p>
   <div class="stats" role="list">
     <div class="stat teal" role="listitem"><b>13</b><span>Nessie API operations in use</span></div>
     <div class="stat teal" role="listitem"><b>7</b><span>states in the Capital Two payment engine</span></div>
@@ -182,7 +182,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <div class="legend" aria-label="Color legend">
     <span><i class="lg-teal"></i>Nessie · Capital Two</span>
     <span><i class="lg-amber"></i>Tiger Data</span>
-    <span><i class="lg-violet"></i>Gemini · ElevenLabs</span>
+    <span><i class="lg-violet"></i>Gemini · speech and language</span>
     <span><i class="lg-blue"></i>Human approval</span>
     <span><i class="lg-red"></i>Rejected / no path</span>
   </div>
@@ -209,7 +209,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   </div>
   <figure>
     <div class="plate">
-      <svg class="d" viewBox="0 0 1220 780" role="img" aria-label="Split app and Capital Two bank connect over HTTPS to Nginx on Vultr. A security gate fronts three module groups: Split features, a provider-agnostic banking layer, and the Capital Two engine. Modules call Nessie for accounts, reads and payments, Gemini and ElevenLabs for language and voice, and all write to Tiger Cloud through one connection pool.">
+      <svg class="d" viewBox="0 0 1220 780" role="img" aria-label="Split app and Capital Two bank connect over HTTPS to Nginx on Vultr. A security gate fronts three module groups: Split features, a provider-agnostic banking layer, and the Capital Two engine. Modules call Nessie for accounts, reads and payments, Gemini for language and voice, and all write to Tiger Cloud through one connection pool.">
         <!-- clients -->
         <rect class="box" x="20" y="150" width="180" height="150" rx="8"/>
         <text class="t" x="36" y="178">Split app</text>
@@ -275,7 +275,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
         <!-- externals -->
         <rect class="box violet" x="880" y="40" width="320" height="72" rx="8"/>
-        <text class="t" x="898" y="68">Gemini · ElevenLabs</text>
+        <text class="t" x="898" y="68">Gemini · speech and language</text>
         <text class="s" x="898" y="90">intent JSON · explanations · voice in and out</text>
 
         <rect class="box teal" x="880" y="140" width="320" height="300" rx="8"/>
@@ -333,7 +333,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         <text class="lbl teal" x="784" y="606">merchants</text>
       </svg>
     </div>
-    <figcaption>Every module group reaches Tiger through the same connection pool (amber line). The banking layer converts every bank's data into one shape, so Split's features never handle a provider's raw format. Gemini and ElevenLabs receive only text or audio; Nessie keys never reach the browser.</figcaption>
+    <figcaption>Every module group reaches Tiger through the same connection pool (amber line). The banking layer converts every bank's data into one shape, so Split's features never handle a provider's raw format. Gemini receives only the text or audio needed for the active language or voice request; Nessie keys never reach the browser.</figcaption>
   </figure>
 </section>
 
@@ -970,7 +970,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         <text class="lbl amber" x="580" y="678" text-anchor="middle">settlement posted · hold released</text>
       </svg>
     </div>
-    <figcaption>Voice is transcribed by ElevenLabs (Gemini as fallback) before this step. Gemini never sees account IDs or balances, and nothing it returns can start a transfer.</figcaption>
+    <figcaption>Voice is transcribed by Gemini before this step. Gemini never sees account IDs or balances, and nothing it returns can start a transfer.</figcaption>
   </figure>
 </section>
 
@@ -1028,6 +1028,6 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   </figure>
 </section>
 
-<footer>Split · built on Nessie, Tiger Data, Gemini, ElevenLabs and Vultr. Diagrams reflect the <code>dev</code> branch (migrations 0001–0311).</footer>
+<footer>Split · built on Nessie, Tiger Data, Gemini and Vultr. Diagrams reflect the <code>dev</code> branch (migrations 0001–0311).</footer>
 
 </div>
