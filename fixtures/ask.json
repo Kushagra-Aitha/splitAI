@@ -1,0 +1,30 @@
+{
+  "note": "C1 extraction contract owned by Member C. C2 resolves authorized groups/members, creates the real draft via A2, and returns the shared ticket. These C1 responses contain no draft ID and perform no writes.",
+  "antonios": {
+    "request": { "message": "Spent $42 at Antonio’s, split with Sam and Priya." },
+    "modelOutput": { "intent": "expense", "expense": { "merchant": "Antonio’s", "cents": 4200, "participantNames": ["Sam", "Priya"], "groupHint": null } },
+    "response": { "type": "selection_needed", "intent": "expense", "reason": "GROUP_AND_MEMBERS_REQUIRED", "extraction": { "merchant": "Antonio’s", "cents": 4200, "participantNames": ["Sam", "Priya"], "groupHint": null }, "missingFields": [] }
+  },
+  "missingDetails": {
+    "request": { "message": "Split lunch with Sam." },
+    "modelOutput": { "intent": "expense", "expense": { "merchant": null, "cents": null, "participantNames": ["Sam"], "groupHint": null } },
+    "response": { "type": "selection_needed", "intent": "expense", "reason": "EXPENSE_DETAILS_REQUIRED", "extraction": { "merchant": null, "cents": null, "participantNames": ["Sam"], "groupHint": null }, "missingFields": ["merchant", "cents"] }
+  },
+  "unsupported": {
+    "request": { "message": "Send $500 to an outside account." },
+    "modelOutput": { "intent": "unsupported", "expense": null },
+    "response": { "type": "answer", "intent": "unsupported", "answer": "Ask about one expense or a financial question at a time. Review payments separately with Settle up." }
+  },
+  "readIntents": [
+    { "message": "Which debts can I afford?", "intent": "affordability" },
+    { "message": "Who owes me?", "intent": "debt_summary" },
+    { "message": "How much did I spend this month?", "intent": "spending_insight" }
+  ],
+  "errors": {
+    "invalidInput": { "status": 422, "code": "INVALID_MESSAGE" },
+    "invalidModelOutput": { "status": 502, "code": "INVALID_ASSISTANT_OUTPUT" },
+    "unavailable": { "status": 503, "code": "ASSISTANT_UNAVAILABLE" },
+    "timeout": { "status": 504, "code": "ASSISTANT_TIMEOUT" },
+    "readServicePending": { "status": 501, "code": "ASSISTANT_FACTS_UNAVAILABLE" }
+  }
+}

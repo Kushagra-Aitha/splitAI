@@ -1,0 +1,141 @@
+#split-common-ground .ask-selection {
+  padding: 18px;
+  border: 1px solid var(--sp-line);
+  border-radius: 14px;
+  background: var(--sp-paper);
+}
+#split-common-ground .ask-selection fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+#split-common-ground .ask-selection legend { margin-block: 12px 6px; font-weight: 600; }
+#split-common-ground .ask-selection-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+#split-common-ground .agent-message [role='alert'] { color: var(--sp-red); margin-top: 12px; }
+#split-common-ground .expense-ticket > h3,
+#split-common-ground .expense-ticket > .math-line,
+#split-common-ground .expense-ticket > form,
+#split-common-ground .expense-ticket > p { margin: 12px 18px; }
+#split-common-ground .expense-ticket form > button { margin: 4px 8px 4px 0; }
+#split-common-ground .ask-selection .check-label { overflow-wrap: anywhere; }
+#split-common-ground .ask-blocked {
+  padding: 18px;
+  border: 1px solid var(--sp-red);
+  border-radius: 14px;
+  background: var(--sp-red-soft);
+  overflow-wrap: anywhere;
+}
+#split-common-ground .ask-blocked h3 { margin-bottom: 8px; }
+#split-common-ground .composer:focus-within {
+  border-color: var(--sp-pine-ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sp-pine-ink) 15%, transparent);
+}
+#split-common-ground .agent-message:focus-visible,
+#split-common-ground .agent-message [role='alert']:focus-visible,
+#split-common-ground .heading h1:focus-visible {
+  outline: 2px solid var(--sp-blue-ink);
+  outline-offset: 5px;
+}
+#split-common-ground .agent-message [role='alert']:empty { margin: 0; }
+#split-common-ground .ask-selection .check-label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+#split-common-ground .ask-plan section { margin-block: 12px; overflow-wrap: anywhere; }
+#split-common-ground .ask-layer[hidden] { display: none; }
+#split-common-ground .ask-layer { position: fixed; inset: 0; z-index: 60; }
+#split-common-ground .ask-backdrop { position: absolute; inset: 0; background: #101b254d; }
+#split-common-ground .ask-panel { position: absolute; inset: 0 0 0 auto; display: flex; flex-direction: column; width: min(540px, 100%); height: 100dvh; background: var(--sp-paper); box-shadow: -8px 0 32px #0002; border-left: 1px solid var(--sp-line); }
+#split-common-ground .ask-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px; border-bottom: 1px solid var(--sp-line); flex-shrink: 0; }
+#split-common-ground .ask-panel-header h2 { font-size: 23px; margin-top: 4px; }
+#split-common-ground .ask-panel-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+#split-common-ground .ask-panel .chat-thread { display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; overflow-y: auto; padding: 22px; margin: 0; max-width: none; overscroll-behavior: contain; }
+#split-common-ground .ask-panel .user-message { align-self: flex-end; width: fit-content; max-width: 88%; padding: 12px 16px; border-radius: 16px 16px 4px 16px; margin: 0; overflow-wrap: anywhere; }
+#split-common-ground .ask-panel .agent-message { min-width: 0; width: 100%; margin: 0; overflow-wrap: anywhere; }
+#split-common-ground .ask-panel .composer-area { position: static; padding: 14px 20px max(14px, env(safe-area-inset-bottom)); margin: 0; flex-shrink: 0; border-top: 1px solid var(--sp-line); background: var(--sp-paper); }
+#split-common-ground .ask-prompts { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; }
+#split-common-ground .ask-prompts button { flex-shrink: 0; border: 1px solid var(--sp-line); border-radius: 20px; padding: 7px 11px; font-size: 0.875rem; }
+#split-common-ground .ask-panel .composer { width: 100%; }
+#split-common-ground[data-page='chat'] .chat-footnote,
+#split-common-ground .ask-panel .chat-footnote { font-size: 0.875rem; line-height: 1.5; margin-top: 9px; }
+#split-common-ground[data-page='chat'] :is(.user-message, .agent-message),
+#split-common-ground .ask-panel :is(.user-message, .agent-message) { font-size: 1rem; line-height: 1.5; }
+#split-common-ground .ask-panel .expense-ticket { width: 100%; max-width: none; }
+#split-common-ground .ask-panel .field-grid { grid-template-columns: 1fr; }
+#split-common-ground .modal-layer { z-index: 80; }
+#split-common-ground .toast { z-index: 100; }
+#split-common-ground .goal-starters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 24px; text-align: left; }
+#split-common-ground .goal-starters button { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 22px; min-width: 0; border: 1px solid var(--sp-line); background: var(--sp-paper); border-radius: 14px; }
+@media (max-width: 620px) {
+  #split-common-ground .ask-panel { width: 100%; border: 0; }
+  #split-common-ground .ask-panel-header { padding: 18px; }
+  #split-common-ground .ask-panel .chat-thread { padding: 16px; }
+  #split-common-ground .ask-panel .composer-area { padding-inline: 14px; }
+  #split-common-ground .ask-panel input { font-size: 16px; }
+  #split-common-ground .goal-starters { grid-template-columns: 1fr; }
+}
+#split-common-ground .expense-ticket h3 { overflow-wrap: anywhere; }
+#split-common-ground .expense-ticket form > button,
+#split-common-ground .ask-selection-actions > button { min-height: 44px; }
+@media (max-width: 620px) {
+  #split-common-ground .ask-selection .field-grid { grid-template-columns: 1fr; gap: 0; }
+  #split-common-ground .ask-selection input:not([type='checkbox']),
+  #split-common-ground .ask-selection select { font-size: 16px; }
+}
+#split-common-ground[data-page='chat'] .ask-fab { display: none; }
+#split-common-ground [aria-label='Choose a reminder'] button { display: block; margin-top: 10px; width: 100%; text-align: left; }
+
+/* C14: one conversation, readable financial answers, deliberate confirmation. */
+#split-common-ground[data-page='chat'] .main{width:100%;max-width:none;min-width:0;margin-inline:0}
+#split-common-ground[data-page='chat'] .chat-thread{max-width:none;display:flex;flex-direction:column;gap:22px;padding:12px 0 24px}
+#split-common-ground .chat-thread{overflow-wrap:anywhere;min-width:0}
+#split-common-ground .agent-message{max-width:100%;min-width:0}
+#split-common-ground .user-message{align-self:flex-end;max-width:85%;margin:0;padding:12px 16px}
+#split-common-ground .ask-welcome{padding:26px;border:1px solid var(--sp-line);background:var(--sp-paper)}
+#split-common-ground .ask-welcome h2{margin:18px 0 10px;font-size:26px;max-width:25ch}
+#split-common-ground .ask-welcome p{max-width:55ch}
+#split-common-ground .composer-area{max-width:none}
+#split-common-ground .composer textarea{flex:1;min-width:0;resize:vertical;max-height:160px;border:0;box-shadow:none;background:transparent;color:var(--sp-ink);padding:10px 6px;line-height:1.5;font:inherit}
+#split-common-ground .composer{align-items:center}
+#split-common-ground .composer .send{flex:none;min-width:44px;min-height:44px}
+#split-common-ground .ask-prompts{flex-wrap:wrap;overflow:visible}
+#split-common-ground .ask-prompts button{min-height:40px;white-space:normal;text-align:left}
+#split-common-ground .ask-panel .ask-prompts{flex-wrap:nowrap;overflow-x:auto}
+#split-common-ground .ask-panel .ask-prompts button{white-space:nowrap}
+#split-common-ground .ask-goal-list{border-top:1px solid var(--sp-line);margin-block:16px}
+#split-common-ground .ask-goal-answer{padding:16px 0;border-bottom:1px solid var(--sp-line)}
+#split-common-ground .ask-goal-heading{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;align-items:center}
+#split-common-ground .ask-goal-amount{margin:10px 0!important;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+#split-common-ground .ask-goal-amount strong{font-size:26px;letter-spacing:-.04em}
+#split-common-ground .ask-goal-amount span{color:var(--sp-muted);font-size:0.875rem}
+#split-common-ground .ask-goal-answer progress{width:100%;height:7px;accent-color:var(--sp-pine-ink);margin-block:2px 8px}
+#split-common-ground .ask-reminder-review{padding:20px;background:var(--sp-soft);border:1px solid var(--sp-line)}
+#split-common-ground .ask-reminder-review h3{margin-bottom:12px}
+#split-common-ground .ask-reminder-review p{margin-bottom:14px}
+#split-common-ground .ask-reminder-review button{margin:4px 6px 0 0;min-height:44px}
+#split-common-ground .ask-reminder-choices button{display:block;width:100%;padding:14px;margin-top:8px;white-space:normal;text-align:left}
+#split-common-ground .ask-plan section{padding:14px 0;border-bottom:1px solid var(--sp-line)}
+#split-common-ground .ask-plan p{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+#split-common-ground .ask-plan button{margin-left:auto;min-height:44px}
+#split-common-ground .ask-success{display:flex;gap:12px;align-items:start;padding:18px;background:var(--sp-soft);border:1px solid var(--sp-line)}
+#split-common-ground .ask-success svg{width:24px;height:24px;flex:none}
+#split-common-ground .ask-working{padding:12px 0;color:var(--sp-muted);font-size:0.875rem}
+#split-common-ground .ask-working span{display:inline-block;font-size:9px;letter-spacing:3px;margin-right:8px;animation:ask-thinking 1s ease-in-out infinite alternate}
+@keyframes ask-thinking{to{opacity:.35;transform:translateY(-2px)}}
+@media(prefers-reduced-motion:reduce){#split-common-ground .ask-working span{animation:none}}
+@media(max-width:620px){#split-common-ground .composer textarea{font-size:16px}#split-common-ground .ask-welcome{padding:20px}#split-common-ground .ask-welcome h2{font-size:23px}#split-common-ground .ask-panel .composer-area{padding-bottom:max(18px,env(safe-area-inset-bottom))}#split-common-ground .ask-reminder-review{padding:16px}}
+
+#split-common-ground .ask-mic {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  touch-action: none;
+}
+#split-common-ground .ask-mic[aria-pressed="true"] {
+  background: var(--sp-red);
+  color: white;
+}
+#split-common-ground .ask-voice-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+#split-common-ground .ask-voice-options button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

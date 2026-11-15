@@ -1,0 +1,165 @@
+import { settlementDescription, settlementLabelJoin } from '../ledger/settlement-labels.js';
+import { HttpError } from '../http.js';
+import { TIME_ZONE } from './overview.js';
+import { CATEGORY_CHOICES, effectiveCategory, recurringColumns, recurringJoins } from './details.js';
+import { dateOnly } from '../capital-two/input.js';
+import { displayCategory, settledColumns, settledJoin, spendingLines } from '../ledger/settlement-categories.js';
+
+const PAGE_SIZE = 50;
+const dateRange = `t.occurred_at >= ($8::date::timestamp AT TIME ZONE '${TIME_ZONE}')
+  AND t.occurred_at < (($9::date + 1)::timestamp AT TIME ZONE '${TIME_ZONE}')`;
+const drilldownSpending = spendingLines(`${dateRange}
+  AND t.status IN ('pending', 'completed')
+  AND t.account_id IN (SELECT id FROM bank_accounts WHERE user_id = $1 AND linked_at IS NOT NULL
+    AND ($2::text IS NULL OR kind = $2))`);
+
+export async function listTransactions(db, userId, query) {
+  const account = query.get('account') || null;
+  const category = query.get('category') || null;
+  const unsplit = query.get('unsplit') === 'true';
+  const offset = Number(query.get('offset') ?? 0);
+  const id = query.get('id') || null;
+  const from = query.get('from');
+  const to = query.get('to');
+  const drilldown = from !== null || to !== null;
+  if ((account && !['checking', 'credit_card'].includes(account)) ||
+      !Number.isSafeInteger(offset) || offset < 0 || (id && !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu.test(id))) {
+    throw new HttpError(422, 'INVALID_TRANSACTION_FILTER', 'Choose a valid account and page.');
+  }
+  if (drilldown) {
+    dateOnly(from);
+    dateOnly(to);
+    if (from > to) throw new HttpError(422, 'INVALID_TRANSACTION_FILTER', 'Choose an end date on or after the start date.');
+  }
+  const deposit = "t.kind = 'deposit' AND t.direction = 'credit' AND t.status IN ('pending', 'completed')";
+  const args = [userId, account, category, unsplit, PAGE_SIZE + 1, offset, id];
+  if (drilldown) args.push(from, to);
+
+  const { rows } = await db.query(`
+    ${drilldown ? `WITH contributions AS (
+      SELECT l.id, l.occurred_at, sum(l.cents)::bigint AS cents
+      FROM ${drilldownSpending} l WHERE $3::text IS NULL OR l.category = $3
+      GROUP BY l.id, l.occurred_at
+    )` : ''}
+    SELECT t.id, t.kind, t.direction, t.amount_cents AS "amountCents", ${settlementDescription} AS description,
+           CASE WHEN settlement_label.label IS NULL THEN t.merchant_name END AS "merchantName", ${displayCategory} AS category, t.status, t.source,
+           ${recurringColumns('t')}, ${settledColumns},
+           t.occurred_at AS "occurredAt", a.id AS "accountId", a.kind AS "accountKind",
+           a.account_mask AS "accountMask", k.provider_key AS "providerKey",
+           g.name AS "splitGroupName",
+           CASE WHEN e.id IS NOT NULL THEN
+             (SELECT coalesce(sum(s.share_cents), 0)::bigint FROM expense_shares s
+              WHERE s.expense_id = e.id AND s.user_id <> e.created_by)
+           END AS "splitOwedCents",
+           CASE WHEN e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
+             AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed') THEN
+             CASE WHEN suggestions.name IS NOT NULL THEN 'Split with ' || suggestions.name
+                  WHEN lower(${effectiveCategory('t')}) IN ('home & bills', 'rent', 'utilities') OR coalesce(t.merchant_name, t.description) ~* '\\m(rent|utilities)\\M' THEN 'Rent or utilities'
+                  WHEN lower(${effectiveCategory('t')}) IN ('food & drink', 'restaurant', 'restaurants', 'dining') AND t.amount_cents >= 5000 THEN 'Large food or drink purchase'
+             END
+           END AS "suggestion",
+           suggestions.id AS "suggestedGroupId",
+           coalesce(k.imported_at >= now() - interval '90 seconds', false) AND t.source = 'nessie' AS "recentlyImported"
+           ${drilldown ? `,
+             contribution.cents AS "spendingContributionCents",
+             CASE WHEN ${deposit} THEN t.amount_cents ELSE 0 END AS "incomeContributionCents",
+             greatest(0, coalesce(sum(contribution.cents) OVER (), 0))::bigint AS "chartSpendingCents",
+             sum(CASE WHEN ${deposit} THEN t.amount_cents ELSE 0 END) OVER ()::bigint AS "chartIncomeCents"` : ''}
+      FROM bank_accounts a
+      JOIN bank_transactions t ON t.account_id = a.id
+      LEFT JOIN bank_import_keys k ON k.account_id = a.id AND k.transaction_id = t.id AND k.occurred_at = t.occurred_at
+      LEFT JOIN expenses e ON e.bank_account_id = a.id AND e.bank_provider_key = k.provider_key AND e.status = 'confirmed'
+      LEFT JOIN groups g ON g.id = e.group_id
+      ${settlementLabelJoin}
+      ${settledJoin}
+      ${recurringJoins('t', 'k')}
+      ${drilldown ? 'LEFT JOIN contributions contribution ON contribution.id = t.id AND contribution.occurred_at = t.occurred_at' : ''}
+      LEFT JOIN LATERAL (
+        SELECT candidate.id, candidate.name
+          FROM group_members m JOIN groups candidate ON candidate.id = m.group_id
+          LEFT JOIN LATERAL (
+            SELECT max(old.confirmed_at) AS last_split
+              FROM expenses old
+              JOIN bank_import_keys old_key ON old_key.account_id = old.bank_account_id
+                AND old_key.provider_key = old.bank_provider_key
+              JOIN bank_transactions old_tx ON old_tx.account_id = old_key.account_id
+                AND old_tx.id = old_key.transaction_id AND old_tx.occurred_at = old_key.occurred_at
+             WHERE old.group_id = candidate.id AND old.created_by = a.user_id
+               AND old.status = 'confirmed'
+               AND lower(coalesce(old_tx.merchant_name, old_tx.description)) = lower(coalesce(t.merchant_name, t.description))
+          ) history ON true
+         WHERE m.user_id = a.user_id AND m.left_at IS NULL AND (
+           history.last_split IS NOT NULL OR (
+             candidate.kind = 'trip' AND
+             (t.occurred_at AT TIME ZONE '${TIME_ZONE}')::date BETWEEN candidate.starts_on AND candidate.ends_on
+           )
+         )
+         ORDER BY history.last_split DESC NULLS LAST, candidate.id
+         LIMIT 1
+      ) suggestions ON e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
+        AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed')
+     WHERE a.user_id = $1 AND a.linked_at IS NOT NULL
+       AND ($7::uuid IS NULL OR t.id = $7)
+       AND ($2::text IS NULL OR a.kind = $2)
+       ${drilldown ? `AND ${dateRange}
+         AND (contribution.id IS NOT NULL OR ($3::text IS NULL AND ${deposit}))` :
+         `AND ($3::text IS NULL OR coalesce(${displayCategory}, 'Other') = $3 OR (t.category_override IS NULL AND
+           EXISTS (SELECT 1 FROM settlement_categories sc WHERE sc.settlement_id = settled.id AND sc.category = $3)))`}
+       AND (NOT $4 OR (
+         e.id IS NULL AND t.kind = 'purchase' AND t.direction = 'debit'
+         AND k.provider_key IS NOT NULL AND t.status IN ('pending', 'completed')
+       ))
+     ORDER BY t.occurred_at DESC, t.id, a.id
+     LIMIT $5 OFFSET $6
+  `, args);
+  const { rows: categories } = await db.query(`
+    SELECT coalesce(${effectiveCategory('t')}, 'Other') AS category
+    FROM bank_accounts a JOIN bank_transactions t ON t.account_id = a.id
+    WHERE a.user_id = $1 AND a.linked_at IS NOT NULL AND NOT (t.kind = 'transfer' AND t.category_override IS NULL AND EXISTS (
+      SELECT 1 FROM settlements s JOIN settlement_categories sc ON sc.settlement_id = s.id
+       WHERE s.provider_reference = t.provider_transaction_id))
+    UNION
+    SELECT sc.category FROM settlement_categories sc JOIN settlements s ON s.id = sc.settlement_id
+    WHERE s.payer_user_id = $1 OR s.payee_user_id = $1
+    ORDER BY category
+  `, [userId]);
+  return {
+    transactions: rows.slice(0, PAGE_SIZE).map(({ chartIncomeCents, chartSpendingCents, ...row }) => row),
+    ...(drilldown ? { chartTotals: {
+      incomeCents: rows[0]?.chartIncomeCents ?? 0,
+      spendingCents: rows[0]?.chartSpendingCents ?? 0,
+    } } : {}),
+    categories: categories.map(({ category }) => category),
+    categoryChoices: [...new Set([...CATEGORY_CHOICES, ...categories.map(({ category }) => category)])],
+    nextOffset: rows.length > PAGE_SIZE ? offset + PAGE_SIZE : null,
+  };
+}
+
+/**
+ * B15 · Re-categorize one of your transactions in Split. `category: null`
+ * goes back to the bank's category. The bank's value is never overwritten.
+ */
+export async function setTransactionCategory(db, userId, id, body) {
+  const valid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu;
+  const category = body?.category === null ? null : typeof body?.category === 'string' ? body.category.trim() : undefined;
+  if (!valid.test(id ?? '') || category === undefined || Object.keys(body).some((key) => key !== 'category') ||
+      (category !== null && (!category || [...category].length > 40 || /\p{Cc}/u.test(category)))) {
+    throw new HttpError(422, 'INVALID_CATEGORY', 'Choose a category of up to 40 characters.');
+  }
+  const { rows: [row] } = await db.query(`
+    UPDATE bank_transactions t
+       SET category_override = $3, category_overridden_at = CASE WHEN $3::text IS NULL THEN NULL ELSE now() END
+      FROM bank_accounts a
+     WHERE t.id = $1 AND a.id = t.account_id AND a.user_id = $2 AND a.linked_at IS NOT NULL
+     RETURNING t.id, ${effectiveCategory('t')} AS category, t.category AS "bankCategory",
+               t.category_override IS NOT NULL AS "categoryOverridden", t.kind`,
+  [id, userId, category]);
+  if (!row) throw new HttpError(404, 'TRANSACTION_NOT_FOUND', 'Transaction not found.');
+  const { kind, ...transaction } = row;
+  // A settlement goes back to the category it paid for, not the bank's.
+  if (kind === 'transfer' && !transaction.categoryOverridden) {
+    const { transactions: [listed] } = await listTransactions(db, userId, new URLSearchParams({ id }));
+    if (listed?.settledWithSplit) transaction.category = listed.category;
+  }
+  return { transaction };
+}

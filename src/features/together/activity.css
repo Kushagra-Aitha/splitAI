@@ -1,0 +1,14 @@
+#split-common-ground .activity-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#split-common-ground .activity-heading > div { display: flex; gap: 12px; }
+#split-common-ground .activity-list { list-style: none; padding: 0; margin: 16px 0; }
+#split-common-ground .activity-entry { padding: 16px 0; border-bottom: 1px solid var(--sp-line); overflow-wrap: anywhere; }
+#split-common-ground .activity-entry h3 { font-size: 16px; }
+#split-common-ground .activity-entry time { display: block; margin-top: 6px; }
+#split-common-ground .activity-expense { padding: 16px; margin: 16px 0; background: var(--sp-soft); border-radius: 0; overflow-wrap: anywhere; }
+#split-common-ground .comment-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+#split-common-ground .activity-pages { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+#split-common-ground #sp-comment-form { max-width: 640px; margin-top: 20px; }
+#split-common-ground #sp-comment-text { resize: vertical; min-height: 90px; }
+
+.comment-warning { padding: .75rem; margin-top: .75rem; border: 1px solid var(--sp-red); border-radius: 0; background: var(--sp-red-soft); color: var(--sp-red); font-size: 0.875rem; }
+[data-inline-thread] { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--sp-rim); }

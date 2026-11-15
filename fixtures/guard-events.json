@@ -1,0 +1,41 @@
+{
+  "request": { "method": "GET", "path": "/api/guard/events" },
+  "note": "A9. Newest first. Redacted context only; a blocked proposal may have no expense or settlement link.",
+  "response": {
+    "events": [
+      {
+        "id": "60000000-0000-4000-8000-000000000003",
+        "decision": "allowed",
+        "reasonCode": "SETTLEMENT_APPROVED",
+        "reason": "The $18.00 transfer to Alex matched the ledger and your explicit approval.",
+        "source": "settlement",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "expenseId": null,
+        "settlementId": "70000000-0000-4000-8000-000000000002",
+        "createdAt": "2026-11-14T12:10:00-05:00"
+      },
+      {
+        "id": "60000000-0000-4000-8000-000000000002",
+        "decision": "blocked",
+        "reasonCode": "UNTRUSTED_INSTRUCTION",
+        "reason": "A note asked Split to send money. The note was quarantined. No money moved.",
+        "source": "assistant",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "expenseId": null,
+        "settlementId": null,
+        "createdAt": "2026-11-14T12:05:00-05:00"
+      },
+      {
+        "id": "60000000-0000-4000-8000-000000000001",
+        "decision": "allowed",
+        "reasonCode": "EXPENSE_CONFIRMED",
+        "reason": "Antonio’s was added to Puffton 4 after your confirmation. No transfer was made.",
+        "source": "expense",
+        "groupId": "30000000-0000-4000-8000-000000000001",
+        "expenseId": "50000000-0000-4000-8000-000000000001",
+        "settlementId": null,
+        "createdAt": "2026-11-14T12:02:00-05:00"
+      }
+    ]
+  }
+}

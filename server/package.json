@@ -1,0 +1,35 @@
+{
+  "name": "split-ai-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env index.js",
+    "dev": "node --env-file-if-exists=.env --watch index.js",
+    "test": "node --test",
+    "guard:train": "python3 guard/fetch-sms.py && node guard/generate-split-corpus.js && python3 guard/train-deberta.py",
+    "guard:eval": "node guard/benchmark.js",
+    "smoke:gemini": "node --env-file-if-exists=.env scripts/smoke-gemini.js",
+    "smoke:ask": "node --env-file-if-exists=.env scripts/smoke-ask.js",
+    "smoke:insight": "node --env-file-if-exists=.env scripts/smoke-insight.js",
+    "db:check": "node scripts/db-check.js",
+    "db:migrate": "node db/migrate.js",
+    "db:seed": "node db/seed.js",
+    "db:setup": "node db/migrate.js && node db/seed.js",
+    "db:verify": "node scripts/db-verify-fresh.js",
+    "nessie:smoke": "node scripts/nessie-smoke.js",
+    "banking:read": "node scripts/banking-read.js",
+    "nessie:demo-activity": "node scripts/nessie-demo-activity.js",
+    "banking:sync": "node scripts/banking-sync.js",
+    "banking:overview-check": "node scripts/overview-check.js",
+    "banking:funds-check": "node scripts/funds-race-check.js",
+    "guard:corpus": "node guard/generate-split-corpus.js"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
+    "pg": "^8.13.1"
+  }
+}

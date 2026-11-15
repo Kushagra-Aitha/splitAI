@@ -22,41 +22,66 @@
       <div class="shell">
         <header class="book-header" aria-label="Split navigation">
           <div class="book-brand">
-            <div class="brand"><span class="brand-mark" aria-hidden="true"></span>split<span class="brand-period">.</span></div>
+            <button type="button" class="brand" data-go="home" aria-label="Split Overview"><span class="brand-mark" aria-hidden="true"></span>split<span class="brand-period">.</span></button>
             <span class="book-edition">YOUR EVERYDAY LEDGER</span>
           </div>
 
           <nav class="book-nav" aria-label="Main navigation">
-            <button type="button" class="nav-item cursor-interaction" data-page="home"><span class="chapter-number">01</span><span>Overview</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="goals" aria-current="page"><span class="chapter-number">02</span><span>Goals</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="groups"><span class="chapter-number">03</span><span>Together</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="profile"><span class="chapter-number">04</span><span>Profile</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="chat"><span class="chapter-number">05</span><span>Ask Split</span></button>
-            <button type="button" class="nav-item cursor-interaction" data-page="guard"><span class="chapter-number">06</span><span>Guard</span><span class="nav-count">1</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="home"><i data-lucide="overview" aria-hidden="true"></i><span>Overview</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="transactions"><i data-lucide="transactions" aria-hidden="true"></i><span>Transactions</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="groups"><i data-lucide="groups" aria-hidden="true"></i><span>Groups</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="goals"><i data-lucide="goals" aria-hidden="true"></i><span>Goals</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="chat"><i data-lucide="ask" aria-hidden="true"></i><span>Ask</span></button>
+            <button type="button" class="nav-item cursor-interaction" data-page="guard"><i data-lucide="guard" aria-hidden="true"></i><span>Guard</span></button>
           </nav>
 
-          <button type="button" class="theme-toggle cursor-interaction" id="sp-theme-toggle" aria-label="Switch to dark mode">
-            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z" /></svg>
-            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" /></svg>
-          </button>
-
-          <button type="button" class="book-account cursor-interaction" data-go="profile" aria-label="Maya Chen’s profile"><span class="avatar citron">MC</span><span>Maya’s<br /><strong>space</strong></span></button>
+          <div class="header-actions">
+            <div id="sp-notifications"></div>
+            <div class="account">
+              <button type="button" id="sp-account-button" class="account-button cursor-interaction" aria-haspopup="menu" aria-expanded="false" aria-controls="sp-account-menu">
+                <span data-account-avatar></span>
+                <span class="account-first" data-account-first></span>
+                <i data-lucide="chevron-down" aria-hidden="true"></i>
+              </button>
+              <div id="sp-account-menu" class="account-menu" role="menu" aria-labelledby="sp-account-button" hidden>
+                <div class="account-menu-head" role="none">
+                  <span data-account-avatar data-size="lg"></span>
+                  <div><strong data-account-name></strong><span class="small muted" data-account-email></span></div>
+                </div>
+                <button type="button" role="menuitem" class="account-menu-bank" data-action="bank-manage">
+                  <i data-lucide="landmark" aria-hidden="true"></i>
+                  <span><span class="small muted">Connected bank</span><strong data-account-bank>Capital Two</strong></span>
+                </button>
+                <button type="button" role="menuitem" class="account-menu-item" id="sp-theme-toggle">
+                  <i data-lucide="moon" aria-hidden="true"></i><i data-lucide="sun" aria-hidden="true"></i>
+                  <span data-theme-label>Dark mode</span>
+                </button>
+                <div class="account-menu-sep" role="separator"></div>
+                <button type="button" role="menuitem" class="account-menu-item is-danger" id="sp-logout">
+                  <i data-lucide="sign-out" aria-hidden="true"></i>
+                  <span>Log out</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </header>
 
         <main class="main">
-          <header class="topbar">
-            <div class="breadcrumb"><span class="muted">Your space</span><i data-lucide="chevron-right" aria-hidden="true"></i><span id="sp-breadcrumb">Overview</span></div>
-            <div class="mobile-brand"><span class="brand-mark" aria-hidden="true"></span>split</div>
-            <div class="top-actions">
-              <span class="small muted">Demo · Nov 13</span>
-              <button type="button" class="guard-pill cursor-interaction" data-go="guard"><i data-lucide="shield-check" aria-hidden="true"></i>Guard is on</button>
-            </div>
-          </header>
-
           <div id="sp-view"></div>
-
-          <footer class="page-footer"><span>Made for the way you share life.</span><span>Sample data · USD · No real money</span></footer>
         </main>
+
+        <button type="button" class="ask-fab cursor-interaction" data-ask-open aria-label="Ask Split" aria-controls="sp-ask-panel" aria-expanded="false"><i data-lucide="ask" aria-hidden="true"></i><span>Ask Split</span></button>
+
+        <nav class="bottom-nav" aria-label="Main navigation">
+          <button type="button" class="bottom-nav-item" data-page="home"><i data-lucide="overview" aria-hidden="true"></i><span>Overview</span></button>
+          <button type="button" class="bottom-nav-item" data-page="transactions" aria-label="Ledger transactions"><i data-lucide="transactions" aria-hidden="true"></i><span>Ledger</span></button>
+          <button type="button" class="bottom-nav-item" data-page="groups"><i data-lucide="groups" aria-hidden="true"></i><span>Groups</span></button>
+          <button type="button" class="bottom-nav-item" data-page="goals"><i data-lucide="goals" aria-hidden="true"></i><span>Goals</span></button>
+          <button type="button" class="bottom-nav-item" data-page="profile"><i data-lucide="insights" aria-hidden="true"></i><span>Insights</span></button>
+          <button type="button" class="bottom-nav-item" data-page="chat"><i data-lucide="ask" aria-hidden="true"></i><span>Ask</span></button>
+          <button type="button" class="bottom-nav-item" data-page="guard"><i data-lucide="guard" aria-hidden="true"></i><span>Guard</span></button>
+        </nav>
 
         <div id="sp-modal-root"></div>
         <div id="sp-toast-root" aria-live="polite"></div>

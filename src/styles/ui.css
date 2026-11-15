@@ -1,0 +1,413 @@
+/* B10 · App shell and shared UI pieces. Loaded after layout/shell so these win.
+   Feature pages use: .sp-card, .sp-empty, .sp-error, .sp-skeleton*, .avatar
+   (avatar-sm|md|lg, tone-0…5), .avatar-group, .money. */
+
+/* ---------- Header ---------- */
+#split-common-ground .book-header {
+  align-items: stretch;
+}
+#split-common-ground .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: start;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+#split-common-ground .main {
+  padding-top: 32px;
+}
+
+/* ---------- Account menu ---------- */
+#split-common-ground .account {
+  position: relative;
+}
+#split-common-ground .account-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 3px 10px 3px 3px;
+  border: 1px solid var(--sp-line);
+  border-radius: 999px;
+  background: var(--sp-paper);
+  color: var(--sp-ink);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+}
+#split-common-ground .account-button:hover,
+#split-common-ground .account-button[aria-expanded='true'] {
+  background: var(--sp-soft);
+}
+#split-common-ground .account-button .avatar {
+  width: 32px;
+  height: 32px;
+}
+#split-common-ground .account-caret {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 160ms ease;
+}
+#split-common-ground .account-button[aria-expanded='true'] .account-caret {
+  transform: rotate(180deg);
+}
+#split-common-ground .account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 50;
+  width: 280px;
+  padding: 8px;
+  border: 1px solid var(--sp-line);
+  border-radius: 16px;
+  background: var(--sp-paper);
+  box-shadow: 0 14px 34px var(--sp-depth);
+}
+#split-common-ground .account-menu[hidden] {
+  display: none;
+}
+#split-common-ground .account-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 12px;
+}
+#split-common-ground .account-menu-head > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+#split-common-ground .account-menu-head strong,
+#split-common-ground .account-menu-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#split-common-ground .account-menu-bank {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--sp-soft);
+}
+#split-common-ground .account-menu-bank > span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  font-size: 13px;
+}
+#split-common-ground .account-menu svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#split-common-ground .account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--sp-ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+}
+#split-common-ground .account-menu-item:hover,
+#split-common-ground .account-menu-item:focus-visible {
+  background: var(--sp-soft);
+  outline: none;
+}
+#split-common-ground .account-menu-item.is-danger {
+  color: var(--sp-red);
+}
+#split-common-ground .account-menu-sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--sp-line);
+}
+#split-common-ground #sp-theme-toggle .icon-sun,
+:root[data-theme='dark'] #split-common-ground #sp-theme-toggle .icon-moon {
+  display: none;
+}
+:root[data-theme='dark'] #split-common-ground #sp-theme-toggle .icon-sun {
+  display: block;
+}
+
+/* ---------- Ask button ---------- */
+#split-common-ground .ask-fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px 0 16px;
+  border-radius: 999px;
+  background: var(--sp-pine);
+  color: var(--sp-on-pine);
+  font-weight: 650;
+  box-shadow: 0 10px 26px var(--sp-depth);
+}
+#split-common-ground .ask-fab:hover {
+  transform: translateY(-1px);
+}
+#split-common-ground[data-page='chat'] .ask-fab {
+  display: none;
+}
+#split-common-ground .shell-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- Bottom navigation (phones) ---------- */
+#split-common-ground .bottom-nav {
+  display: none;
+}
+@media (max-width: 760px) {
+  #split-common-ground .book-nav,
+  #split-common-ground .book-edition {
+    display: none;
+  }
+  #split-common-ground .book-header {
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 14px 18px;
+  }
+  #split-common-ground .book-brand {
+    padding: 0;
+  }
+  #split-common-ground .header-actions {
+    align-self: center;
+    margin-top: 0;
+  }
+  #split-common-ground .account-first,
+  #split-common-ground .account-caret {
+    display: none;
+  }
+  #split-common-ground .account-button {
+    padding: 3px;
+  }
+  #split-common-ground .main {
+    padding: 22px 18px calc(96px + env(safe-area-inset-bottom));
+  }
+  #split-common-ground .bottom-nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 35;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--sp-line);
+    background: var(--sp-paper);
+  }
+  #split-common-ground .bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-height: 52px;
+    padding: 6px 0 4px;
+    border-radius: 12px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--sp-muted);
+    font-size: 10px;
+    font-weight: 600;
+  }
+  #split-common-ground .bottom-nav-item[aria-current='page'] {
+    color: var(--sp-pine-ink);
+    background: var(--sp-soft);
+  }
+  #split-common-ground .ask-fab {
+    right: 16px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    min-height: 46px;
+    padding: 0 14px;
+  }
+  #split-common-ground .ask-fab span {
+    display: none;
+  }
+  #split-common-ground .account-menu {
+    position: fixed;
+    top: 66px;
+    right: 12px;
+    width: min(300px, calc(100vw - 24px));
+  }
+}
+
+/* ---------- Avatars ---------- */
+#split-common-ground .avatar.avatar-sm {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+}
+#split-common-ground .avatar.avatar-md {
+  width: 34px;
+  height: 34px;
+  font-size: 12px;
+}
+#split-common-ground .avatar.avatar-lg {
+  width: 44px;
+  height: 44px;
+  font-size: 15px;
+}
+#split-common-ground .avatar.tone-0 { background: light-dark(#dce6d3, #36402f); color: light-dark(#3f4b3c, #dce8d2); }
+#split-common-ground .avatar.tone-1 { background: var(--sp-citron); color: var(--sp-citron-ink); }
+#split-common-ground .avatar.tone-2 { background: light-dark(#f2d5d7, #623e47); color: light-dark(#763e4a, #f8d8df); }
+#split-common-ground .avatar.tone-3 { background: light-dark(#f9dfbe, #5b432d); color: light-dark(#75451e, #f9dfbe); }
+#split-common-ground .avatar.tone-4 { background: light-dark(#d9e4ee, #2f3b47); color: light-dark(#34506a, #d3e3f1); }
+#split-common-ground .avatar.tone-5 { background: light-dark(#e6dcef, #3d3348); color: light-dark(#59406f, #e6d9f2); }
+#split-common-ground .avatar.avatar-more {
+  background: var(--sp-soft);
+  color: var(--sp-muted);
+}
+#split-common-ground .avatar-group {
+  display: inline-flex;
+  align-items: center;
+}
+#split-common-ground .avatar-group .avatar {
+  box-shadow: 0 0 0 2px var(--sp-paper);
+}
+#split-common-ground .avatar-group .avatar + .avatar {
+  margin-left: -8px;
+}
+
+/* ---------- Shared building blocks ---------- */
+#split-common-ground .money {
+  font-variant-numeric: tabular-nums;
+}
+#split-common-ground .sp-card {
+  margin-bottom: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--sp-line);
+  border-radius: 18px;
+  background: var(--sp-paper);
+}
+#split-common-ground .sp-empty,
+#split-common-ground .sp-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 44px 24px;
+  border: 1px dashed var(--sp-line);
+  border-radius: 18px;
+  background: var(--sp-paper);
+  text-align: center;
+}
+#split-common-ground .sp-empty > svg,
+#split-common-ground .sp-error > svg {
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  border-radius: 50%;
+  background: var(--sp-soft);
+  color: var(--sp-pine-ink);
+}
+#split-common-ground .sp-empty h2,
+#split-common-ground .sp-error h2 {
+  font-size: 18px;
+  margin: 6px 0 0;
+}
+#split-common-ground .sp-empty p,
+#split-common-ground .sp-error p {
+  max-width: 42ch;
+  color: var(--sp-muted);
+  margin: 0;
+}
+#split-common-ground .sp-error {
+  border: 1px solid var(--sp-red-soft);
+  background: var(--sp-red-soft);
+}
+#split-common-ground .sp-error > svg {
+  color: var(--sp-red);
+}
+#split-common-ground .sp-skeleton {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--sp-soft) 25%, var(--sp-line) 50%, var(--sp-soft) 75%);
+  background-size: 200% 100%;
+  animation: sp-shimmer 1.3s ease-in-out infinite;
+}
+#split-common-ground .sp-skeleton-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 72px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+}
+#split-common-ground .sp-skeleton-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+#split-common-ground .sp-skeleton-line {
+  height: 12px;
+  width: 60%;
+}
+#split-common-ground .sp-skeleton-amount {
+  height: 12px;
+}
+@keyframes sp-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #split-common-ground .sp-skeleton { animation: none; }
+  #split-common-ground .account-caret { transition: none; }
+}
+
+/* ---------- Transactions (interim list) ---------- */
+#split-common-ground .tx-day {
+  padding: 6px 20px 10px;
+}
+#split-common-ground .tx-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 0 4px;
+  border-bottom: 1px solid var(--sp-line);
+}
+#split-common-ground .tx-day-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+/* B12 · The bank line in the account menu opens the Connect screen. */
+#split-common-ground .account-menu-bank {
+  width: calc(100% - 4px);
+  border: 0;
+  color: var(--sp-ink);
+  text-align: left;
+  box-shadow: none;
+  font: inherit;
+}
+#split-common-ground .account-menu-bank:hover,
+#split-common-ground .account-menu-bank:focus-visible {
+  background: var(--sp-nav);
+  outline: none;
+}

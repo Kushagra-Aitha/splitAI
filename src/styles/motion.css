@@ -81,9 +81,6 @@
   #split-common-ground .goal-tab:hover {
     transform: translateY(-2px);
   }
-  #split-common-ground .icon-button:hover {
-    transform: rotate(-5deg) translateY(-1px);
-  }
   #split-common-ground .text-button:hover svg {
     transform: translateX(3px);
     transition: transform calc(180ms * var(--sp-motion)) ease;

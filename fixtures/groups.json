@@ -1,0 +1,92 @@
+{
+  "list": {
+    "request": { "method": "GET", "path": "/api/groups" },
+    "response": {
+      "groups": [
+        {
+          "id": "30000000-0000-4000-8000-000000000001",
+          "kind": "roommates",
+          "name": "Puffton 4",
+          "tagline": "Home, sweet shared home",
+          "startsOn": null,
+          "endsOn": null,
+          "memberCount": 4,
+          "youOweCents": 1800,
+          "owedToYouCents": 6450
+        },
+        {
+          "id": "30000000-0000-4000-8000-000000000002",
+          "kind": "trip",
+          "name": "Boston weekend",
+          "tagline": "Nov 20–22",
+          "startsOn": "2026-11-20",
+          "endsOn": "2026-11-22",
+          "memberCount": 3,
+          "youOweCents": 0,
+          "owedToYouCents": 0
+        }
+      ]
+    }
+  },
+  "detail": {
+    "request": { "method": "GET", "path": "/api/groups/30000000-0000-4000-8000-000000000001" },
+    "response": {
+      "group": {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "kind": "roommates",
+        "name": "Puffton 4",
+        "tagline": "Home, sweet shared home",
+        "startsOn": null,
+        "endsOn": null
+      },
+      "members": [
+        { "userId": "10000000-0000-4000-8000-000000000001", "displayName": "Maya", "initials": "MC", "isYou": true },
+        { "userId": "10000000-0000-4000-8000-000000000002", "displayName": "Sam", "initials": "SL", "isYou": false },
+        { "userId": "10000000-0000-4000-8000-000000000003", "displayName": "Priya", "initials": "PS", "isYou": false },
+        { "userId": "10000000-0000-4000-8000-000000000004", "displayName": "Alex", "initials": "AR", "isYou": false }
+      ],
+      "debts": {
+        "youOwe": [
+          { "userId": "10000000-0000-4000-8000-000000000004", "displayName": "Alex", "cents": 1800 }
+        ],
+        "owedToYou": [
+          { "userId": "10000000-0000-4000-8000-000000000002", "displayName": "Sam", "cents": 2800 },
+          { "userId": "10000000-0000-4000-8000-000000000003", "displayName": "Priya", "cents": 3650 }
+        ],
+        "youOweCents": 1800,
+        "owedToYouCents": 6450
+      },
+      "ledger": [
+        {
+          "type": "expense",
+          "id": "50000000-0000-4000-8000-000000000011",
+          "merchant": "Trader Joe’s",
+          "category": "Groceries",
+          "totalCents": 3650,
+          "paidBy": "10000000-0000-4000-8000-000000000003",
+          "yourShareCents": 913,
+          "occurredAt": "2026-11-12T18:20:00-05:00"
+        },
+        {
+          "type": "expense",
+          "id": "50000000-0000-4000-8000-000000000012",
+          "merchant": "Utilities",
+          "category": "Home & bills",
+          "totalCents": 7200,
+          "paidBy": "10000000-0000-4000-8000-000000000004",
+          "yourShareCents": 1800,
+          "occurredAt": "2026-11-10T09:00:00-05:00"
+        },
+        {
+          "type": "settlement",
+          "id": "70000000-0000-4000-8000-000000000001",
+          "status": "pending",
+          "payerUserId": "10000000-0000-4000-8000-000000000002",
+          "payeeUserId": "10000000-0000-4000-8000-000000000001",
+          "amountCents": 1000,
+          "occurredAt": "2026-11-09T20:00:00-05:00"
+        }
+      ]
+    }
+  }
+}
