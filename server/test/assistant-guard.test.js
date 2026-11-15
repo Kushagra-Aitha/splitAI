@@ -27,6 +27,22 @@ test('an audit failure or missing durable event fails closed without exposing it
   }
 });
 
+test('Ask answers benign unsupported text without Guard blocking', async () => {
+  const actor = { userId: '10000000-0000-4000-8000-000000000001' };
+  const body = { message: 'Hi', requestKey: '90000000-0000-4000-8000-000000000001' };
+  let guardCalls = 0;
+  const ask = createAskWorkflow({
+    query: async () => ({ rows: [] }),
+    withTransaction: async () => assert.fail('benign unsupported text must not open a transaction'),
+    parseIntent: async () => ({ intent: 'unsupported' }),
+    guard: { block: async () => { guardCalls += 1; return { type: 'blocked' }; } },
+  });
+  const result = await ask({ actor, body });
+  assert.equal(result.type, 'answer');
+  assert.equal(result.intent, 'unsupported');
+  assert.equal(guardCalls, 0);
+});
+
 test('raw retrieved text and caller-selected identities have no path into the intent parser', async () => {
   let calls = 0;
   const unexpected = () => { calls++; throw new Error('Unexpected dependency call'); };

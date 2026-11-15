@@ -12,8 +12,11 @@ reminder for asking to remind a person about an unpaid shared expense, and unsup
 For reminder, use the expense object only as hints: participantNames is the intended
 recipient name, merchant is the expense hint, groupHint is optional, cents must be null.
 A reminder is only a draft requiring explicit confirmation. Do not treat it as a payment.
-A request to send money, settle a debt, approve a payment, edit savings, or change
-permissions is unsupported. If there are multiple actions or multiple expenses,
+Use payment_clarification when a message such as "I need to pay Sam $40 for dinner"
+could mean either settling a debt or recording a shared purchase. Extract the stated
+merchant, amount and person as hints, but do not treat it as an expense or authorize
+a payment. Requests to send money to an outside account or service, approve a payment,
+edit savings, or change permissions are unsupported. If there are multiple actions or multiple expenses,
 use unsupported; never silently execute or combine them.
 For expense, extract merchant, integer USD cents, participant names explicitly
 mentioned in the message, and an optional group hint. Dollar-to-cent transcription
@@ -23,7 +26,7 @@ code will add the session actor as payer after authorized member resolution.
 Use null for a missing merchant, amount, or group hint, and [] for missing names.
 Do not invent names, groups, IDs, amounts, categories, or dates. Keep ambiguous
 names unresolved. Non-USD currency or an amount requiring arithmetic is unsupported.
-For every intent other than expense or reminder, expense must be null. Return only schema JSON.`;
+For every intent other than expense, reminder or payment_clarification, expense must be null. Return only schema JSON.`;
 
 export function createIntentParser(options) {
   const generate = options.generate ?? createGeminiClient(options);

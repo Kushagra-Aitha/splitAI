@@ -14,6 +14,20 @@ const normalized = (value) => value.normalize('NFKC').trim().toLocaleLowerCase('
 const invalid = (message) => new HttpError(422, 'INVALID_ASK_SELECTION', message);
 const columns = `id, message_hash AS "messageHash", extraction,
   draft_id AS "draftId", selection_hash AS "selectionHash", expires_at AS "expiresAt", bank_query AS "bankQuery"`;
+const paymentLanguage = /\b(?:pay|paying|payment|owe|owed|settle|repay|reimburse)\b/iu;
+const usd = (cents) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+function clarifyPayment(expense = null) {
+  const person = expense?.participantNames?.length === 1 ? expense.participantNames[0] : null;
+  const merchant = expense?.merchant;
+  const amount = Number.isSafeInteger(expense?.cents) ? usd(expense.cents) : null;
+  const subject = [amount, merchant ? `for ${merchant}` : null].filter(Boolean).join(' ');
+  return {
+    type: 'answer',
+    intent: 'payment_clarification',
+    answer: `I haven’t matched this to a logged transaction, and no expense or payment was created. Did ${person ? `${person} pay` : 'someone else pay'}${merchant ? ` for ${merchant}` : ''} and you want to settle${amount ? ` ${amount}` : ''}, or did you pay and want to split${subject ? ` ${subject}` : ' the purchase'}? Use Settle up for a debt, or mention the card or bank transaction to match a purchase.`,
+  };
+}
 
 function id(value, label) {
   if (typeof value !== 'string' || !UUID.test(value)) throw invalid(`Choose a valid ${label}.`);
@@ -198,7 +212,15 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
     if (parsed.intent === 'goal_progress') return withTransaction((db) => answerGoalProgress(db, actor.userId));
     if (parsed.intent === 'reminder' && prepareReminder) return prepareReminder(actor, parsed.expense, requestKey);
     if (parsed.intent === 'reminder') throw new HttpError(503, 'REMINDERS_UNAVAILABLE', 'Reminders are not available yet.');
-    if (parsed.intent === 'unsupported') return guard.block({ actor, reasonCode: 'ASSISTANT_ACTION_UNSUPPORTED' });
+    if (parsed.intent === 'payment_clarification') return clarifyPayment(parsed.expense);
+    if (parsed.intent === 'unsupported') {
+      if (paymentLanguage.test(message)) return clarifyPayment();
+      return {
+        type: 'answer',
+        intent: 'unsupported',
+        answer: 'I can help with expenses, balances, spending, goals, reminders, and charge explanations. No changes were made.',
+      };
+    }
     if (parsed.intent !== 'expense') {
       if (answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });

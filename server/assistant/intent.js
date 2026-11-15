@@ -1,7 +1,7 @@
 import { HttpError } from '../http.js';
 
 export const MAX_MESSAGE_LENGTH = 500;
-const INTENTS = ['expense', 'affordability', 'debt_summary', 'spending_insight', 'goal_progress', 'reminder', 'unsupported'];
+const INTENTS = ['expense', 'affordability', 'debt_summary', 'spending_insight', 'goal_progress', 'reminder', 'payment_clarification', 'unsupported'];
 const EXPENSE_KEYS = ['merchant', 'cents', 'participantNames', 'groupHint'];
 const CONTROL_CHARACTERS = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/u;
 
@@ -58,7 +58,7 @@ export function validateMessage(body) {
 
 export function validateIntent(value) {
   if (!hasExactKeys(value, ['intent', 'expense']) || !INTENTS.includes(value.intent)) throw invalidOutput();
-  if (!['expense', 'reminder'].includes(value.intent)) {
+  if (!['expense', 'reminder', 'payment_clarification'].includes(value.intent)) {
     if (value.expense !== null) throw invalidOutput();
     return Object.freeze({ intent: value.intent, expense: null });
   }
