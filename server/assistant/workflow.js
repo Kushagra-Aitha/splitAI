@@ -2,18 +2,80 @@ import { createHash } from 'node:crypto';
 import { HttpError } from '../http.js';
 import { createLedgerHandlers } from '../ledger/handlers.js';
 import { createAskHandler } from './ask.js';
-import { validateIntent, validateMessage } from './intent.js';
+import { executeAskAction, validateAskAction } from './actions.js';
+import { emptyFocus, validateConversation, validateIntent, validateMessage } from './intent.js';
 import { createAssistantGuard, rejectedProposalReason } from './guard.js';
 import { chargeExplanationTarget } from '../ledger/explain-charge.js';
-import { bankQuery, matchPurchases } from './bank-match.js';
+import { bankQuery, bankSplitTarget, findLinkedMerchantExpense, matchPurchases } from './bank-match.js';
 import { answerGoalProgress } from './goal-progress.js';
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const normalized = (value) => value.normalize('NFKC').trim().toLocaleLowerCase('en-US');
 const invalid = (message) => new HttpError(422, 'INVALID_ASK_SELECTION', message);
+const FOLLOW_UP_READ = /\b(?:charge|charges|transaction|transactions|purchase|purchases|expense|expenses|those|that|this|what|which|exactly)\b/iu;
+
+function topicCategories(topic) {
+  if (!topic) return [];
+  return [topic.category, ...(topic.focus?.categories ?? [])].filter((value) => typeof value === 'string' && value.trim());
+}
+
+function matchFocusCategory(message, conversation) {
+  const latest = conversation.at(-1);
+  if (!latest) return null;
+  const haystack = normalized(message);
+  for (const category of topicCategories(latest)) {
+    const needle = normalized(category);
+    if (needle && haystack.includes(needle)) {
+      return { category, from: latest.from ?? null, to: latest.to ?? null };
+    }
+  }
+  return null;
+}
+
+function isFocusCategory(label, conversation) {
+  const needle = normalized(label || '');
+  if (!needle) return false;
+  return topicCategories(conversation.at(-1)).some((category) => normalized(category) === needle);
+}
+
+function categoryTransactionQuery({ category, from, to }) {
+  return {
+    merchant: null, category, direction: 'debit', status: null, from, to, limit: 10,
+  };
+}
+
+function explainConversation(merchant, category = null) {
+  return {
+    intent: 'explain_charge', merchant, category,
+    from: null, to: null,
+    focus: merchant
+      ? Object.freeze({ categories: Object.freeze(category ? [category] : []), merchants: Object.freeze([merchant]) })
+      : emptyFocus(),
+  };
+}
 const columns = `id, message_hash AS "messageHash", extraction,
   draft_id AS "draftId", selection_hash AS "selectionHash", expires_at AS "expiresAt", bank_query AS "bankQuery"`;
+const paymentLanguage = /\b(?:pay|paying|payment|owe|owed|settle|repay|reimburse)\b/iu;
+const usd = (cents) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+function clarifyPayment(expense = null) {
+  const person = expense?.participantNames?.length === 1 ? expense.participantNames[0] : null;
+  const merchant = expense?.merchant;
+  const amount = Number.isSafeInteger(expense?.cents) ? usd(expense.cents) : null;
+  const subject = [amount, merchant ? `for ${merchant}` : null].filter(Boolean).join(' ');
+  return {
+    type: 'clarification',
+    intent: 'payment_clarification',
+    answer: `I haven’t matched this to a logged transaction, and no expense or payment was created. Did ${person ? `${person} pay` : 'someone else pay'}${merchant ? ` for ${merchant}` : ''} and you want to settle${amount ? ` ${amount}` : ''}, or did you pay and want to split${subject ? ` ${subject}` : ' the purchase'}? Use Settle up for a debt, or mention the card or bank transaction to match a purchase.`,
+    choices: [
+      { label: person ? `${person} paid — check what I owe` : 'Someone else paid — check what I owe',
+        message: person ? `What do I owe ${person}?` : 'What do I owe?' },
+      { label: 'I paid — record a split',
+        message: `I paid${amount ? ` ${amount}` : ''}${merchant ? ` at ${merchant}` : ''} and want to split it${person ? ` with ${person}` : ''}.` },
+    ],
+  };
+}
 
 function id(value, label) {
   if (typeof value !== 'string' || !UUID.test(value)) throw invalid(`Choose a valid ${label}.`);
@@ -105,6 +167,20 @@ async function advance(db, proposal, actor, selection) {
     throw invalid('The amount must match the selected bank purchase.');
   }
   if (bank.purchase) { extraction.merchant = bank.purchase.merchant || extraction.merchant; extraction.cents = bank.purchase.cents; }
+  // Bank match skips purchases already confirmed into a group expense. Tell the
+  // actor instead of opening a blank amount form.
+  if (proposal.bankQuery && !selection && !bank.purchase && !bank.candidates.length) {
+    const linked = await findLinkedMerchantExpense(db, actor.userId, extraction.merchant || proposal.bankQuery.merchant);
+    if (linked) {
+      return {
+        type: 'answer', intent: 'expense',
+        answer: `Your ${linked.merchant} purchase (${usd(linked.totalCents)}) is already recorded in ${linked.groupName}. No new expense was created.`,
+        conversation: {
+          intent: 'expense', merchant: linked.merchant, category: null, from: null, to: null, focus: emptyFocus(),
+        },
+      };
+    }
+  }
   const { groups } = await ledger['groups.list']({ actor });
   const groupOptions = groups.map(({ id, name, kind }) => ({ id, name, kind }));
   let groupId = selection?.groupId !== undefined && selection.groupId !== null ? id(selection.groupId, 'group') : null;
@@ -162,7 +238,7 @@ async function advance(db, proposal, actor, selection) {
   return { type: 'draft', proposalId: proposal.id, draft, group: groupOptions.find((group) => group.id === groupId) };
 }
 
-export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, prepareReminder, explainCharge,
+export function createAskWorkflow({ parseIntent, query, withTransaction, answerFinancial, conversationalReads, prepareReminder, explainCharge,
   guard = createAssistantGuard({ withTransaction }) }) {
   const run = async ({ actor, body }) => {
     if (body?.proposalId !== undefined) {
@@ -180,25 +256,115 @@ export function createAskWorkflow({ parseIntent, query, withTransaction, answerF
         return advance(db, proposal, actor, body.selection);
       });
     }
-    if (!body || Object.keys(body).some((key) => !['message', 'requestKey', 'context'].includes(key))) throw invalid('Send only a message, request key, and optional group-note context.');
+    if (!body || Object.keys(body).some((key) => !['message', 'requestKey', 'context', 'conversation', 'action'].includes(key))) {
+      throw invalid('Send only a message, request key, optional action, bounded conversation topics, and optional group-note context.');
+    }
     const message = validateMessage(body);
+    const conversation = validateConversation(body.conversation);
     const requestKey = id(body.requestKey, 'request key');
     if (Object.hasOwn(body, 'context')) return guard.reviewNote({ actor, context: body.context });
     const messageHash = hash(message);
     const { rows: [existing] } = await query(`SELECT ${columns} FROM assistant_proposals
       WHERE actor_user_id = $1 AND request_key = $2`, [actor.userId, requestKey]);
     if (existing && existing.messageHash !== messageHash) throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
+
+    const chipAction = Object.hasOwn(body, 'action') ? validateAskAction(body.action) : null;
+    if (chipAction && !existing) {
+      const runExpense = async ({ message: expenseMessage, requestKey: expenseKey, expense, bankMessage }) => {
+        const criteria = bankQuery(bankMessage, expense);
+        const expenseHash = hash(expenseMessage);
+        return withTransaction(async (db) => {
+          await db.query(`INSERT INTO assistant_proposals (actor_user_id, request_key, message_hash, extraction, bank_query)
+            VALUES ($1, $2, $3, $4::jsonb, $5::jsonb) ON CONFLICT (actor_user_id, request_key) DO NOTHING`,
+          [actor.userId, expenseKey, expenseHash, JSON.stringify(expense), criteria == null ? null : JSON.stringify(criteria)]);
+          const { rows: [proposal] } = await db.query(`SELECT ${columns} FROM assistant_proposals
+            WHERE actor_user_id = $1 AND request_key = $2 FOR UPDATE`, [actor.userId, expenseKey]);
+          if (proposal.messageHash !== expenseHash) {
+            throw new HttpError(409, 'REQUEST_KEY_REUSED', 'Use a new request key for a different message.');
+          }
+          return advance(db, proposal, actor);
+        });
+      };
+      const acted = await executeAskAction({
+        action: chipAction, actor, message, requestKey, withTransaction,
+        conversationalReads, explainCharge, answerFinancial, runExpense,
+      });
+      if (acted) return acted;
+    }
+
+    const latestTopic = conversation.at(-1);
+    const categoryFollowUp = !existing && conversationalReads ? matchFocusCategory(message, conversation) : null;
+    if (categoryFollowUp && latestTopic &&
+        ['spending_guidance', 'transactions', 'spending_insight'].includes(latestTopic.intent) &&
+        FOLLOW_UP_READ.test(message)) {
+      return conversationalReads.transactions({ actor, query: categoryTransactionQuery(categoryFollowUp) });
+    }
     const merchant = !existing && explainCharge ? chargeExplanationTarget(message) : null;
     if (merchant) {
+      if (conversationalReads && isFocusCategory(merchant, conversation)) {
+        const latest = conversation.at(-1);
+        return conversationalReads.transactions({
+          actor,
+          query: categoryTransactionQuery({
+            category: topicCategories(latest).find((category) => normalized(category) === normalized(merchant)) || merchant,
+            from: latest?.from ?? null, to: latest?.to ?? null,
+          }),
+        });
+      }
       const asOf = new Date().toISOString();
-      return { ...await explainCharge({ actor, merchant }), asOf };
+      const explained = await explainCharge({ actor, merchant });
+      return { ...explained, asOf,
+        conversation: explainConversation(merchant, explained.category ?? null) };
     }
+    // Suggestion chips like "Split my last Amazon card purchase with Roommates"
+    // are expense+bank-match; Gemini often marks them unsupported when no amount
+    // is typed. Resolve that phrase in code before the model.
+    const bankSplit = !existing ? bankSplitTarget(message) : null;
     // No DB connection or transaction is held across the model request.
-    const parsed = validateIntent(existing ? { intent: 'expense', expense: existing.extraction } : await parseIntent(message));
+    const parsed = validateIntent(existing
+      ? { intent: 'expense', expense: existing.extraction }
+      : bankSplit
+        ? { intent: 'expense', expense: {
+          merchant: bankSplit.merchant, cents: null, participantNames: [], groupHint: bankSplit.groupHint,
+        } }
+        : await parseIntent(message, conversation));
     if (parsed.intent === 'goal_progress') return withTransaction((db) => answerGoalProgress(db, actor.userId));
     if (parsed.intent === 'reminder' && prepareReminder) return prepareReminder(actor, parsed.expense, requestKey);
     if (parsed.intent === 'reminder') throw new HttpError(503, 'REMINDERS_UNAVAILABLE', 'Reminders are not available yet.');
-    if (parsed.intent === 'unsupported') return guard.block({ actor, reasonCode: 'ASSISTANT_ACTION_UNSUPPORTED' });
+    if (parsed.intent === 'payment_clarification') return clarifyPayment(parsed.expense);
+    if (parsed.intent === 'explain_charge' && explainCharge) {
+      const previousMerchant = [...conversation].reverse().find((topic) => topic.merchant)?.merchant;
+      if (!previousMerchant) {
+        if (conversationalReads && categoryFollowUp) {
+          return conversationalReads.transactions({ actor, query: categoryTransactionQuery(categoryFollowUp) });
+        }
+        const focusCategory = latestTopic?.category || latestTopic?.focus?.categories?.[0] || null;
+        if (conversationalReads && focusCategory) {
+          return conversationalReads.transactions({
+            actor,
+            query: categoryTransactionQuery({
+              category: focusCategory, from: latestTopic.from ?? null, to: latestTopic.to ?? null,
+            }),
+          });
+        }
+        return { type: 'clarification', intent: 'explain_charge',
+          answer: 'Which merchant charge do you want explained?', choices: [] };
+      }
+      const asOf = new Date().toISOString();
+      const explained = await explainCharge({ actor, merchant: previousMerchant });
+      return { ...explained, asOf,
+        conversation: explainConversation(previousMerchant, explained.category ?? null) };
+    }
+    if (parsed.intent === 'transactions' && conversationalReads) return conversationalReads.transactions({ actor, query: parsed.query });
+    if (parsed.intent === 'spending_guidance' && conversationalReads) return conversationalReads.spendingGuidance({ actor, query: parsed.query });
+    if (parsed.intent === 'unsupported') {
+      if (paymentLanguage.test(message)) return clarifyPayment();
+      return {
+        type: 'answer',
+        intent: 'unsupported',
+        answer: 'I can help with expenses, balances, spending, goals, reminders, and charge explanations. No changes were made.',
+      };
+    }
     if (parsed.intent !== 'expense') {
       if (answerFinancial) return answerFinancial({ actor, intent: parsed.intent });
       return createAskHandler({ parseIntent: async () => parsed })({ body: { message } });

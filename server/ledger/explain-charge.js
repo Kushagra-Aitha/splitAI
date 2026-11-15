@@ -1,4 +1,5 @@
 import { HttpError } from '../http.js';
+import { readAskTransactions } from '../assistant/conversation.js';
 import { readDebts } from './debts.js';
 
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
@@ -12,6 +13,9 @@ const account = ({ accountKind, accountMask }) => {
   return accountMask ? `${kind} ending in ${accountMask}` : kind;
 };
 const missing = () => new HttpError(404, 'CHARGE_NOT_FOUND', 'Choose an expense or settlement in one of your groups.');
+const purchaseFilter = (merchant) => ({
+  merchant, category: null, direction: 'debit', status: null, from: null, to: null, limit: 6,
+});
 
 function expenseStatements(facts) {
   const { payerName, merchant, totalCents, groupName, occurredAt, chargeStatus, shares, yourShareCents,
@@ -43,6 +47,24 @@ function settlementStatements(facts) {
       failed: 'The payment failed. This attempt did not reduce their group balance.',
     }[status],
   };
+}
+
+function bankPurchaseStatements(facts) {
+  const { merchant, amountCents, occurredAt, status, category, splitGroupName, matchCount } = facts;
+  const statements = {
+    charge: `Your bank shows a ${money(amountCents)} ${merchant} purchase on ${when(occurredAt)}.`,
+    source: account(facts)
+      ? `It posted from your ${account(facts)}${status ? ` and is currently ${status}` : ''}.`
+      : 'It is on one of your linked bank accounts.',
+    category: category ? `Split categorized it as ${category}.` : 'No category is set for this purchase yet.',
+    split: splitGroupName
+      ? `It is already linked to the shared expense in ${splitGroupName}.`
+      : 'It is not linked to a confirmed shared expense yet, so you can still split it from Transactions or Ask.',
+  };
+  if (matchCount > 1) {
+    statements.matches = `There are ${matchCount} matching ${merchant} bank purchases; this is the most recent one.`;
+  }
+  return statements;
 }
 
 async function readExpense(db, actorId, groupId, expenseId) {
@@ -113,7 +135,7 @@ export function createChargeExplanation({ withTransaction, explain }) {
   }
 
   async function byMerchant({ actor, merchant }) {
-    const statements = await withTransaction(async (db) => {
+    const fromGroup = await withTransaction(async (db) => {
       const { rows } = await db.query(`
         SELECT e.id, e.group_id AS "groupId" FROM expenses e
         JOIN group_members m ON m.group_id = e.group_id AND m.user_id = $1 AND m.left_at IS NULL
@@ -121,12 +143,41 @@ export function createChargeExplanation({ withTransaction, explain }) {
           AND regexp_replace(lower(e.merchant), '[^[:alnum:]]', '', 'g') =
             nullif(regexp_replace(lower($2), '[^[:alnum:]]', '', 'g'), '')
         ORDER BY e.confirmed_at DESC, e.id LIMIT 2`, [actor.userId, merchant]);
-      if (rows.length !== 1) return { result: rows.length
-        ? 'I found multiple matching expenses. Open the right group and choose Explain on the charge.'
-        : 'I couldn’t find a matching confirmed expense in your groups.' };
-      return expenseStatements(await readExpense(db, actor.userId, rows[0].groupId, rows[0].id));
+      if (rows.length === 1) {
+        return {
+          statements: expenseStatements(await readExpense(db, actor.userId, rows[0].groupId, rows[0].id)),
+          category: null,
+        };
+      }
+      if (rows.length > 1) {
+        return {
+          statements: { result: 'I found multiple matching expenses. Open the right group and choose Explain on the charge.' },
+          category: null,
+        };
+      }
+      return null;
     });
-    return response(statements);
+    if (fromGroup) {
+      return { ...await response(fromGroup.statements), category: fromGroup.category };
+    }
+
+    // Same actor-scoped bank reader Ask uses for transaction lists — never other users' rows.
+    let purchases = [];
+    try {
+      const { transactions } = await readAskTransactions({
+        withTransaction, actorId: actor.userId, filter: purchaseFilter(merchant),
+      });
+      purchases = transactions.filter((row) => row.kind === 'purchase' && ['pending', 'completed'].includes(row.status));
+    } catch (error) {
+      if (error?.code !== 'NO_LINKED_ACCOUNT') throw error;
+    }
+    if (!purchases.length) {
+      return response({ result: 'I couldn’t find a matching bank purchase or confirmed group expense for that merchant.' });
+    }
+    return {
+      ...await response(bankPurchaseStatements({ ...purchases[0], matchCount: purchases.length })),
+      category: purchases[0].category || null,
+    };
   }
   return { byId, byMerchant };
 }

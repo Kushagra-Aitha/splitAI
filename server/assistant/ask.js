@@ -20,6 +20,17 @@ export function createAskHandler({ parseIntent }) {
         missingFields,
       };
     }
+    if (parsed.intent === 'payment_clarification') {
+      return {
+        type: 'clarification',
+        intent: 'payment_clarification',
+        answer: 'No expense or payment was created. Did someone else pay and you want to settle a debt, or did you pay and want to split a purchase?',
+        choices: [
+          { label: 'Someone else paid — check what I owe', message: 'What do I owe?' },
+          { label: 'I paid — record a split', message: 'I paid for a shared purchase and want to split it.' },
+        ],
+      };
+    }
     if (parsed.intent === 'unsupported') {
       return {
         type: 'answer',

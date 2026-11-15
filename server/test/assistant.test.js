@@ -7,7 +7,7 @@ import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { createAssistantHandlers } from '../assistant/ask.js';
 import { createIntentParser } from '../assistant/gemini-intent.js';
-import { INTENT_SCHEMA, validateIntent } from '../assistant/intent.js';
+import { INTENT_SCHEMA, validateConversation, validateIntent } from '../assistant/intent.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../fixtures/ask.json', import.meta.url), 'utf8'));
 const options = { apiKey: 'test-only-key', model: 'test-model' };
@@ -25,6 +25,46 @@ test('Antonio’s and incomplete expenses match the C1 contract without any writ
     assert.equal(actual.expenseId, undefined);
     assert.equal(actual.guardEventId, undefined);
   }
+});
+
+test('ambiguous repayment language is extracted for clarification without becoming an expense or payment', async () => {
+  const output = {
+    intent: 'payment_clarification',
+    expense: { merchant: "McDonald's", cents: 100000, participantNames: ['Kushagra'], groupHint: null },
+  };
+  assert.deepEqual(await parserFor(output)("I need to pay Kushagra $1,000 for McDonald's"), output);
+  const response = await createAssistantHandlers({ ...options, fetchImpl: async () => responseFor(output) })['ask.create']({
+    body: { message: "I need to pay Kushagra $1,000 for McDonald's" },
+  });
+  assert.equal(response.type, 'clarification');
+  assert.equal(response.intent, 'payment_clarification');
+});
+
+test('bounded conversation topics resolve follow-ups without accepting raw history or financial facts', async () => {
+  const topics = [{
+    intent: 'transactions', merchant: 'Dominos', category: 'food', from: '2026-11-01', to: '2026-11-14',
+    focus: { categories: ['food'], merchants: ['Dominos'] },
+  }];
+  assert.deepEqual(validateConversation(topics), topics);
+  let input;
+  const parse = createIntentParser({ ...options, generate: async (request) => {
+    input = request.input;
+    return { intent: 'transactions', expense: null, query: {
+      merchant: 'Dominos', category: 'food', direction: 'debit', status: null,
+      from: '2026-11-01', to: '2026-11-14', limit: 10,
+    } };
+  } });
+  assert.equal((await parse('What about those?', topics)).intent, 'transactions');
+  assert.deepEqual(input.conversation, topics);
+  for (const conversation of [
+    [{ ...topics[0], amountCents: 5000 }],
+    [{ intent: 'transactions', merchant: 'Dominos', category: 'food', from: '2026-11-01', to: '2026-11-14' }],
+    [{ ...topics[0], focus: { categories: ['Housing'], merchants: [], amountCents: 80000 } }],
+    [{ ...topics[0], focus: { categories: Array.from({ length: 6 }, (_, i) => `Cat${i}`), merchants: [] } }],
+    Array.from({ length: 5 }, () => topics[0]),
+    [{ intent: 'transactions', merchant: null, category: null, from: 'not-a-date', to: null,
+      focus: { categories: [], merchants: [] } }],
+  ]) assert.throws(() => validateConversation(conversation), (error) => error.status === 422 && error.code === 'INVALID_ASK_CONTEXT');
 });
 
 test('read intents classify independently and wait for authoritative financial services', async () => {
@@ -51,7 +91,7 @@ test('the model receives only bounded message data and a fixed tool-free schema'
   await handlers['ask.create']({ actor: { userId: 'private-actor' }, body: {
     message, userId: 'attacker', accountId: 'private-account', notes: 'private-note', csrfToken: 'private-session',
   } });
-  assert.deepEqual(JSON.parse(sent.contents[0].parts[0].text), { userMessage: message });
+  assert.deepEqual(JSON.parse(sent.contents[0].parts[0].text), { userMessage: message, conversation: [] });
   assert.equal(sent.systemInstruction.parts[0].text.includes(message), false);
   assert.equal(sent.tools, undefined);
   assert.equal(sent.generationConfig.responseMimeType, 'application/json');
@@ -96,6 +136,22 @@ test('unsafe cents, malformed shapes, identities, and proposed actions are rejec
   const repeated = validateIntent({ ...valid, expense: { ...expense, participantNames: ['Sam', 'Sam'] } });
   assert.deepEqual(repeated.expense.participantNames, ['Sam', 'Sam']);
   assert.equal(Object.isFrozen(repeated.expense), true);
+});
+
+test('transaction and guidance filters are bounded before any financial read', () => {
+  const query = { merchant: 'Dominos', category: 'Food & drink', direction: 'debit', status: 'completed',
+    from: '2026-11-01', to: '2026-11-14', limit: 10 };
+  assert.deepEqual(validateIntent({ intent: 'transactions', expense: null, query }).query, query);
+  assert.deepEqual(validateIntent({ intent: 'spending_guidance', expense: null, query: { ...query, merchant: null } }).query,
+    { ...query, merchant: null });
+  for (const invalidQuery of [
+    null,
+    { ...query, limit: 21 },
+    { ...query, direction: 'outside' },
+    { ...query, from: '2026-12-01', to: '2026-11-01' },
+    { ...query, accountId: 'private' },
+  ]) assert.throws(() => validateIntent({ intent: 'transactions', expense: null, query: invalidQuery }),
+    (error) => error.status === 502 && error.code === 'INVALID_ASSISTANT_OUTPUT');
 });
 
 test('truncated, blocked, tool-call, non-JSON, and oversized model responses are recoverable failures', async () => {

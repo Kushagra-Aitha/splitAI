@@ -4,6 +4,19 @@ import test from 'node:test';
 import { readFinancialFacts } from '../assistant/facts.js';
 import { createFactExplainer, createFinancialAnswers } from '../assistant/answers.js';
 import { createAskWorkflow } from '../assistant/workflow.js';
+import { createGroundedResponder, readAskTransactions } from '../assistant/conversation.js';
+
+test('grounded conversational phrasing rejects invented amounts and financial actions', async () => {
+  const facts = { first: '2026-11-14: Domino’s, $42.00 debit, Food, completed.' };
+  const valid = createGroundedResponder({ generate: async () => ({
+    answer: 'Domino’s was a $42.00 debit on 2026-11-14.', factIds: ['first'],
+  }) });
+  assert.equal(await valid(facts), 'Domino’s was a $42.00 debit on 2026-11-14.');
+  for (const answer of ['Domino’s was $99.00.', 'Send $42.00 now.']) {
+    const rejected = createGroundedResponder({ generate: async () => ({ answer, factIds: ['first'] }) });
+    assert.equal(await rejected(facts), facts.first);
+  }
+});
 
 test('live database: assistant facts use actor scope and one read-only snapshot', {
   skip: process.env.RUN_FACTS_DB_TESTS !== '1',
@@ -25,7 +38,8 @@ test('live database: assistant facts use actor scope and one read-only snapshot'
   owned = true;
   await migrate({ log: () => {} });
   await seed({ log: () => {} });
-  await db.query('UPDATE bank_accounts SET balance_cents = 5000, available_cents = 5000, balance_as_of = now() WHERE id = $1', [ACCOUNTS.maya]);
+  await db.query('UPDATE bank_accounts SET linked_at = coalesce(linked_at, now())');
+  await db.query('UPDATE bank_accounts SET balance_cents = 5000, available_cents = 5000, balance_as_of = now(), linked_at = coalesce(linked_at, now()) WHERE id = $1', [ACCOUNTS.maya]);
   const ledger = createLedgerHandlers({ query: (...args) => db.query(...args), withTransaction });
   const { draft } = await ledger['expenseDrafts.create']({ actor: { userId: USERS.sam }, body: {
     groupId: GROUPS.puffton4, merchant: 'Synthetic lunch', cents: 4000, participantIds: [USERS.sam, USERS.maya],
@@ -62,6 +76,12 @@ test('live database: assistant facts use actor scope and one read-only snapshot'
   assert.equal(alex.groups.length, 1);
   assert.equal(alex.spending.totals.spentCents, 0);
   assert.equal(alex.debts.length, 0);
+  const transactionFilter = { merchant: null, category: null, direction: null, status: null,
+    from: '2026-11-14', to: '2026-11-14', limit: 10 };
+  const mayaTransactions = await readAskTransactions({ withTransaction, actorId: USERS.maya, filter: transactionFilter, now });
+  assert.equal(mayaTransactions.transactions.length, 1);
+  assert.equal(mayaTransactions.transactions[0].amountCents, 1234);
+  assert.equal((await readAskTransactions({ withTransaction, actorId: USERS.alex, filter: transactionFilter, now })).transactions.length, 0);
   const answerFinancial = createFinancialAnswers({ withTransaction, now: () => now,
     explain: createFactExplainer({ generate: async ({ input }) => ({ statementIds: Object.keys(input.statements) }) }),
   });
