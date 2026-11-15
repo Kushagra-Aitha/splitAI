@@ -86,11 +86,12 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     feed.request = request;
     feed.error = null;
     try {
-      const { transactions, nextOffset, categories } = await request;
+      const { transactions, nextOffset, categories, categoryChoices } = await request;
       if (feed.request !== request) return;
       feed.rows = offset ? [...new Map([...feed.rows, ...transactions].map((row) => [row.id, row])).values()] : transactions;
       feed.nextOffset = nextOffset;
       feed.categories = categories;
+      feed.categoryChoices = categoryChoices ?? [];
       for (const row of transactions) {
         if (row.splitGroupName || !splittable(row)) selectedTransactions.delete(row.id);
       }
@@ -220,9 +221,16 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     let rerender = !auto || hadError;
     try {
       const result = await apiRequest('/api/banking/sync', { method: 'POST', body: {} });
+      const moved = result.latestActivityAt !== store.lastActivityAt;
+      store.lastActivityAt = result.latestActivityAt;
       store.lastSync = result;
       store.lastSyncAt = Date.now();
-      if (result.changed || !auto) {
+      if (moved && !result.changed && store.synced) {
+        // Activity arrived outside this sync (Capital Two wrote it directly).
+        resetTransactionFeed();
+        financialChanged();
+      }
+      if (result.changed || moved || !auto) {
         resetTransactionFeed();
         store.data = {};
         store.errors = {};
@@ -531,17 +539,27 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
 
   function txRow(t, today, selectable = false) {
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date(t.occurredAt));
-    const label = t.kind === 'transfer' ? 'Transfer' : t.kind === 'deposit' ? 'Deposit' : t.category || 'Purchase';
+    const label = t.salary ? 'Salary' : t.kind === 'transfer' ? 'Transfer' : t.kind === 'deposit' ? 'Deposit' : t.category || 'Purchase';
+    // On Transactions the category is a button: re-categorize in Split (B15).
+    const categoryPart = selectable && t.kind === 'purchase'
+      ? `<button type="button" class="tx-category" data-tx-category="${esc(t.id)}" aria-label="Change category for ${esc(t.merchantName || t.description)}, now ${esc(label)}">${esc(label)}${t.categoryOverridden ? ' <span class="small muted">· yours</span>' : ''}${icon('chevron-down')}</button>`
+      : esc(label);
     const flags = [
       t.accountKind === 'credit_card' ? `card${t.accountMask ? ` ••${esc(t.accountMask)}` : ''}` : null,
       t.status === 'pending' ? 'pending' : null,
       t.source === 'demo' ? 'demo history' : null,
     ].filter(Boolean);
+    // B15 · What the bank tells us: salary and recurring payments.
+    const badges = [
+      t.salary ? `<span class="tx-badge is-salary">${icon('banknote')}Salary</span>` : '',
+      t.recurring === 'scheduled' ? `<span class="tx-badge is-recurring" title="Paid by a Capital Two recurring payment${t.recurringPayee ? ` to ${esc(t.recurringPayee)}` : ''}">${icon('repeat-2')}Recurring</span>` : '',
+      t.recurring === 'detected' ? `<span class="tx-badge is-detected" title="Same merchant and amount as last month">${icon('repeat-2')}Looks recurring</span>` : '',
+    ].join('');
     const sign = t.direction === 'credit' ? '+ ' : '− ';
     const symbol = t.kind === 'transfer' ? 'repeat-2' : CATEGORY_ICONS[t.category] || (t.kind === 'deposit' ? 'arrow-down-left' : 'receipt');
     const row = tx(
-      `${esc(t.merchantName || t.description)}${(t.recentlyImported ?? isNew(t)) ? ' <span class="tx-new">New</span>' : ''}`,
-      `${dayWord(day, today)} · ${esc(label)}${flags.length ? ` · ${flags.join(' · ')}` : ''}`,
+      `${esc((t.kind === 'deposit' && t.bankPayee) || t.merchantName || t.description)}${(t.recentlyImported ?? isNew(t)) ? ' <span class="tx-new">New</span>' : ''}${badges}`,
+      `${dayWord(day, today)} · ${categoryPart}${flags.length ? ` · ${flags.join(' · ')}` : ''}`,
       sign + money(t.amountCents),
       symbol,
       txActions(t),
@@ -621,9 +639,38 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     }).join('');
   }
 
-  function cardStrip(d) {
-    return (d.cards ?? []).map((c) => `<div class="card-strip">${icon('credit-card')}<span><strong>Capital Two card${c.mask ? ` ••${esc(c.mask)}` : ''}</strong><span class="small muted">${c.owedCents === null ? 'Balance not synced yet' : `${money(c.owedCents)} owed · ${money(Math.max(0, (c.creditLimitCents ?? 0) - c.owedCents))} available of ${money(c.creditLimitCents ?? 0)}`}</span></span></div>`).join('');
+  // B15 · The Capital Two card, drawn like the card itself.
+  function cardArt(c, { compact = false } = {}) {
+    const limit = c.creditLimitCents ?? 0;
+    const owed = c.owedCents;
+    const used = owed !== null && limit ? Math.min(100, Math.round((owed / limit) * 100)) : null;
+    return `<article class="split-card${compact ? ' is-compact' : ''}" aria-label="Capital Two credit card${c.mask ? ` ending ${esc(c.mask)}` : ''}">
+      <div class="split-card-art"><span class="split-card-brand">Capital Two</span><span class="split-card-chip" aria-hidden="true"></span>
+        <span class="split-card-number">•••• ${esc(c.mask ?? '••••')}</span><span class="split-card-kind">Credit</span></div>
+      <div class="split-card-facts"><div><span class="small muted">Balance owed</span><strong class="money">${owed === null ? '—' : money(owed)}</strong></div>
+        <div><span class="small muted">Available</span><strong class="money">${owed === null ? '—' : money(Math.max(0, limit - owed))}</strong></div>
+        <div class="split-card-used"><span class="small muted">Credit used${used === null ? '' : ` · ${used}%`}</span><span class="category-track"><span style="width:${used ?? 0}%"></span></span><span class="small muted">of ${money(limit)} limit</span></div></div>
+    </article>`;
   }
+
+  function salaryLine(d) {
+    const s = d.salary;
+    if (!s) return '';
+    const today = todayLocal();
+    const days = s.nextPaidOn ? Math.round((Date.parse(`${s.nextPaidOn}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000) : null;
+    const first = !s.lastPaidOn;
+    const when = s.nextPaidOn && days >= 0
+      ? `${first ? 'First' : 'Next'} paycheck ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`} · ${fmtDay(s.nextPaidOn, { month: 'short', day: 'numeric' })}${s.nextIsScheduled ? '' : ' (estimated)'}`
+      : s.lastPaidOn ? `Last paycheck ${fmtDay(s.lastPaidOn, { month: 'short', day: 'numeric' })}` : 'Direct deposit set up';
+    return `<div class="salary-line">${icon('banknote')}<span><strong>${esc(when)}</strong><span class="small muted">${s.employer ? `${esc(s.employer)} · ` : ''}${money(s.amountCents)}</span></span></div>`;
+  }
+
+  function cardStrip(d) {
+    const cards = (d.cards ?? []).map((c) => cardArt(c)).join('');
+    const salary = salaryLine(d);
+    return cards || salary ? `<div class="money-extras">${cards}${salary}</div>` : '';
+  }
+
 
   const clock = (iso) =>
     new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
@@ -743,6 +790,11 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   const noRecurring = () => `<div class="sp-empty">${icon('repeat-2')}<h2>No recurring payments yet</h2><p>Rent, subscriptions and other payments you set up to repeat at Capital Two show up here with their next due date.</p></div>`;
 
   function profileSpending(d, today) {
+    const cards = (d.cards ?? []).length ? `<section class="insight-cards" aria-label="Your cards"><div class="section-head"><h2>Your cards</h2></div>${d.cards.map((c) => cardArt(c, { compact: true })).join('')}</section>` : '';
+    return cards + profileSpendingBody(d, today);
+  }
+
+  function profileSpendingBody(d, today) {
     if (!d.totals.earnedCents && !d.totals.spentCents && !d.recent.length) {
       return `<div class="sp-empty">${icon('sprout')}<h2>Nothing to look at yet</h2><p>Once you buy something or get paid at Capital Two, your spending breaks down here by category, merchant and card.</p><button type="button" class="secondary cursor-interaction" data-period="half">Look further back</button></div>`;
     }
@@ -903,6 +955,37 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
   const expensePurchases = new WeakMap();
   const focusAddButton = () => root.querySelector('[data-action="overview-add-expense"]')?.focus({ preventScroll: true });
 
+  // B15 · Re-categorize a transaction in Split; the bank's category is kept.
+  function openCategoryDialog(id) {
+    const t = transactionFeed.rows?.find((row) => row.id === id);
+    if (!t) return;
+    const choices = transactionFeed.categoryChoices?.length ? transactionFeed.categoryChoices : CATEGORIES;
+    const options = [...new Set([...choices, t.category].filter(Boolean))];
+    openModal('Change category', `<div class="modal-header"><div><div class="eyebrow">${esc(t.merchantName || t.description)} · ${money(t.amountCents)}</div><h2>Change category</h2></div>${closeButton}</div>
+      <form id="sp-category-form" data-transaction="${esc(t.id)}"><fieldset class="category-choices"><legend class="sr-only">Category</legend>${options
+        .map((c) => `<label class="category-choice-row"><input type="radio" name="category" value="${esc(c)}" ${c === t.category ? 'checked' : ''}><span>${esc(c)}</span>${c === t.bankCategory ? '<span class="small muted">Capital Two</span>' : ''}</label>`).join('')}</fieldset>
+      <p class="small muted">Capital Two says <strong>${esc(t.bankCategory || 'no category')}</strong>. Your choice is used in Split’s charts and filters; the bank’s record doesn’t change.</p>
+      <p class="error" role="alert"></p>
+      <div class="modal-actions">${t.categoryOverridden ? '<button type="button" class="secondary" data-action="category-reset">Use Capital Two’s</button>' : '<button type="button" class="secondary" data-action="close">Cancel</button>'}<button type="submit" class="primary">Save category</button></div></form>`);
+  }
+
+  async function saveCategory(form, category) {
+    const button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      const { transaction } = await apiRequest(`/api/banking/transactions/${encodeURIComponent(form.dataset.transaction)}/category`, { method: 'POST', body: { category } });
+      const row = transactionFeed.rows?.find((r) => r.id === transaction.id);
+      if (row) Object.assign(row, transaction);
+      closeModal();
+      toast(`Category set to ${transaction.category}.`);
+      store.data = {};
+      financialChanged();
+    } catch (err) {
+      if (form.isConnected) form.querySelector('[role="alert"]').textContent = err.message;
+      button.disabled = false;
+    }
+  }
+
   /** The recent transaction a Split button refers to (from any loaded period). */
   function findTransaction(id) {
     const row = transactionFeed.rows?.find((item) => item.id === id);
@@ -1057,6 +1140,11 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
       render();
     }
     if (b.dataset.action === 'bank-manage') void openBankConnect();
+    if (b.dataset.txCategory) openCategoryDialog(b.dataset.txCategory);
+    if (b.dataset.action === 'category-reset') {
+      const form = root.querySelector('#sp-category-form');
+      if (form) void saveCategory(form, null);
+    }
     if (b.dataset.action === 'bank-allow') void connectBank(b);
     if (b.dataset.action === 'bank-sync-now') {
       closeModal();
@@ -1073,6 +1161,11 @@ export function createOverview({ root, view, state, icon, money, dollarLabel, es
     }
   });
   function handleOverviewForm(form, fd) {
+    if (form.id === 'sp-category-form') {
+      const category = fd.get('category');
+      if (category) void saveCategory(form, String(category));
+      return;
+    }
     if (form.id === EXPENSE_FORM) void submitExpense(form, fd);
   }
 
