@@ -92,7 +92,7 @@ export function createActivityHandlers({ withTransaction }) {
       if ((settlementId !== null && !validId(settlementId)) || (expenseId && settlementId)) throw invalid('Choose one thread.');
       const source = threadId ? thread(expenseId ? 'expense_id' : 'settlement_id') : feed;
       const filter = threadId ? '' : view === 'ledger' ? "type <> 'comment'" :
-        view === 'chat' ? "type = 'comment' AND expense_id IS NULL AND settlement_id IS NULL" : '';
+        view === 'chat' ? "(type <> 'comment' OR (expense_id IS NULL AND settlement_id IS NULL))" : '';
       const focusId = query.get('focusId'), focusType = query.get('focusType');
       if (expenseId !== null && !validId(expenseId)) throw invalid('Choose a valid expense.');
       if ((focusId !== null || focusType !== null) && (!validId(focusId) ||
@@ -129,6 +129,7 @@ export function createActivityHandlers({ withTransaction }) {
             WHEN p.type = 'settlement' THEN (SELECT count(*)::int FROM group_comments c
             WHERE c.group_id = $1 AND c.settlement_id = p.id) ELSE 0 END AS "commentCount",
           p.status, p.payee_id AS "payeeUserId", payee.display_name AS "payeeName", p.text,
+          ${view === 'chat' ? `CASE WHEN p.author_id = $${actorIndex} THEN scored.request_key END AS "requestKey",` : ''}
           scored.guard_flagged AS "guardFlagged", scored.guard_reasons AS "guardReasons",
           CASE WHEN p.type = 'expense' THEN coalesce((SELECT es.share_cents FROM expense_shares es
             WHERE es.expense_id = p.id AND es.user_id = $${actorIndex}), 0) ELSE NULL END AS "yourShareCents"
